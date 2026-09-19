@@ -1,0 +1,28 @@
+import type {PropertyTransaction,RegionMetric} from './property';
+import {eligiblePropertyTransactions} from './property';
+export interface PropertyViewState {region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];}
+export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
+  const p=new URLSearchParams(hash.replace(/^#/,'')),region=p.get('regionCode')??'',month=p.get('month')??'',complex=p.get('complex')??'',area=p.get('area')??'';
+  return {region:/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
+    month:/^\d{4}(?:0[1-9]|1[0-2])$/.test(month)&&month>=period.from&&month<=period.to?month:period.latest_complete_month,
+    complex:/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
+    area:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
+    compare:[...new Set((p.get('compareRegions')??'').split(',').filter(v=>/^\d{5}$/.test(v)))].slice(0,3),
+    compareComplexes:[...new Set((p.get('compareComplexes')??'').split(',').filter(v=>/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(v)))].slice(0,3)};
+}
+
+export const monthLabel=(month:string)=>`${month.slice(0,4)}.${month.slice(4,6)}`;
+export function moneyLabel(value:number|null):string {
+  if(value===null)return '자료 없음';
+  if(value>=1e8){const remainder=Math.round(value%1e8/1e4);return `${Math.floor(value/1e8).toLocaleString('ko-KR')}억${remainder?` ${remainder.toLocaleString('ko-KR')}만`:''}`;}
+  return `${(value/1e4).toLocaleString('ko-KR',{maximumFractionDigits:1})}만`;
+}
+export function metricCount(metric:RegionMetric):number|null{return ['complete','empty'].includes(metric.status)?metric.eligible_rows:null;}
+export function propertyStatus(status:string):string{return ({complete:'수집 완료',empty:'신고 없음',failed:'조회 실패',partial:'부분 수집',pending:'수집 대기'} as Record<string,string>)[status]??'미확인';}
+export function transactionRows(rows:readonly PropertyTransaction[],filters:{trade:'sale'|'rent';complex:string|null;area:string;cancelled:boolean}):PropertyTransaction[]{
+  return (filters.cancelled?rows:eligiblePropertyTransactions(rows)).filter(row=>row.trade_type===filters.trade&&(!filters.complex||row.complex_id===filters.complex)&&(!filters.area||row.area_m2===filters.area)).sort((a,b)=>(b.contract_date??'').localeCompare(a.contract_date??'')||a.id.localeCompare(b.id));
+}
+export function transactionCsv(rows:readonly PropertyTransaction[]):string {
+  const cell=(value:unknown)=>{let text=value===null||value===undefined?'':String(value);if(/^[=+\-@\t\r]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`;};
+  return '\uFEFF'+[['계약일','단지','전용면적_m2','층','매매가격_원','보증금_원','월세_원','등기일','취소상태','출처','수집시각'],...rows.map(r=>[r.contract_date,r.complex_name,r.area_m2,r.floor,r.price_krw,r.deposit_krw,r.monthly_rent_krw,r.registration_date,r.cancellation,r.source_id,r.retrieved_at])].map(row=>row.map(cell).join(',')).join('\r\n');
+}

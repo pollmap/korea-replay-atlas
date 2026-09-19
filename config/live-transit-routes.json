@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "source_id": "tago",
+  "source_page": "https://www.data.go.kr/data/15098529/openapi.do",
+  "verified_at": "2026-09-16T16:23:53.051995Z",
+  "verification": "official-key route-list and location-response",
+  "coverage": "national bus selection uses the separate official city/route catalog; bus_routes are compatibility aliases; subway_lines are 16 metropolitan line/name pairs from Seoul OA-12601, not nationwide railway coverage",
+  "bus_routes": [
+    {"id":"daejeon-202","city_code":"25","route_id":"DJB30300052","label":"대전·계룡 202"},
+    {"id":"sejong-b2-osong","city_code":"12","route_id":"SJB293000077","label":"세종 B2 · 오송 방면"},
+    {"id":"cheongju-747","city_code":"33010","route_id":"CJB270011200","label":"청주 747"}
+  ],
+  "subway_lines": [
+    {"id":"seoul-line-1","name":"1호선","subway_id":"1001"},
+    {"id":"seoul-line-2","name":"2호선","subway_id":"1002"},
+    {"id":"seoul-line-3","name":"3호선","subway_id":"1003"},
+    {"id":"seoul-line-4","name":"4호선","subway_id":"1004"},
+    {"id":"seoul-line-5","name":"5호선","subway_id":"1005"},
+    {"id":"seoul-line-6","name":"6호선","subway_id":"1006"},
+    {"id":"seoul-line-7","name":"7호선","subway_id":"1007"},
+    {"id":"seoul-line-8","name":"8호선","subway_id":"1008"},
+    {"id":"seoul-line-9","name":"9호선","subway_id":"1009"},
+    {"id":"seoul-gyeongui-jungang","name":"경의중앙선","subway_id":"1063"},
+    {"id":"seoul-airport-railroad","name":"공항철도","subway_id":"1065"},
+    {"id":"seoul-gyeongchun","name":"경춘선","subway_id":"1067"},
+    {"id":"seoul-suin-bundang","name":"수인분당선","subway_id":"1075"},
+    {"id":"seoul-shinbundang","name":"신분당선","subway_id":"1077"},
+    {"id":"seoul-ui-sinseol","name":"우이신설선","subway_id":"1092"},
+    {"id":"seoul-gtx-a","name":"GTX-A","subway_id":"1032"}
+  ],
+  "notes": [
+    "같은 노선번호에 여러 원천 route_id가 있을 수 있어 방향별 ID를 합치지 않습니다.",
+    "차량 관측시각을 제공하지 않는 TAGO 응답에는 조회시각만 표시합니다.",
+    "서울 OA-12601의 공식 API 화면과 다운로드 명세서를 2026-09-19 확인해 노선명·subwayId 16쌍을 등록했습니다. 상세 근거와 개별 연결 상태는 docs/SEOUL_SUBWAY_COVERAGE.md에 기록합니다.",
+    "서울 지하철 운영 키와 1호선 실조회는 검증됐습니다. 새 노선의 명세 확인과 실제 인증 응답 검증은 별개이며, 역 상태를 GPS 좌표나 센서 관측시각으로 바꾸지 않습니다.",
+    "서울 원천의 800회 공용 요청 예산과 노선별 120초 캐시는 노선 추가 후에도 유지합니다. 노선 목록을 모두 자동 조회하거나 노선 수만큼 예산을 늘리지 않습니다.",
+    "서울 원천이 명시한 수도권 16노선은 전국 도시철도 전체가 아닙니다. 공식 코드 표에 없는 노선과 다른 지역 원천은 별도 검증 후 연결합니다."
+  ]
+}

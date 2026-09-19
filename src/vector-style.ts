@@ -1,0 +1,14 @@
+import type {LayerSpecification} from 'maplibre-gl';
+import type {MapTileTopic} from '../shared/map-tiles';
+
+/** Fixed layer count per semantic topic, independent of archive count. */
+export function vectorLayers(topic:MapTileTopic,source:string):LayerSpecification[]{
+  const base={source,'source-layer':topic.source_layer},id=`vector-${topic.id}`,admin=topic.id.startsWith('admin-');
+  if(admin)return [{...base,id,type:'line',filter:['==',['geometry-type'],'LineString'],minzoom:topic.id==='admin-dong'?11:topic.id==='admin-sigungu'?7:0,paint:{'line-color':topic.id==='admin-sido'?'#718b80':'#a0a9a0','line-width':topic.id==='admin-sido'?1.4:.8,'line-dasharray':topic.id==='admin-sido'?[4,2]:[2,3],'line-opacity':.8}},{...base,id:`${id}-label`,type:'symbol',minzoom:topic.id==='admin-dong'?11:topic.id==='admin-sigungu'?8:0,maxzoom:topic.id==='admin-sido'?10:24,filter:['==',['geometry-type'],'Point'],layout:{'text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':topic.id==='admin-sido'?13:11,'text-padding':15},paint:{'text-color':'#415f50','text-halo-color':'#fffffb','text-halo-width':1.5}}];
+  const rows:LayerSpecification[]=[];
+  if(['land','water','buildings','facilities'].includes(topic.id))rows.push({...base,id:`${id}-fill`,type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':topic.id==='water'?'#b7dce7':topic.id==='buildings'?'#c9c7bf':topic.id==='land'?'#eff0e5':'#dce5d2','fill-outline-color':topic.id==='buildings'?'#b8b7b0':topic.id==='water'?'#b7dce7':'#dbe0d1','fill-opacity':.95}});
+  if(['roads','rail','water'].includes(topic.id))rows.push({...base,id:`${id}-line`,type:'line',filter:['==',['geometry-type'],'LineString'],layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':topic.id==='rail'?'#97857d':topic.id==='water'?'#99c8d9':['match',['coalesce',['get','highway'],['get','class'],'other'],['motorway','motorway_link'],'#d89577',['trunk','trunk_link'],'#e2b875',['primary','primary_link'],'#e7ce89','#fffdf4'],'line-width':['interpolate',['linear'],['zoom'],4,.5,9,1.2,13,2.6,17,6],'line-opacity':topic.id==='rail'?.8:1}});
+  rows.push({...base,id:`${id}-point`,type:'circle',minzoom:8,filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],8,1.2,16,3],'circle-color':topic.id==='water'?'#99c8d9':'#79958a'}});
+  if(['roads','rail','facilities'].includes(topic.id))rows.push({...base,id:`${id}-label`,type:'symbol',minzoom:topic.id==='roads'?13:11,filter:['all',['has','name'],['!=',['get','name'],'']],layout:{'symbol-placement':topic.id==='roads'?'line':'point','text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-max-width':8,'text-padding':12,'text-allow-overlap':false},paint:{'text-color':'#506657','text-halo-color':'#fffffb','text-halo-width':1.3}});
+  return rows;
+}
