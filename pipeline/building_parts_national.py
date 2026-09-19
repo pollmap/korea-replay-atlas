@@ -138,9 +138,9 @@ class PublicReader:
         parsed = urlsplit(url)
         if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError('Only credential-free official HTTPS URLs are accepted')
-        if parsed.hostname not in ('stac.overturemaps.org',
-                                   'overturemaps-us-west-2.s3.us-west-2.amazonaws.com',
-                                   'korea-replay.lch68-workers.workers.dev'):
+        if (parsed.hostname not in ('stac.overturemaps.org',
+                                    'overturemaps-us-west-2.s3.us-west-2.amazonaws.com')
+                and url != PUBLIC_CATALOG_URL):
             raise ValueError('Unexpected public data host')
         headers = {'Accept-Encoding': 'identity'}
         if etag:

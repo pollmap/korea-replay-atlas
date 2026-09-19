@@ -299,6 +299,8 @@ class Checkpoint:
                 'max_requests': self.max_requests, 'max_bytes': self.max_bytes}
 
     def raw(self, sha):
+        if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha):
+            raise KaptError('invalid_raw_hash')
         path = self.root / 'raw' / (sha + '.json')
         _reject_links(path)
         content = path.read_bytes()
