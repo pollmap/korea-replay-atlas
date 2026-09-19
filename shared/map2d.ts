@@ -10,6 +10,43 @@ export const MAP2D_ATTRIBUTION='<a href="https://www.openstreetmap.org/copyright
 const aborted=()=>new DOMException('Aborted','AbortError');
 const safePath=(value:unknown):value is string=>typeof value==='string'&&/^\/data\/[\w./-]+$/.test(value)&&!value.includes('..');
 export const map2DKey=(asset:Asset)=>`${asset.id}:${asset.sha256}`;
+/** Resolution changes only the framebuffer, never source geometry or tile zoom. */
+export function map2DPixelRatio(deviceRatio:number,moving=false):number {
+  return Math.min(Number.isFinite(deviceRatio)&&deviceRatio>0?deviceRatio:1,moving?1:1.5);
+}
+interface Map2DPixelRatioTarget {getPixelRatio():number;setPixelRatio(value:number):void;isMoving():boolean;}
+/** Public MapLibre setPixelRatio() synchronously resizes and emits movement events.
+ * Call before native gestures, or at programmatic movestart; never resize an
+ * already active drag. The caller owns the existing 250ms settle timer.
+ */
+export function createMap2DPixelRatioController(map:Map2DPixelRatioTarget,deviceRatio:()=>number) {
+  let applying=false,disposed=false;
+  const pointers=new Set<number>();
+  const apply=(moving:boolean):boolean=>{
+    if(disposed||applying)return false;
+    const next=map2DPixelRatio(deviceRatio(),moving);
+    if(map.getPixelRatio()===next)return false;
+    applying=true;
+    try{map.setPixelRatio(next);return true;}finally{applying=false;}
+  };
+  return {
+    get applying(){return applying;},
+    get inputHeld(){return pointers.size>0;},
+    pointerDown:(id:number)=>{
+      if(disposed)return;
+      const first=pointers.size===0;pointers.add(id);
+      if(first&&!map.isMoving())apply(true);
+    },
+    pointerUp:(id:number):boolean=>pointers.delete(id),
+    beforeWheel:()=>{if(!disposed&&!pointers.size&&!map.isMoving())apply(true);},
+    // Native movement that missed the capture listener stays at its current
+    // ratio: setPixelRatio/resize may stop native MapLibre gesture handlers.
+    moveStart:(originalEvent?:unknown)=>{if(!disposed&&!originalEvent&&map.isMoving())apply(true);},
+    restore:()=>!disposed&&!pointers.size&&!map.isMoving()?apply(false):false,
+    releasePointers:()=>pointers.clear(),
+    dispose:()=>{disposed=true;pointers.clear();},
+  };
+}
 export function readFlatCamera(hash:string):FlatCamera|null {
   const raw=new URLSearchParams(hash.replace(/^#/,'' )).get('flatCamera');
   if(!raw)return null;
