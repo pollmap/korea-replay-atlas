@@ -1,0 +1,16 @@
+#download-gate-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 30;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid #c9cbbd;
+  border-radius: 8px;
+  color: #32392e;
+  background: #f8f9f1;
+  font: 12px/1.5 system-ui, sans-serif;
+}

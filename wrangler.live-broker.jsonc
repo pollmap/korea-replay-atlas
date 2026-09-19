@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "korea-replay-live-broker",
+  "main": "worker/live-broker-entry.ts",
+  "compatibility_date": "2026-09-19",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [],
+  "durable_objects": {
+    "bindings": [{"name":"LIVE_TRANSIT_COORDINATOR","class_name":"TransitCoordinator"}]
+  },
+  "migrations": [{"tag":"v1","new_sqlite_classes":["TransitCoordinator"]}],
+  "observability": {"enabled":false}
+}

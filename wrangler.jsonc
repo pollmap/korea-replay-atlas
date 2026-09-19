@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "korea-replay",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-09-16",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {"directory": "./dist/client", "binding": "ASSETS", "not_found_handling": "none", "run_worker_first": ["/api/*"]},
+  "observability": {"enabled": true},
+  "vars": {"ENVIRONMENT": "production", "DATA_STORAGE": "static", "COLLECTORS_ENABLED": "false", "LIVE_TRANSIT_MODE": "broker"},
+  "services": [{"binding": "LIVE_TRANSIT_BROKER", "service": "korea-replay-live-broker"}],
+  "version_metadata": {"binding": "CF_VERSION_METADATA"}
+}
