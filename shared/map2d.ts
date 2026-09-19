@@ -25,6 +25,14 @@ export function map2DHeight(lat:number,zoom:number,viewportHeight:number):number
 export function map2DZoom(lat:number,height:number,viewportHeight:number):number {
   return Math.max(3,Math.min(19,Math.log2(map2DHeight(lat,0,viewportHeight)/Math.max(1,height))));
 }
+/** Fit the national overview into the area left visible by the default analysis panel. */
+export function map2DOverviewPadding(width:number,height:number,panelVisible:boolean,focused=false):{top:number;bottom:number;left:number;right:number}{
+  const w=Math.max(160,Number.isFinite(width)?width:160),h=Math.max(160,Number.isFinite(height)?height:160),mobile=w<=780;
+  const top=Math.min(focused?72:mobile?220:140,h-64);
+  const bottom=Math.min(mobile&&panelVisible?h*.4+16:mobile?50:85,h-top-64);
+  const left=mobile?16:panelVisible?Math.min(352,w*.32)+32:60;
+  return {top,bottom,left:Math.min(left,w-80),right:mobile?16:60};
+}
 export function map2DLayers(layers:Record<LayerId,boolean>):Record<LayerId,boolean> {
   return {...layers,bus:false,depth:false,radar:false,satellite:false,sun:false};
 }
