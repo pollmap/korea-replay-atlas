@@ -79,6 +79,27 @@ export function createPagesAssetSession(api,project){
   };
   return {missing:hashes=>run('missing',hashes),upload:items=>run('upload',items),retain:hashes=>run('retain',hashes)};
 }
+/** Register only confirmed uploads, so check-missing can reuse them after an interruption. */
+export async function uploadPagesBuckets({buckets,assets,loadItems,onProgress=()=>{}}){
+  let cursor=0,uploaded=0,failure=null;
+  const total=buckets.reduce((count,bucket)=>count+bucket.length,0);
+  await Promise.all(Array.from({length:2},async()=>{
+    while(!failure&&cursor<buckets.length){
+      const current=buckets[cursor++];
+      try{
+        const items=await loadItems(current);
+        if(failure)return;
+        await assets.upload(items);
+        // A concurrent failure does not invalidate this bucket's confirmed success.
+        await assets.retain(current.map(entry=>entry.key));
+        uploaded+=current.length;onProgress({phase:'upload',files:uploaded,total});
+      }catch(error){failure??=error;}
+    }
+  }));
+  // Settle both active buckets before returning; no background lane keeps uploading.
+  if(failure)throw failure;
+  return uploaded;
+}
 export async function workerBundle(checked){
   const modules=checked.entries.filter(entry=>entry.target.startsWith('_worker.js/')),form=new FormData();
   const bindings=[{type:'service',name:'KOREA_API',service:'korea-replay'}];
@@ -99,11 +120,11 @@ export async function deployPagesStage({receiptPath,projectRoot=process.cwd(),ap
   const missingSet=new Set(missing),unique=new Map();for(const entry of map.values())if(missingSet.has(entry.key))unique.set(entry.key,entry);
   // Two bounded uploads. At most two individual 25 MiB files plus base64/JSON are resident.
   const buckets=[];let bucket=[],bytes=0;for(const entry of unique.values()){if(bucket.length&&(bytes+entry.bytes>16*1024*1024||bucket.length>=200)){buckets.push(bucket);bucket=[];bytes=0;}bucket.push(entry);bytes+=entry.bytes;}if(bucket.length)buckets.push(bucket);
-  let cursor=0,uploaded=0;
-  await Promise.all(Array.from({length:2},async()=>{while(cursor<buckets.length){const current=buckets[cursor++],items=[];
+  onProgress({phase:'missing',files:unique.size,total:hashes.length,cached:hashes.length-unique.size});
+  const uploaded=await uploadPagesBuckets({buckets,assets,onProgress,loadItems:async current=>{const items=[];
     for(const entry of current){const content=await readFile(path.join(checked.client,entry.target));if(sha(content)!==entry.sha256)throw new Error('Asset changed during upload');items.push({key:entry.key,value:content.toString('base64'),metadata:{contentType:mime(entry.target)},base64:true});}
-    await assets.upload(items);uploaded+=current.length;onProgress({phase:'upload',files:uploaded,total:unique.size});
-  }}));
+    return items;
+  }});
   await assets.retain(hashes);
   const form=new FormData();form.set('manifest',JSON.stringify(Object.fromEntries([...map].map(([name,entry])=>['/'+name,entry.key]))));
   form.set('branch',production?'main':'candidate-'+checked.receipt.artifact_sha256.slice(0,12));
