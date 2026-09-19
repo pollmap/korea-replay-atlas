@@ -105,7 +105,8 @@ describe('independent Pages release stages',()=>{
       const pathname=new URL(input).pathname;
       if(pathname==='/api/v2/runtime')return Response.json({schema_version:2,platform:'cloudflare-pages',project:'korea-replay',release_id:release,artifact_sha256:staged.receipt.artifact_sha256,snapshot:{origin,hash:'1234abcd'},data});
       if(pathname.includes('__pages-verification-missing__'))return new Response(null,{status:404});
-      return new Response(await readFile(path.join(staged.directory,'client',pathname.slice(1))));
+      if(pathname==='/index.html')return new Response(null,{status:308,headers:{Location:'/'}});
+      return new Response(await readFile(path.join(staged.directory,'client',pathname==='/'?'index.html':pathname.slice(1))));
     };
     expect((await verifyPagesRemote({receiptPath:staged.receiptPath,projectRoot:f.projectRoot,origin,fetcher})).passed).toBe(true);
     expect((await stagePagesApp({...f,data,snapshotOrigin:origin,candidateReceiptPath:staged.receiptPath})).receipt.artifact_sha256).toBe(staged.receipt.artifact_sha256);

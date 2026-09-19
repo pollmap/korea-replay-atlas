@@ -33,7 +33,7 @@ from .admin_boundaries import read_source_level,bounded_coverage,encoded,immutab
 from .core import ROOT,LOCAL,PUBLIC,digest
 from .height_quality import evaluate_feature
 
-VERSION='map-tiles-1.4'
+VERSION='map-tiles-1.5'
 DISPLAY_ID_HEX_LENGTH=16
 HARD=1024*1024
 LOW_TARGET=128*1024
@@ -96,18 +96,22 @@ def render_geometry(geometry,bounds,polygon=True):
     clipped=geometry.intersection(box(*bounds))
     if clipped.is_empty:return [],'outside'
     unit=(bounds[2]-bounds[0])/EXTENT
-    # Coordinates stay in metres here; the encoder maps the same grid to ints.
-    snapped=shapely.set_precision(clipped,unit,mode='pointwise')
+    # Validate the actual integer coordinates that MVT will receive. Validating
+    # rounded metre floats first can hide a self-touch that appears on the second
+    # integer rounding. This is the only quantization step.
+    origin=np.asarray(bounds[:2])
+    quantize=lambda g:shapely.transform(g,lambda coordinates:np.rint((coordinates-origin)/unit))
+    snapped=quantize(clipped)
     notice='quantized'
     if polygon and snapped.geom_type in ('Polygon','MultiPolygon') and not snapped.is_valid:
-        snapped=shapely.set_precision(clipped.boundary,unit,mode='pointwise');notice='quantized_outline'
+        snapped=quantize(clipped.boundary);notice='quantized_outline'
     parts=[]
     for part in geometry_parts(snapped):
         if part.geom_type in ('Polygon','MultiPolygon') and part.area==0:continue
         if part.geom_type in ('LineString','MultiLineString') and part.length==0:continue
         parts.append(part)
     if not parts:
-        parts=[clipped.representative_point()];notice='subpixel_anchor'
+        parts=[quantize(clipped.representative_point())];notice='subpixel_anchor'
     return parts,notice
 
 
@@ -121,7 +125,7 @@ def encode_tile(topic,rows,z,x,y):
             features.append({'geometry':part,'properties':{**props,'stable_id':stable[:DISPLAY_ID_HEX_LENGTH],'representation':notice}})
     if not features:return None,notices,source_ids
     payload=mapbox_vector_tile.encode({'name':topic,'features':features},default_options={
-        'quantize_bounds':bounds,'extents':EXTENT,'on_invalid_geometry':mapbox_vector_tile.encoder.on_invalid_geometry_raise})
+        'extents':EXTENT,'on_invalid_geometry':mapbox_vector_tile.encoder.on_invalid_geometry_raise})
     require(len(payload)<=HARD,f'Decoded single tile exceeds 1 MiB: {topic}/{z}/{x}/{y}, {len(payload)} bytes, {len(source_ids)} source records; split theme or raise its start zoom')
     # Decode once to prove no source identity disappeared during integer encoding.
     decoded=mapbox_vector_tile.decode(payload)[topic]['features']
@@ -355,7 +359,8 @@ def fork_index(db,source_work,current):
     checkpoints for the changed roads policy are deliberately not copied.
     """
     source_work=Path(source_work).resolve();old=json.loads((source_work/'inputs.json').read_bytes())
-    require(old.get('version')=='map-tiles-1.3' and old.get('display_id_hex_length')==DISPLAY_ID_HEX_LENGTH,'Unsupported checkpoint migration')
+    require(old.get('version') in ('map-tiles-1.3','map-tiles-1.4') and old.get('display_id_hex_length')==DISPLAY_ID_HEX_LENGTH,'Unsupported checkpoint migration')
+    changed=('roads','water') if old['version']=='map-tiles-1.3' else ('water',)
     for key in ('source_catalog_sha256','admin_sha256','levels','assets','proof_bbox','source_profile'):
         require(encoded(old.get(key))==encoded(current.get(key)),f'Checkpoint source contract differs: {key}')
     require(db.execute('SELECT COUNT(*) FROM records').fetchone()[0]==0,'Index fork requires empty destination')
@@ -367,12 +372,14 @@ def fork_index(db,source_work,current):
         db.execute('INSERT INTO records SELECT * FROM donor.records')
         db.execute('INSERT INTO spatial SELECT * FROM donor.spatial')
         db.execute('INSERT INTO sources SELECT * FROM donor.sources')
-        db.execute("UPDATE records SET minzoom=CASE minzoom WHEN 7 THEN 9 WHEN 8 THEN 10 WHEN 9 THEN 11 WHEN 10 THEN 12 ELSE minzoom END WHERE topic='roads'")
+        if 'roads' in changed:db.execute("UPDATE records SET minzoom=CASE minzoom WHEN 7 THEN 9 WHEN 8 THEN 10 WHEN 9 THEN 11 WHEN 10 THEN 12 ELSE minzoom END WHERE topic='roads'")
         for topic, in db.execute('SELECT DISTINCT topic FROM records'):
-            if topic!='roads':require(old['topics'][topic]==list(TOPICS[topic]),'Unreviewed theme zoom change')
-        db.execute("INSERT INTO tiles SELECT * FROM donor.tiles WHERE topic!='roads'")
-        db.execute("INSERT INTO stages SELECT * FROM donor.stages WHERE key NOT LIKE 'roads-%'")
-        db.execute('INSERT INTO stages VALUES(?,?)',('index-fork-proof',json.dumps({'donor_inputs_sha256':digest(source_work/'inputs.json'),'geometry_and_selection_records_copied_exactly':True,'only_record_mutation':'roads.minzoom','road_tiles_reused':False})))
+            if topic not in changed:require(old['topics'][topic]==list(TOPICS[topic]),'Unreviewed theme zoom change')
+        marks=','.join('?' for _ in changed)
+        db.execute(f'INSERT INTO tiles SELECT * FROM donor.tiles WHERE topic NOT IN ({marks})',changed)
+        predicates=' AND '.join('key NOT LIKE ?' for _ in changed)
+        db.execute(f"INSERT INTO stages SELECT * FROM donor.stages WHERE key!='index-fork-proof' AND {predicates}",tuple(t+'-%' for t in changed))
+        db.execute('INSERT INTO stages VALUES(?,?)',('index-fork-proof',json.dumps({'donor_inputs_sha256':digest(source_work/'inputs.json'),'geometry_and_selection_records_copied_exactly':True,'only_record_mutation':'roads.minzoom' if 'roads' in changed else None,'rebuilt_tile_topics':changed})))
         db.commit()
     except BaseException:
         db.rollback();raise

@@ -1,6 +1,29 @@
 # 전국 행정경계 원천과 2D 후보
 
-확인일: **2026-09-20 KST**. 공식 SGIS 원본을 확보했습니다. 전국 시도 17개는 작은 MVT/PMTiles 후보로 검증했으며 시군구·전국 기본 지도·건물 평면은 단계적으로 생성 중입니다. 이 문서의 로컬 후보는 공개 배포 완료를 의미하지 않습니다.
+확인일: **2026-09-20 KST**. 전국 시도·시군구와 개략 도로·철도·육지·수역을 MVT/PMTiles 후보로 검증했습니다. 전체 상세 도로·건물 평면·행정동은 후속 범위입니다. 이 문서의 로컬 후보는 공개 배포 완료를 의미하지 않습니다.
+
+## 현재 전국 기본 지도 후보
+
+실제 배포 검토 입력은 **`.local/map-tiles-20260920/candidate/publication.json`**입니다. 이전 시도 단독 후보와 실패한 중간 후보를 최종 입력으로 혼동하지 않습니다.
+
+- release: `map2d-aed5a621760281b23b30`
+- catalog: `data/map-tiles/map2d-aed5a621760281b23b30/catalog.json`
+- catalog SHA-256: `98a9103cf177d8317da3fcb8e7bddff1743fe1ca5acaaa9cc5543d50e22f06eb`
+- **230파일 / 66,077,646 B**, 가장 큰 PMTiles **509,496 B**. 개별 1 MiB 상한을 통과했습니다. 일부 저줌 단일 타일은 128 KiB 목표를 넘으며 이 목표를 하드 상한으로 표현하지 않습니다.
+- 독립 재검사: `.local/map-tiles-20260920/candidate-validation-aed5a621760281b23b30.json`. 실제 TypeScript schema, 230개 전체 파일의 SHA·길이·의존관계, 모든 선택 속성 수와 16자리 표시 키의 주제 내 충돌 없음이 통과했습니다.
+
+| 주제 | 포함 원본 피처 | 줌 | PMTiles / 속성 파일 | 범위 |
+|---|---:|---|---:|---|
+| 시도 | 17 | 5~9 | 25 / 1 | SGIS 2025-06-30 전국 |
+| 시군구 | 252 | 8~11 | 39 / 1 | SGIS 2025-06-30 전국 |
+| 육지 | 87 | 5~9 | 1 / 1 | 기존 국가 윤곽 및 독도 보완 원천 |
+| 철도 | 15,497 | 7~12 | 15 / 4 | 기존 공개 개략 형상. 실시간 위치 아님 |
+| 도로 | 185,489 | 6~13 | 76 / 58 | 기존 공개 개략 형상. 전체 상세 도로 아님 |
+| 수역 | 540 | 6~12 | 7 / 1 | 기존 전국 수역 원천 |
+
+도로의 OSM 분류별 시작 줌은 motorway 6, trunk 9, primary 10, secondary 11, 기타 12입니다. 수도권의 한 z7 타일이 34,989개 조각·decoded 1,753,019 B로 1 MiB 상한을 초과한 실물 근거에 따라 조정했습니다. 최고 줌에서는 포함 도로 185,489개 모두의 ID 표현을 검증했습니다. 이 태그를 도로법상 등급이나 공식 노선 번호로 변환하지 않습니다.
+
+**건물 평면 3,730,526개, 전체 상세 기반시설 2,080,786개, SGIS 행정동 3,559개는 이번 후보에 포함되지 않습니다.** 해당 원천은 보존되어 있으며 새로운 후보로 확장해야 합니다. 이 후보를 전국의 모든 건물·도로 상세가 완료된 것으로 표시하지 않습니다.
 
 ## 원천과 권한
 
@@ -27,7 +50,7 @@ SGIS는 [공식 이용 안내](https://sgis.mods.go.kr/view/pss/dataProvdIntrcn)
 | 수준 | DBF 행 수 | SHX 도형 색인 수 | 원본 코드·이름 필드 | 현재 범위 |
 |---|---:|---:|---|---|
 | 시도 | 17 | 17 | `SIDO_CD`, `SIDO_NM` | z5~9 MVT·선택 속성 후보 완료 |
-| 시군구 | 252 | 252 | `SIGUNGU_CD`, `SIGUNGU_NM` | 2D 변환·간략화 검증 대상 |
+| 시군구 | 252 | 252 | `SIGUNGU_CD`, `SIGUNGU_NM` | z8~11 MVT·선택 속성 후보 완료 |
 | 읍면동 | 3,559 | 3,559 | `ADM_CD`, `ADM_NM` | 원본 확보·속성/색인 대조. 전체 도형 가공은 아직 미수행 |
 
 252는 이 기준일·분류 체계의 **SGIS 시군구 경계 피처 수**입니다. 이를 기초자치단체 개수나 모든 현재 시군구 개수로 바꿔 부르지 않습니다.
@@ -69,13 +92,13 @@ SGIS는 [공식 이용 안내](https://sgis.mods.go.kr/view/pss/dataProvdIntrcn)
 
 ## 2D 타일과 선택 속성 계약
 
-`shared/map-tiles.ts`의 `MapCatalog2D`는 주제별 min/max zoom, 원본 피처 수, 정렬된 TileID 구간의 PMTiles 및 stable ID 구간의 속성 shard를 가리킵니다. `stable_id`는 원천과 원본 ID의 SHA-256입니다. 기존 도로 데이터에서 동일 원본 ID에 다른 잘린 도형이 실제 존재하므로 도로 조각에는 원본 geometry hash를 추가하며, 선택 응답에는 원본 ID를 그대로 돌려줍니다.
+`shared/map-tiles.ts`의 `MapCatalog2D`는 주제별 min/max zoom, 원본 피처 수, 정렬된 TileID 구간의 PMTiles 및 stable ID 구간의 속성 shard를 가리킵니다. 원본 선택 레코드의 `stable_id`는 원천과 원본 ID의 SHA-256입니다. 기존 도로 데이터에서 동일 원본 ID에 다른 잘린 도형이 실제 존재하므로 도로 조각에는 원본 geometry hash를 추가하며, 선택 응답에는 원본 ID를 그대로 돌려줍니다. MVT 표시 키는 이 해시의 16자리 접두부이며 전체 주제에서 충돌이 없음을 검사한 후 `display_id_hex_length:16`으로 선언합니다. 64자리 기존 후보도 계속 읽을 수 있습니다.
 
 `src/map-tiles-protocol.ts`는 Range 요청 없이 **전체 GET → 길이·SHA 검증 → custom PMTiles Source** 순서로 읽습니다. 본문 캐시는 데스크톱 64 MiB/모바일 32 MiB, 동시 전송 4개, PMTiles directory cache는 64항목/보수적 추산 4 MiB를 제한합니다. Source와 archive handle은 원본 본문을 별도로 보유하지 않습니다. 페이지의 지도·부동산 공통 전송 제한은 루트가 주입하는 `atlasFetch`를 사용합니다.
 
 주제 ID와 source-layer는 `admin-sido`, `admin-sigungu`, `admin-dong`, `land`, `water`, `roads`, `rail`, `facilities`, `buildings`입니다. 후보가 아직 포함하지 않은 주제는 catalog에 기재하지 않습니다. 행정구역 라벨은 같은 source-layer의 Point geometry에 `name`을 표시합니다. 부동산의 법정동 5자리 코드와 SGIS 코드를 자동 연결하지 않습니다. ZIP 안의 코드 설명·격자 매핑 표에서도 이 공식 crosswalk는 확인되지 않았습니다.
 
-MVT 인코딩 뒤 매 타일을 다시 디코드해 포함하기로 한 stable ID 집합이 같음을 확인합니다. 주제 최고 줌에서는 원본 전체 ID의 표현을 확인합니다. 작은 폴리곤이 화면 격자에서 퇴화하면 원본을 버리지 않고 명시적인 외곽선/대표점 표현을 사용합니다. 원본 좌표와 속성은 기존 원천 파일에 보존하고 모든 선택 속성은 불변 shard에 포함합니다.
+MVT 인코딩 뒤 매 타일을 다시 디코드해 포함하기로 한 stable ID 집합이 같음을 확인합니다. 주제 최고 줌에서는 포함한 원본 전체 ID의 표현을 확인합니다. 작은 폴리곤이 화면 격자에서 퇴화하면 원본을 버리지 않고 명시적인 외곽선/대표점 표현을 사용합니다. 유효성 검사는 실제 정수 타일 좌표에서 수행합니다. 미터 좌표로 반올림한 후 정수로 다시 반올림하면 원래 유효한 수역이 자기 접촉을 만들 수 있어 이중 반올림을 제거했습니다. 원본 좌표와 속성은 기존 원천 파일에 보존하고 모든 선택 속성은 불변 shard에 포함합니다.
 
 ## 실행과 검증
 
@@ -87,11 +110,17 @@ npm exec vitest run tests/map-tiles.test.ts -- --maxWorkers=2
 .venv\Scripts\python.exe -m pipeline.map_tiles --proof --levels sido,sigungu --output .local/map-tiles-20260920/new-seoul-proof
 ```
 
+현재 검증된 전국 개략 후보를 생성한 명령은 다음과 같습니다. 기록된 원천·체크포인트를 유지해야 하며, 별도 변형을 시험할 때는 새로운 출력 이름을 사용합니다.
+
+```powershell
+.venv\Scripts\python.exe -m pipeline.map_tiles --basemap --levels sido,sigungu --reuse-admin-work .local/map-tiles-20260920/work/f33db36f7c588aff21da --reuse-index-work .local/map-tiles-20260920/work/117fdd41fac5b84726dd --output .local/map-tiles-20260920/candidate
+```
+
 전국 후보는 `--proof`를 제외합니다. `--basemap`은 이미 게시된 개략 도로·철도와 전국 land/water만 우선 사용하며, 전체 상세 도로·건물 평면을 포함한 후보와 구분합니다. 입력·알고리즘 해시별 SQLite/RTree 작업 색인은 `.local/map-tiles-20260920/work`에 남아 중단 후 재사용됩니다. 기존 산출물을 덮어쓰지 않습니다.
 
-현재 관련 Python **37개**, TypeScript **10개** 통과 및 전체 typecheck·관련 파일 lint 통과입니다. 이는 전체 프로젝트의 최종 검사 수가 아닙니다. 검사에는 공식 Python writer→공식 JavaScript PMTiles reader의 실제 바이너리 호환, 해시 오류·취소·공유 요청·캐시 제한, 모든 선택 속성 복원, 공간 조회·원본 ID 중복 조각 보존과 조기 후보 승격 제한이 포함됩니다.
+현재 관련 Python **41개**, TypeScript **11개** 통과 및 전체 typecheck·관련 파일 lint 통과입니다. 이는 전체 프로젝트의 최종 검사 수가 아닙니다. 검사에는 공식 Python writer→공식 JavaScript PMTiles reader의 실제 바이너리 호환, 해시 오류·취소·공유 요청·캐시 제한, 모든 선택 속성 복원, 공간 조회·원본 ID 중복 조각 보존, 읽기 전용 체크포인트 재사용, 정수 격자에서 퇴화한 폴리곤의 보존과 조기 후보 승격 제한이 포함됩니다.
 
-서울의 한 밀집 타일을 측정한 `.local/map-tiles-20260920/seoul-density-proof.json`에서 건물 z12(30,152피처), z13(14,612피처)는 decoded tile 1 MiB 상한을 넘겨 실패했습니다. z14(4,376피처)는 gzip 246,259 B로 모든 ID를 유지했습니다. 이는 전국 모든 z14 타일이 같은 상한을 통과했다는 증거는 아닙니다. 상한을 임의로 올리지 않고 실제 밀도에 맞는 주제 시작 줌을 선택합니다.
+64자리 표시 키를 사용한 최초 서울 실험 `.local/map-tiles-20260920/seoul-density-proof.json`에서 건물 z12(30,152피처), z13(14,612피처)는 decoded tile 1 MiB 상한을 넘겨 실패했습니다. z14(4,376피처)는 gzip 246,259 B로 모든 ID를 유지했습니다. 이후 16자리 표시 키가 도입됐으므로 이를 현 정책의 z13 실패 증거로 확대하지 않습니다. 전국 건물 후보의 현재 시작 줌 설정은 14이며 모든 전국 타일이 통과한 상태는 아닙니다. 상한을 임의로 올리지 않고 실제 밀도를 검증해야 합니다.
 
 ## 남은 범위
 

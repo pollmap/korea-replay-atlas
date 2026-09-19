@@ -37,6 +37,17 @@ def test_small_source_polygon_stays_accessible_as_explicit_anchor():
     assert decoded[0]['properties']['representation']=='subpixel_anchor'
 
 
+def test_polygon_validity_is_checked_after_the_final_integer_quantization():
+    z,x,y=7,109,49;b=tile_bounds(z,x,y);unit=(b[2]-b[0])/8192
+    ring=[(0,0),(2,0),(2,2),(1.49,2),(1.49,.49),(.51,.49),(.51,2),(0,2),(0,0)]
+    original=Polygon([(b[0]+(u+2000)*unit,b[1]+(v+4000)*unit) for u,v in ring]);before=original.wkb
+    assert original.is_valid
+    sid=stable_id('osm','narrow-lake');body,notices,ids=encode_tile('water',[(sid,original,{})],z,x,y)
+    assert ids=={sid} and notices['quantized_outline']==1 and original.wkb==before
+    decoded=mapbox_vector_tile.decode(gzip.decompress(body))['water']['features']
+    assert decoded[0]['geometry']['type'] in ('LineString','MultiLineString')
+
+
 def test_tile_clipping_keeps_source_id_on_both_sides():
     z,x,y=12,3493,1583;b=tile_bounds(z,x,y);sid=stable_id('osm','crossing')
     geometry=LineString([(b[2]-100,(b[1]+b[3])/2),(b[2]+100,(b[1]+b[3])/2)])

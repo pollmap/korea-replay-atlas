@@ -95,3 +95,13 @@ def test_nonstandard_lot_is_location_issue_not_price_exclusion(tmp_path):
     assert sum(r['statistics_eligible'] for r in rows)==1
     assert all(r['lot_number'] is None for r in rows)
     assert read_asset(base,region['complexes'])['complexes'][0]['position'] is None
+
+
+def test_publisher_respects_disk_reserve_without_final_release(tmp_path,monkeypatch):
+    import pipeline.real_estate_publish as module
+    root=setup(tmp_path)
+    class Space:free=1000
+    monkeypatch.setattr(module.shutil,'disk_usage',lambda path:Space())
+    with pytest.raises(RealEstateError,match='disk_reserve'):
+        publish(root,registry(),tmp_path/'candidates',reserve_bytes=1000)
+    assert not list((tmp_path/'candidates').glob('property-*'))

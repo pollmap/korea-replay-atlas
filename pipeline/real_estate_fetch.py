@@ -22,6 +22,7 @@ import uuid
 from .real_estate import (RealEstateError, canonical_bytes, sha256, normalize_xml_page,
                           build_partitions, utc_instant, _reject_links, MAX_PAGE_BYTES)
 from .real_estate_regions import load_registry
+from .real_estate_storage import encode_snapshot,decode_snapshot,MAX_SNAPSHOT_BYTES
 
 KST = timezone(timedelta(hours=9))
 ENDPOINTS = {
@@ -194,8 +195,8 @@ class Collector:
     def close(self):
         self.db.close()
 
-    def _space(self):
-        if shutil.disk_usage(self.root).free < self.reserve_bytes:
+    def _space(self,required_bytes=0):
+        if shutil.disk_usage(self.root).free-required_bytes < self.reserve_bytes:
             raise RealEstateError('disk_reserve')
 
     def summary(self):
@@ -248,14 +249,14 @@ class Collector:
             parsed.append(normalize_xml_page(body,lawd_code=job['lawd_code'],deal_month=job['deal_month'],
                 retrieved_at=source['retrieved_at'],trade_type=job['trade_type']))
         partition=build_partitions(parsed)[0]
-        payload=canonical_bytes(partition);part_hash=sha256(payload)
-        snapshot_ref=immutable(self.root,f"snapshots/{job['id']}/{part_hash}.json",payload)
+        payload=canonical_bytes(partition);stored,encoding=encode_snapshot(payload);part_hash=sha256(stored)
+        snapshot_ref={**immutable(self.root,f"snapshots/{job['id']}/{part_hash}.json.gz",stored),**encoding}
         if job['snapshot']:
             before=json.loads(job['snapshot']);old_path=self.root/before['path'];_reject_links(old_path)
             old_body=old_path.read_bytes()
             if len(old_body)!=before['bytes'] or sha256(old_body)!=before['sha256']:
                 raise RealEstateError('previous_snapshot_hash_mismatch')
-            previous=json.loads(old_body);old_ids={r['id'] for r in previous['records']};new_ids={r['id'] for r in partition['records']}
+            previous=json.loads(decode_snapshot(old_body,before));old_ids={r['id'] for r in previous['records']};new_ids={r['id'] for r in partition['records']}
             difference={'kind':'snapshot-row-difference','previous_sha256':before['sha256'],
                 'current_sha256':part_hash,'unchanged_rows':len(old_ids&new_ids),
                 'added_rows':len(new_ids-old_ids),'removed_rows':len(old_ids-new_ids),
@@ -265,11 +266,12 @@ class Collector:
 
     def reprocess(self):
         """Re-normalize verified local raw pages; preserve old snapshots, no network."""
+        self._space(5*1024**3 if self.reserve_bytes else 0)
         owner=self._acquire();processed=0
         try:
             jobs=list(self.db.execute("SELECT * FROM jobs WHERE status IN ('complete','empty') ORDER BY id"))
             for job in jobs:
-                self._space()
+                self._space(MAX_SNAPSHOT_BYTES+1024**2)
                 with self.db:self.db.execute('UPDATE lease SET expires=? WHERE owner=?',(time.time()+180,owner))
                 status,ref=self._snapshot(job,json.loads(job['pages']))
                 with self.db:
@@ -299,6 +301,8 @@ class Collector:
             available={r[0] for r in self.db.execute('SELECT DISTINCT deal_month FROM jobs')}
             if not set(collect_months)<=available:raise RealEstateError('month_outside_planned_window')
             condition=' AND deal_month IN ('+','.join('?' for _ in collect_months)+')'
+        # Operational start margin: default 30 GiB reserve + 5 GiB headroom.
+        self._space(5*1024**3 if self.reserve_bytes else 0)
         owner = self._acquire(); used = 0; transferred = 0; stopped = 'work_complete'; failures = 0
         start = time.monotonic(); last_request = 0.0
         try:
@@ -314,7 +318,7 @@ class Collector:
                     ' ORDER BY priority,lawd_code,trade_type LIMIT 1',collect_months or []).fetchone()
                 if job is None:
                     break
-                self._space()
+                self._space(MAX_PAGE_BYTES+MAX_SNAPSHOT_BYTES+1024**2)
                 pages = json.loads(job['pages'])
                 if pages and (utc_instant(self.clock())-utc_instant(pages[0]['retrieved_at'])).total_seconds() > 900:
                     # Old raw pages remain immutable; a current full snapshot starts over.

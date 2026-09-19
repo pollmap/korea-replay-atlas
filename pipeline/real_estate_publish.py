@@ -9,11 +9,13 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import shutil
 import tempfile
 
 from .real_estate import (RealEstateError, canonical_bytes, sha256, _reject_links,
                          normalize_xml_page, build_partitions, utc_instant)
 from .real_estate_regions import load_registry, SOURCE_PAGE
+from .real_estate_storage import decode_snapshot
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
@@ -86,7 +88,7 @@ def public_row(row, job):
 
 def checked_read(root, descriptor, limit):
     name=descriptor.get('path')
-    if (not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9/_-]+\.(?:json|xml)',name)
+    if (not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9/_-]+\.(?:json(?:\.gz)?|xml)',name)
             or '..' in Path(name).parts or not isinstance(descriptor.get('bytes'),int)
             or not 0 < descriptor['bytes'] <= limit or not re.fullmatch(r'[a-f0-9]{64}',descriptor.get('sha256',''))):
         raise RealEstateError('invalid_checkpoint_descriptor')
@@ -102,7 +104,7 @@ def verify_snapshot(root, job):
     if job['status'] not in ('complete','empty'):return None
     if not job['snapshot']:raise RealEstateError('missing_complete_snapshot')
     descriptor=json.loads(job['snapshot'])
-    recorded=checked_read(root,descriptor,128*1024**2)
+    recorded=decode_snapshot(checked_read(root,descriptor,128*1024**2),descriptor)
     sources=json.loads(job['pages'])
     if not 1<=len(sources)<=1000 or sum(s['bytes'] for s in sources)>64*1024**2:
         raise RealEstateError('invalid_snapshot_sources')
@@ -142,7 +144,9 @@ def collect_complexes(records):
     return result
 
 
-def publish(root, registry, output_root):
+def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
+    if not isinstance(reserve_bytes,int) or isinstance(reserve_bytes,bool) or reserve_bytes<0:
+        raise RealEstateError('invalid_disk_reserve')
     root=Path(root).absolute(); output=Path(output_root).absolute()
     _reject_links(root);_reject_links(output)
     if any(p.lower() in ('public','dist') for p in output.parts):raise RealEstateError('public_output_forbidden')
@@ -174,12 +178,15 @@ def publish(root, registry, output_root):
         for f in publication['files']:
             checked_read(final,{'path':f['path'],'sha256':f['sha256'],'bytes':f['byte_length']},MAX_ASSET)
         return publication
+    if shutil.disk_usage(output).free<reserve_bytes+(5*1024**3 if reserve_bytes else 0):
+        raise RealEstateError('disk_reserve')
     stage=Path(tempfile.mkdtemp(prefix='.property-incomplete-',dir=output))
     files=[];prefix=f'data/property/{release}'
 
     def emit(relative,value):
         payload=canonical_bytes(value)
         if len(payload)>MAX_ASSET:raise RealEstateError('publication_asset_size_limit')
+        if shutil.disk_usage(stage).free-len(payload)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
         name=f'{prefix}/{relative}';path=stage/name;path.parent.mkdir(parents=True,exist_ok=True)
         with path.open('xb') as handle:handle.write(payload)
         digest=sha256(payload)
@@ -248,7 +255,9 @@ def publish(root, registry, output_root):
         'audit':{'policy':POLICY,'source_rows':source_rows,'complexes':complex_total,
                  'raw_pages_reparsed':True,'source_hashes_verified':True,'position_policy':'no_unverified_coordinates',
                  'files':len(files),'bytes':sum(f['byte_length'] for f in files),'coverage':coverage(jobs)}}
-    with (stage/'publication.json').open('xb') as handle:handle.write(canonical_bytes(publication))
+    receipt=canonical_bytes(publication)
+    if shutil.disk_usage(stage).free-len(receipt)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
+    with (stage/'publication.json').open('xb') as handle:handle.write(receipt)
     if final.exists():raise RealEstateError('output_exists')
     os.rename(stage,final)
     return publication
