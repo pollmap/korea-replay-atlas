@@ -10,6 +10,8 @@
 
 Radeon 860M·20Mbps/50ms 조건에서 전국 2D 지도 준비 시간은 최초 진입 10회 중앙값 **1,147ms**, 재방문 10회 **535.2ms**였습니다. 서울↔부산 20왕복 후 최근 600개 이동 프레임 P95는 **39.2ms**로 33ms 목표에 미달했습니다. 10배 개선도 입증하지 않았습니다. 이 공개판은 기능을 제공하는 릴리스이며 전체 성능 인수 완료판은 아닙니다. [공개 버전·측정 조건·남은 항목](docs/ATLAS_RELEASE_STATUS.md), [Pages 운영 절차](docs/PAGES_DEPLOYMENT.md)를 확인하세요. 모든 건물의 정확성, 최근 60개 완료월 수집, Pages 롤백 검증은 미완료입니다.
 
+추가 최적화는 [별도 미리보기](https://2fb35d07.korea-replay.pages.dev/)에서 확인할 수 있습니다. CSS 1280×720·DPR 2인 측정 환경에서 이동 중 캔버스는 1280×720, 정지 후에는 1920×1080으로 복원됐습니다. 같은 자료로 20왕복한 마지막 600개 이동 프레임 P95는 22.2ms였지만, **40개 관찰 창 중 29개가 33ms를 초과**해 공개 승격을 보류했습니다. 공개 소스에는 [PR #5](https://github.com/pollmap/korea-replay-atlas/pull/5)가 병합됐으나 **대표 주소는 기존 `e484a6…` artifact**를 유지합니다. 해상도를 바꾼 결과이며 같은 화질에서의 개선 배율이나 10배 향상을 주장하지 않습니다.
+
 ## 실행
 
 기존 3D는 첫 건물 목록을 4,307노드에서 96노드로 나누고 도로·시설의 GPU 준비를 장면당 2개로 제한합니다. 건물 부품 16건과 도시철도 16노선 설정의 구현·당시 검증 범위는 [스트리밍과 도시철도 기록](docs/STREAMING_AND_SUBWAY_EXPANSION.md)에 있습니다. 설정된 모든 원천의 연속 수집이나 전국 3D 성능 목표가 검증됐다는 뜻은 아닙니다.
@@ -60,7 +62,7 @@ npm run build
 
 테스트용 입력은 `tests/`에만 있습니다. 공개 데이터 폴더에 모의 관측을 적재하지 않습니다. 테스트 통과와 실제 원천 정확성·운영 환경 검증은 별개입니다.
 
-2026-09-20 [PR #3 병합 후 CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35467743759)에서 웹 806개·55파일, Python 768개(경고 4개), 타입·린트·프로덕션 빌드·공개 소스/이력 패턴 감사가 통과했습니다. 공개 환경의 최신 검증은 [릴리스 현황](docs/ATLAS_RELEASE_STATUS.md)에 있습니다. 이전 [검증 기록](docs/VALIDATION.md), [지도 집중 검증](docs/MAP_FIRST_PERFORMANCE.md), [라벨 성능 기록](docs/LABEL_RENDERING_PERFORMANCE.md)은 각각 당시 버전과 조건의 결과입니다. 전국 이동 P95 33ms·모든 생성 작업 8ms 달성을 입증한 자료로 합산하지 않습니다.
+2026-09-20 [PR #5 병합 후 CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35470195554)에서 웹 815개·55파일, Python 819개(경고 4개), 타입·린트·프로덕션 빌드·공개 소스/이력 패턴 감사가 통과했습니다. 이는 현재 소스의 검사이며 새 후보의 공개 승격을 뜻하지 않습니다. 공개 환경의 최신 검증은 [릴리스 현황](docs/ATLAS_RELEASE_STATUS.md)에 있습니다. 이전 [검증 기록](docs/VALIDATION.md), [지도 집중 검증](docs/MAP_FIRST_PERFORMANCE.md), [라벨 성능 기록](docs/LABEL_RENDERING_PERFORMANCE.md)은 각각 당시 버전과 조건의 결과입니다. 전국 이동 P95 33ms·모든 생성 작업 8ms 달성을 입증한 자료로 합산하지 않습니다.
 
 ## 자료와 배포
 

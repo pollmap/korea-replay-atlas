@@ -18,6 +18,12 @@
 
 production과 공유 목적지 preview는 **서로 다른 실제 배포이며 artifact가 같습니다**. 응답에서 확인한 preview를 사용하고 production ID에서 공유 주소를 만들어내지 않습니다. 배포 성공 응답은 `remote-deployment-07e46d75-eb23-4f30-a5e9-0d950079887e.json`, HTTP 검증은 `verified-production.json`과 `.local/national-visual-20260920/final-production-remote.json`에 별도로 보존했습니다. 개인정보·인증값·로컬 원본은 공개 Git에 포함하지 않습니다.
 
+### 추가 후보는 공개 승격 보류
+
+[추가 최적화 미리보기](https://2fb35d07.korea-replay.pages.dev/)의 artifact는 `c0c3a3a0baee575f6a85dfa584066b1bb121ad20b6fa2ad22fe1b301563959af`입니다. `motion-candidate-remote.json`의 runtime·정적 응답 검사는 통과했지만, 같은 자료의 20왕복에서 관찰 창 40개 중 29개가 이동 P95 33ms를 초과했습니다. 마지막 600프레임 22.2ms만으로 전체 기준을 통과했다고 판단하지 않습니다. 후보 production stage는 **로컬 생성만 완료했고 production 업로드는 하지 않았습니다.** 대표 주소·공유 pin은 위 `07e46d75…` / `cf1933d9` / `e484a6…` 그대로입니다.
+
+공개 저장소 main에는 [PR #5](https://github.com/pollmap/korea-replay-atlas/pull/5)의 최적화·배포 준비 코드가 병합되어 있습니다. 소스 CI 통과와 대표 주소 승격은 별도입니다. 해상도·초기 준비·이동 프레임·엔진 전환의 실제 후보 측정은 [검증 현황](ATLAS_RELEASE_STATUS.md)에 현재 production 측정과 구분해 기록합니다.
+
 ## 배치
 
 | 대상 | 역할 | 동적 처리 |
@@ -51,6 +57,15 @@ node scripts/pages-api.mjs create korea-replay-data --execute
 기존 정상 `pipeline.static_release` receipt와 `asset-manifest.json`을 먼저 전체 검증합니다. 입력 묶음은 `.local/deploy/bundles/` 내부여야 합니다. 새 산출물은 `.local/pages-release/`에만 생성하며, 존재하는 대상 폴더는 덮어쓰지 않습니다. 심볼릭 링크·junction·상위 경로 이동을 거부합니다.
 
 정적 파일과 기존 Worker 모듈은 감사된 불변 묶음에서 hardlink로 재사용합니다. 다른 볼륨·권한 등의 이유로 불가능하면 배타적 복사를 합니다. 공유된 inode를 수정하면 원본까지 바뀌므로 **stage 이후 파일 편집을 금지**하고 새 stage를 만듭니다. 설정·policy·receipt는 각각 새 파일입니다. 기존 원본, 다른 프로젝트, 이전 배포 묶음을 삭제·이동하지 않습니다.
+
+화면 코드만 바뀌었고 데이터·Worker·설정이 이전 완성 bundle과 같을 때는 다음 로컬 준비 경로를 사용할 수 있습니다. `VERIFIED_BUNDLE`은 전체 검증을 통과한 실제 묶음 ID로 바꿉니다.
+
+```powershell
+npm run build
+python -B -m pipeline.frontend_release --reuse-bundle .local/deploy/bundles/VERIFIED_BUNDLE
+```
+
+이 도구는 원본 전국 geometry의 형상·의존성 재감사만 생략합니다. 이전 receipt·manifest·catalog와 **모든 정적 파일의 실제 SHA-256·길이 검증**, 불변 파일명, 파일 수·크기 한도, 30GiB 여유 공간 보호는 유지합니다. 기존 Vite chunk 계열, index.html, download-gate.js만 변경할 수 있고 새 계열·vendor·Worker·배포 정책이 바뀌면 전체 staging으로 돌아갑니다. `.dev.vars`는 읽거나 게시하지 않습니다. 반환한 새 bundle의 receipt를 다음 Pages 옵션에 넣으며 이 명령 자체는 원격 업로드나 production 승격을 하지 않습니다.
 
 앱 설정은 `pages_build_output_dir: ./client`, `KOREA_API → korea-replay` Service binding 하나만 허용합니다. `_routes.json`은 `/api/*`만 포함하고 root `404.html`로 SPA의 누락 파일 `200` 응답을 막습니다. 정적 파일은 Function을 경유하지 않습니다. 기존 `_headers`의 hash 경로 장기 캐시와 `catalog.json`, `download-gate.js`의 재검증 정책을 보존합니다. [Pages 라우팅](https://developers.cloudflare.com/pages/functions/routing/), [Service binding](https://developers.cloudflare.com/pages/functions/bindings/#service-bindings)
 
@@ -138,7 +153,7 @@ Artifact 계산에서 공유 목적지 `snapshot_origin`만 의미상 제외합�
 
 ## 공개 소스와 CI
 
-MIT는 자체 코드만 적용하고 자료·타사 라이선스는 [고지](../THIRD_PARTY_NOTICES.md)를 유지합니다. `node scripts/pages-public-audit.mjs`는 추적 파일, `.gitignore`에서 제외되지 않은 새 후보 파일, 모든 Git blob·commit metadata를 검사합니다. 값은 출력하지 않고 경로·줄·종류만 남깁니다. 과거 private 이력은 보존했고 정리한 소스를 [별도 공개 저장소](https://github.com/pollmap/korea-replay-atlas)에 게시해 PR #1·#2·#3을 병합했습니다. `.local`, 원본, 대용량 지도, 인증키, 복구 archive는 공개 Git에 넣지 않습니다. 코드 원격화와 원본 자료의 외부 백업 완료는 다릅니다.
+MIT는 자체 코드만 적용하고 자료·타사 라이선스는 [고지](../THIRD_PARTY_NOTICES.md)를 유지합니다. `node scripts/pages-public-audit.mjs`는 추적 파일, `.gitignore`에서 제외되지 않은 새 후보 파일, 모든 Git blob·commit metadata를 검사합니다. 값은 출력하지 않고 경로·줄·종류만 남깁니다. 과거 private 이력은 보존했고 정리한 소스를 [별도 공개 저장소](https://github.com/pollmap/korea-replay-atlas)에 게시해 PR #5까지 병합했습니다. PR #5의 [병합 후 CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35470195554)는 웹 815개·55파일, Python 819개·경고 4개와 타입·린트·빌드·공개 이력 감사를 통과했습니다. `.local`, 원본, 대용량 지도, 인증키, 복구 archive는 공개 Git에 넣지 않습니다. 코드 원격화와 원본 자료의 외부 백업 완료는 다릅니다.
 
 `.github/workflows/ci.yml`은 public repo의 표준 Ubuntu runner만 사용하고 write/deploy 권한이 없습니다. 웹 검증과 Python 회귀는 병렬 job입니다. `property-plan.yml`은 수동 실행의 계획 생성만 하며 키/`--execute`/게시/원본 artifact 업로드가 없습니다. 실제 연속 수집은 승인된 공식 registry, quota 장부, 키 secret, sanitization과 수집기 계약을 확인한 별도 변경으로 연결해야 합니다. 지금의 계획 workflow를 운영 수집 완료로 표현하지 않습니다.
 
@@ -147,6 +162,7 @@ MIT는 자체 코드만 적용하고 자료·타사 라이선스는 [고지](../
 - **완료:** 실제 Pages production 응답, runtime의 앱·데이터 pin 일치, 앱 JS/CSS와 index/catalog 해시, 정적 누락 404. 데이터 origin의 manifest·추가 저줌 MVT·CORS 검사는 별도 기록했습니다.
 - **고정 preview 표본 완료:** 유효 공유의 노원구/2026-08/59.28㎡ 복원, 잘못된 버전의 최신 대체 없는 중단, 같은 artifact에서의 서울 3D·모델 요청·캔버스 1개 확인. 표본 UI 검증을 모든 위치·모든 도구의 전수 검사로 표현하지 않습니다.
 - **초기 지도 준비 측정 완료:** 공개 대표 주소, Radeon 860M·20Mbps/50ms에서 최초 진입/재방문 각 10회. P95 1,160.2ms/944.3ms입니다. 별도 20왕복의 최종 최근 600개 이동 프레임 P95는 39.2ms로 33ms 목표 미달입니다. 정의·표본·메모리 관찰은 [검증 현황](ATLAS_RELEASE_STATUS.md)에 있습니다. 10배 개선은 입증하지 않았습니다.
+- **추가 후보 승격 보류:** `2fb35d07`은 정적 원격 검사·입력 해상도 복원·2D↔3D 전환 표본을 확인했습니다. 후보의 초기 준비 P95는 1,293.0ms/942.3ms, 20왕복 마지막 이동 P95는 22.2ms였지만 창별 최대 38.9ms·29/40개 창의 33ms 초과가 남습니다. 이동 중 1280×720, 정지 후 1920×1080으로 해상도가 다릅니다. 대표 주소로 승격하지 않았습니다.
 - **미완료:** 실제 Pages production rollback·복귀, 원본과 수집 장부의 완전한 외부 복구 검증, 최신 관측·부동산의 연속 서버 수집, 최근 60개 완료월과 과거 행정 코드 대응, 실거래 단지의 검증된 좌표 연결, 공식 인구·공급·가격지수의 제품 연결.
 
 공개 지도는 개발 노트북을 꺼도 제공됩니다. 로컬에서 도는 수집·재가공까지 서버로 옮긴 것은 아니며, 원본 삭제·정리를 허용할 복구 완료 상태도 아닙니다. 후속 성능 후보의 로컬 구현은 위 공개 artifact의 검증 결과에 포함하지 않습니다.
