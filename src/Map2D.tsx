@@ -5,7 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type {Asset,BBox,Catalog,LayerId,Place} from '../shared/contracts';
 import type {LiveTransitSnapshot} from '../shared/live-transit';
 import {QUALITY,type PerformanceSnapshot} from '../shared/map-performance';
-import {createMap2DFetcher,MAP2D_ATTRIBUTION,map2DHeight,map2DKey,map2DLayers,map2DZoom,map2DOverviewPadding,readFlatCamera,selectMap2DAssets,type FlatCamera} from '../shared/map2d';
+import {createMap2DFetcher,createMap2DPixelRatioController,MAP2D_ATTRIBUTION,map2DHeight,map2DKey,map2DLayers,map2DZoom,map2DOverviewPadding,map2DPixelRatio,readFlatCamera,selectMap2DAssets,type FlatCamera} from '../shared/map2d';
 import type {Selection} from './App';
 import type {MapHandle} from './MapScene';
 import type {Map2DWorkerRequest,Map2DWorkerResponse} from './map2d-data.worker';
@@ -50,13 +50,14 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     // Create all lifetime resources inside the effect so development StrictMode can replay it.
     const initial=latest.current.initialPlace,shared=latest.current.initialFlatCamera===undefined?readFlatCamera(location.hash):latest.current.initialFlatCamera,downloads=createMap2DFetcher(atlasFetch);
     let map:LibreMap;
-    try{map=new LibreMap({container:node,center:shared?[shared[0],shared[1]]:[initial.lon,initial.lat],zoom:shared?.[2]??map2DZoom(initial.lat,initial.range,node.clientHeight),bearing:shared?.[3]??0,pitch:0,minZoom:3,maxZoom:19,maxPitch:0,renderWorldCopies:false,attributionControl:false,
+    try{map=new LibreMap({container:node,center:shared?[shared[0],shared[1]]:[initial.lon,initial.lat],zoom:shared?.[2]??map2DZoom(initial.lat,initial.range,node.clientHeight),bearing:shared?.[3]??0,pitch:0,minZoom:3,maxZoom:19,maxPitch:0,pixelRatio:map2DPixelRatio(devicePixelRatio),renderWorldCopies:false,attributionControl:false,
       locale:{'NavigationControl.ZoomIn':'확대','NavigationControl.ZoomOut':'축소','NavigationControl.ResetBearing':'북쪽으로','AttributionControl.ToggleAttribution':'지도 출처'},
       style:{version:8,sources:{},layers:[{id:'map2d-ocean',type:'background',paint:{'background-color':'#bedce5'}},...anchors.map(name=>({id:`map2d-anchor-${name}`,type:'background' as const,paint:{'background-opacity':0}}))]}});}
     catch{downloads.dispose();latest.current.onStatus('2D 지도를 시작하지 못했습니다. 브라우저의 그래픽 가속 상태를 확인해 주세요.');return;}
-    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),duration:0});map.setPixelRatio(Math.min(devicePixelRatio,1.5));map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
+    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),duration:0});map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
     let worker:Worker;
     try{worker=new Worker(new URL('./map2d-data.worker.ts',import.meta.url),{type:'module'});}catch{map.remove();mapRef.current=null;downloads.dispose();latest.current.onStatus('2D 공간 처리기를 시작하지 못했습니다.');return;}
+    const resolution=createMap2DPixelRatioController(map,()=>devicePixelRatio);
     let disposed=false,ready=false,moving=false,indexLoading=false,workerFailed=false,release='',sequence=0,revision=0,deferred=0,errors=0,frames=0,lastMovingFrame:number|null=null;
     let settleTimer:ReturnType<typeof setTimeout>|undefined,indexController:AbortController|undefined,commitFrame:number|undefined,pickController:AbortController|undefined,liveTimer:ReturnType<typeof setInterval>|undefined;
     let resolved:Asset[]=[],wanted=new Set<string>();
@@ -70,7 +71,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(disposed)return;
       const rows=[...resources.values()],network=downloads.stats(),sourcesLoading=rows.filter(row=>!map.isSourceLoaded(row.source)).length;
       if(vectorProtocol){const stat=vectorProtocol.snapshot();Object.assign(node.dataset,{vectorRelease,vectorCachedBytes:String(stat.cachedBytes),vectorActive:String(stat.active),vectorPeak:String(stat.peakActive),vectorArchives:String(stat.cachedArchives)});}
-      Object.assign(node.dataset,{mapEngine:'maplibre',mapDimension:'2d',map2dAssets:String(rows.length),map2dFeatures:String(rows.reduce((sum,row)=>sum+row.features,0)),map2dVertices:String(rows.reduce((sum,row)=>sum+row.vertices,0)),map2dJobs:String(jobs.size),map2dSourcesLoading:String(sourcesLoading),map2dIndexLoading:String(indexLoading),map2dMoving:String(moving),map2dErrors:String(errors),map2dFetchActive:String(network.active),map2dFetchPeak:String(network.peak),map2dFrames:String(frames),map2dMovingSamples:String(frameSamples.length),map2dMovingP95Ms:frameSamples.length?[...frameSamples].sort((a,b)=>a-b)[Math.floor((frameSamples.length-1)*.95)].toFixed(2):'0',map2dRelease:release});
+      Object.assign(node.dataset,{mapEngine:'maplibre',mapDimension:'2d',map2dPixelRatio:String(map.getPixelRatio()),map2dAssets:String(rows.length),map2dFeatures:String(rows.reduce((sum,row)=>sum+row.features,0)),map2dVertices:String(rows.reduce((sum,row)=>sum+row.vertices,0)),map2dJobs:String(jobs.size),map2dSourcesLoading:String(sourcesLoading),map2dIndexLoading:String(indexLoading),map2dMoving:String(moving),map2dErrors:String(errors),map2dFetchActive:String(network.active),map2dFetchPeak:String(network.peak),map2dFrames:String(frames),map2dMovingSamples:String(frameSamples.length),map2dMovingP95Ms:frameSamples.length?[...frameSamples].sort((a,b)=>a-b)[Math.floor((frameSamples.length-1)*.95)].toFixed(2):'0',map2dRelease:release});
       latest.current.onStatus(vectorProtocol?`전국 벡터 지도 · ${vectorSourceIds.length}개 주제${vectorProtocol.snapshot().active?' · 화면 자료 불러오는 중':''}${errors?` · ${errors}개 자료 오류`:''}`:`${rows.length}개 2D 자료 연결${indexLoading||jobs.size||sourcesLoading?' · 지역 자료 불러오는 중':''}${deferred?` · ${deferred}개 상세 자료 표시 대기`:''}${errors?` · ${errors}개 자료 오류`:''}`);
     };
     const report=()=>{if(commitFrame===undefined&&!disposed)commitFrame=requestAnimationFrame(()=>{commitFrame=undefined;mark();});};
@@ -179,9 +180,15 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       void resolveSceneAssets(catalog,bbox,height,controller.signal,downloads.fetcher,assets=>publish(assets),map2DLayers(latest.current.layers)).then(assets=>{if(!active())return;indexLoading=false;publish(assets,true);prune();}).catch(()=>{if(!active())return;indexLoading=false;controller.abort();errors++;prune();report();});
       report();
     };
-    const settle=()=>{clearTimeout(settleTimer);settleTimer=setTimeout(()=>{if(disposed||document.hidden||map.isMoving())return;moving=false;refresh();for(const waiter of [...waiters])waiter.resume();lastMovingFrame=null;report();},250);};
-    const start=()=>{moving=true;clearTimeout(settleTimer);indexController?.abort();indexLoading=false;lastMovingFrame=null;report();};
-    const visibility=()=>{if(document.hidden){clearTimeout(settleTimer);indexController?.abort();indexLoading=false;lastMovingFrame=null;}else settle();report();};
+    const settle=()=>{if(disposed||resolution.applying)return;clearTimeout(settleTimer);settleTimer=setTimeout(()=>{settleTimer=undefined;if(disposed||document.hidden||map.isMoving()||resolution.inputHeld)return;resolution.restore();moving=false;refresh();for(const waiter of [...waiters])waiter.resume();lastMovingFrame=null;report();},250);};
+    const start=(event:{originalEvent?:unknown})=>{if(disposed||resolution.applying)return;moving=true;clearTimeout(settleTimer);resolution.moveStart(event.originalEvent);indexController?.abort();indexLoading=false;lastMovingFrame=null;report();};
+    const visibility=()=>{if(document.hidden){resolution.releasePointers();clearTimeout(settleTimer);indexController?.abort();indexLoading=false;lastMovingFrame=null;}else settle();report();};
+    // Capture before MapLibre's mouse/touch/wheel handlers. Resizing an active
+    // drag can stop it; pointer holds also postpone the high-resolution restore.
+    const pointerDown=(event:PointerEvent)=>{resolution.pointerDown(event.pointerId);clearTimeout(settleTimer);report();};
+    const pointerUp=(event:PointerEvent)=>{if(resolution.pointerUp(event.pointerId))settle();};
+    const wheel=()=>{resolution.beforeWheel();settle();};
+    const blur=()=>{resolution.releasePointers();settle();};
     // The delayed fetch-settle flag remains true after camera motion ends. Do not
     // count idle tile-arrival gaps as animation frames in the moving-frame metric.
     const onRender=()=>{frames++;node.dataset.map2dFrames=String(frames);if(map.isMoving()&&!document.hidden){const now=performance.now();if(lastMovingFrame!==null){frameSamples.push(now-lastMovingFrame);if(frameSamples.length>600)frameSamples.shift();}lastMovingFrame=now;}else lastMovingFrame=null;};
@@ -213,9 +220,12 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       liveTimer=setInterval(refreshLive,5000);
     });
     map.on('load',()=>{ready=true;map.addSource('measure',{type:'geojson',data:measurementGeoJSON(latest.current.measurement??EMPTY_MEASUREMENT)});map.addLayer({id:'measure-fill',type:'fill',source:'measure',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#317a63','fill-opacity':.15}});map.addLayer({id:'measure-line',type:'line',source:'measure',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#246b55','line-width':3}});map.addLayer({id:'measure-point',type:'circle',source:'measure',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':5,'circle-color':'#246b55','circle-stroke-color':'#ffffff','circle-stroke-width':2}});refresh();});map.on('movestart',start);map.on('moveend',settle);map.on('resize',settle);map.on('render',onRender);map.on('click',click);map.on('error',failure);map.on('sourcedata',report);
+    const canvas=map.getCanvas();canvas.addEventListener('pointerdown',pointerDown,{capture:true,passive:true});canvas.addEventListener('wheel',wheel,{capture:true,passive:true});
+    window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
       disposed=true;refreshRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
+      canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('wheel',wheel,true);window.removeEventListener('pointerup',pointerUp,true);window.removeEventListener('pointercancel',pointerUp,true);window.removeEventListener('blur',blur);resolution.dispose();
       indexController?.abort();pickController?.abort();for(const job of jobs.values())job.controller.abort();for(const waiter of [...waiters])waiter.reject();downloads.dispose();
       for(const task of pending.values()){task.detach();task.reject(abortError());}pending.clear();worker.terminate();document.removeEventListener('visibilitychange',visibility);
       map.remove();vectorProtocol?.dispose();if(vectorProtocol)removeProtocol('krtile');for(const row of resources.values())URL.revokeObjectURL(row.url);resources.clear();

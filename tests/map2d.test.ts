@@ -4,7 +4,7 @@ import {validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
 import {map2DSourceLayers} from '../src/Map2D';
 import type {Asset,LayerId} from '../shared/contracts';
 import type {GeoCollection} from '../shared/geometry';
-import {createMap2DFetcher,map2DHeight,map2DRoadClass,map2DZoom,map2DOverviewPadding,prepareMap2DData,readFlatCamera,selectMap2DAssets,selectMap2DFeature} from '../shared/map2d';
+import {createMap2DFetcher,createMap2DPixelRatioController,map2DHeight,map2DRoadClass,map2DZoom,map2DOverviewPadding,map2DPixelRatio,prepareMap2DData,readFlatCamera,selectMap2DAssets,selectMap2DFeature} from '../shared/map2d';
 import type {Map2DWorkerRequest,Map2DWorkerResponse} from '../src/map2d-data.worker';
 
 const polygon=[[[127.123456789123,36,18],[127.2,36,19],[127.2,36.1,20],[127.123456789123,36,18]],[[127.15,36.01],[127.16,36.01],[127.16,36.02],[127.15,36.01]]];
@@ -131,5 +131,85 @@ describe('2D body-lifetime download bound',()=>{
     const base=vi.fn(async()=>{throw new TypeError('network');}) as unknown as typeof fetch,gate=createMap2DFetcher(base);
     await expect(gate.fetcher('https://example.com/data.json')).rejects.toThrow('경로');expect(base).not.toHaveBeenCalled();
     await expect(gate.fetcher('/data/one.json')).rejects.toThrow('network');expect(gate.stats().active).toBe(0);gate.dispose();
+  });
+});
+
+describe('2D movement framebuffer resolution',()=>{
+  function target(deviceRatio=2){
+    let ratio=map2DPixelRatio(deviceRatio),moving=false;
+    const map={getPixelRatio:()=>ratio,isMoving:()=>moving,setPixelRatio:vi.fn((value:number)=>{ratio=value;})};
+    return {map,move:(value:boolean)=>{moving=value;},controller:createMap2DPixelRatioController(map,()=>deviceRatio)};
+  }
+  it('caps only framebuffer resolution and never upsamples low-DPR devices',()=>{
+    expect([.8,1,1.25,1.5,2,3].map(dpr=>map2DPixelRatio(dpr))).toEqual([.8,1,1.25,1.5,1.5,1.5]);
+    expect([.8,1,1.25,2,3].map(dpr=>map2DPixelRatio(dpr,true))).toEqual([.8,1,1,1,1]);
+    for(const dpr of [0,-1,NaN,Infinity])expect(map2DPixelRatio(dpr,true)).toBe(1);
+  });
+  it('changes once for a programmatic flight and once after confirmed rest',()=>{
+    const {map,move,controller}=target();move(true);
+    controller.moveStart();
+    for(let i=0;i<100;i++){controller.moveStart();controller.beforeWheel();expect(controller.restore()).toBe(false);}
+    expect(map.setPixelRatio.mock.calls).toEqual([[1]]);
+    move(false);expect(controller.restore()).toBe(true);expect(controller.restore()).toBe(false);
+    expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.5]]);
+  });
+  it('resizes before native input and never resizes a running drag',()=>{
+    const {map,move,controller}=target();
+    controller.pointerDown(5);expect(map.setPixelRatio.mock.calls).toEqual([[1]]);
+    move(true);controller.moveStart({type:'mousemove'});controller.pointerDown(6);controller.beforeWheel();
+    expect(controller.restore()).toBe(false);expect(map.setPixelRatio).toHaveBeenCalledTimes(1);
+    move(false);controller.pointerUp(5);expect(controller.inputHeld).toBe(true);expect(controller.restore()).toBe(false);
+    controller.pointerUp(6);expect(controller.inputHeld).toBe(false);expect(controller.restore()).toBe(true);
+    expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.5]]);
+  });
+  it('keeps an uncaptured native gesture at its original ratio instead of stopping it',()=>{
+    const {map,move,controller}=target();move(true);
+    controller.moveStart({type:'touchmove'});controller.beforeWheel();controller.pointerDown(7);
+    expect(controller.restore()).toBe(false);expect(map.setPixelRatio).not.toHaveBeenCalled();
+    move(false);controller.pointerUp(7);controller.restore();expect(map.setPixelRatio).not.toHaveBeenCalled();
+  });
+  it('avoids every allocation on devices already at DPR one or below',()=>{
+    for(const dpr of [1,.8]){
+      const {map,move,controller}=target(dpr);
+      controller.beforeWheel();controller.pointerDown(1);controller.pointerUp(1);move(true);controller.moveStart();
+      move(false);controller.restore();controller.restore();expect(map.setPixelRatio).not.toHaveBeenCalled();
+    }
+  });
+  it('guards synchronous resize movement events, including the restore path',()=>{
+    let ratio=1.5,moving=true;const during:boolean[]=[];
+    const map={getPixelRatio:()=>ratio,isMoving:()=>moving,setPixelRatio:vi.fn((value:number)=>{
+      ratio=value;during.push(controller.applying);
+      // Public setPixelRatio emits resize/movement events synchronously. Even
+      // a direct callback must not re-enter it or undo the current transition.
+      controller.moveStart();controller.restore();
+    })};
+    const controller=createMap2DPixelRatioController(map,()=>2);
+    controller.moveStart();moving=false;controller.restore();
+    expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.5]]);expect(during).toEqual([true,true]);
+    expect(controller.applying).toBe(false);
+  });
+  it('reads a changed device ratio at rest and releases held inputs on hide or blur',()=>{
+    let dpr=2,ratio=1.5;
+    const map={getPixelRatio:()=>ratio,isMoving:()=>false,setPixelRatio:vi.fn((value:number)=>{ratio=value;})};
+    const controller=createMap2DPixelRatioController(map,()=>dpr);
+    controller.pointerDown(4);dpr=1.25;expect(controller.restore()).toBe(false);
+    controller.releasePointers();expect(controller.inputHeld).toBe(false);controller.restore();
+    expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.25]]);
+  });
+  it('clears the reentry guard after an engine exception and ignores all work after disposal',()=>{
+    const {map,move,controller}=target();move(true);
+    map.setPixelRatio.mockImplementationOnce(()=>{throw new Error('resize failed');});
+    expect(()=>controller.moveStart()).toThrow('resize failed');expect(controller.applying).toBe(false);
+    controller.moveStart();expect(map.getPixelRatio()).toBe(1);
+    controller.pointerDown(11);controller.dispose();move(false);
+    controller.pointerDown(12);controller.beforeWheel();controller.moveStart();controller.restore();
+    expect(controller.inputHeld).toBe(false);expect(map.setPixelRatio).toHaveBeenCalledTimes(2);
+  });
+  it('keeps independent maps and pointer ownership isolated',()=>{
+    const a=target(),b=target();a.controller.pointerDown(1);
+    expect(a.map.getPixelRatio()).toBe(1);expect(b.map.getPixelRatio()).toBe(1.5);
+    expect(b.controller.pointerUp(1)).toBe(false);b.controller.dispose();
+    expect(a.controller.inputHeld).toBe(true);a.controller.pointerUp(1);a.controller.restore();
+    expect(a.map.getPixelRatio()).toBe(1.5);
   });
 });
