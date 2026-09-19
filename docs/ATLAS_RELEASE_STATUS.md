@@ -1,13 +1,13 @@
 # 전국 지도·부동산 확장 검증 현황
 
-기준일: **2026-09-20 KST**. **[korea-replay.pages.dev](https://korea-replay.pages.dev/)**의 실제 공개 전환과 원격 응답 검증을 완료했습니다. 공개 소스 PR #1·#2·#3은 병합됐습니다. 초기 2D 지도 준비 시간을 통제 조건에서 측정했지만 이동 프레임 목표는 아직 충족하지 못했습니다. **기능을 공개한 릴리스이며 전체 성능 인수 완료판은 아닙니다.** 구현, 수집, 배포, 성능과 복구를 각각 판정하며 기존 3D 자료와 운영 주소는 보존합니다.
+기준일: **2026-09-20 KST**. **[korea-replay.pages.dev](https://korea-replay.pages.dev/)**의 실제 공개 전환과 원격 응답 검증을 완료했습니다. 공개 소스는 PR #5까지 병합됐지만, 대표 주소는 기존 `07e46d75…` 배포와 `e484a6…` artifact를 유지합니다. 추가 최적화 후보는 이동 프레임 기준을 전체 통과하지 못해 **공개 승격을 보류**했습니다. **기능을 공개한 릴리스이며 전체 성능 인수 완료판은 아닙니다.** 구현, 수집, 배포, 성능과 복구를 각각 판정하며 기존 3D 자료와 운영 주소는 보존합니다.
 
 ## 열어 볼 수 있는 소스
 
 - 공개 저장소: <https://github.com/pollmap/korea-replay-atlas>
-- 병합된 구현 PR: [PR #1](https://github.com/pollmap/korea-replay-atlas/pull/1), [PR #2](https://github.com/pollmap/korea-replay-atlas/pull/2), [모바일 저줌 PR #3](https://github.com/pollmap/korea-replay-atlas/pull/3).
-- PR #3 병합 커밋은 `3207a1c1c7e354ef9e3b938dc493126510be8012`입니다. [PR CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35467531431)와 [병합 후 main CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35467743759)의 `web`·`pipeline`이 모두 성공했습니다. 웹 **806개·55파일**, Python **768개·경고 4개**, 타입·린트·프로덕션 빌드·공개 소스/이력 패턴 감사가 포함됩니다.
-- 소스 감사는 305파일과 병합까지의 11커밋에서 비밀정보·개인정보 패턴 검출 0건이었습니다. 자동 패턴 검사만으로 비밀정보 부재나 외부 자료 이용조건을 모두 증명하지는 않습니다. PR #1의 웹 802개·Python 758개, 중간 관련 검사 수는 다른 시점의 결과이며 최신 검사에 더하지 않습니다.
+- 병합된 PR: [PR #1](https://github.com/pollmap/korea-replay-atlas/pull/1), [PR #2](https://github.com/pollmap/korea-replay-atlas/pull/2), [모바일 저줌 PR #3](https://github.com/pollmap/korea-replay-atlas/pull/3), [공개 운영 기록 PR #4](https://github.com/pollmap/korea-replay-atlas/pull/4), [이동 해상도·배포 준비 PR #5](https://github.com/pollmap/korea-replay-atlas/pull/5).
+- PR #5 병합 커밋은 `a4818d12b5889a464f8eec7a0aca9f47ffa4f72a`입니다. [PR CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35470068788)와 [병합 후 main CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35470195554)의 `web`·`pipeline`이 모두 성공했습니다. 웹 **815개·55파일**, Python **819개·경고 4개**, 타입·린트·프로덕션 빌드·공개 소스/이력 패턴 감사가 포함됩니다. 소스 병합과 실제 대표 주소의 앱 버전은 다릅니다.
+- PR #5 직후 소스 감사는 307파일과 병합까지의 15커밋에서 비밀정보·개인정보 패턴 검출 0건이었습니다. 자동 패턴 검사만으로 비밀정보 부재나 외부 자료 이용조건을 모두 증명하지는 않습니다. PR #3의 웹 806개·Python 768개와 PR #1의 웹 802개·Python 758개는 다른 시점의 결과이며 최신 검사에 더하지 않습니다.
 - 무료 계획 workflow도 실제 GitHub에서 실행해 256지역 × 61개월 × 2유형 = 31,232개 작업을 생성했습니다. 계획 생성은 API를 호출하지 않으며 실제 수집 완료와 구분합니다.
 - 대표 주소는 프로젝트 생성만 확인한 상태를 넘어 실제 production 응답까지 검증했습니다. 아래 배포 식별자와 고정 공유 대상을 구분합니다.
 
@@ -62,7 +62,7 @@ production과 공유 대상은 같은 artifact이며 서로 다른 실제 배포
 
 ## 성능·화면 검증의 범위
 
-### Production 전국 2D 지도 준비 시간
+### 현재 production e484의 전국 2D 지도 준비 시간
 
 `final-production-2d-performance.json`의 **21표본**을 재계산했습니다. 최초 진입 10회, 재방문 준비 1회, 재방문 10회이며 준비 1회는 통계에서 제외합니다. 시간은 **navigation 시작 → 지도 idle이며 필요한 타일 로딩 완료**까지입니다. 첫 픽셀 표시나 속도 개선 배율의 측정은 아닙니다.
 
@@ -83,6 +83,20 @@ P95는 정렬한 `ceil(0.95×n)`번째 값인 nearest-rank 방식입니다. 10�
 - 이전 로컬 2D↔3D 20왕복의 43표본은 캔버스 최대 1개·오류 알림 0개였습니다. 서울↔부산과 섬 지역의 44표본에서는 요청 동시 최대 4개를 확인했으나 업로드 병행 이동 P95 37.60ms는 목표 통과 증거가 아닙니다. 이 생명주기·자원 표본을 GPU 메모리나 장시간 누수 검증으로 확대하지 않습니다.
 - 모바일 새 진입의 z5 미만 빈 화면에 대해 육지·시도 z3·4와 패널 여백·선택 해제 상태 전달을 수정해 공개했습니다. 공유 카메라는 보존합니다. 소형 화면·모든 패널 조합의 사용성과 전국 상세 정확성은 계속 검증해야 합니다.
 - **10배 개선, 전국 이동 P95 33ms, 모든 메인 스레드 생성 작업 8ms와 검색 P95는 최종 인수 완료가 아닙니다.** 서로 다른 버전·환경의 결과를 한 배율로 계산하지 않습니다.
+
+### 추가 최적화 미리보기와 승격 보류
+
+추가 후보는 **[2fb35d07.korea-replay.pages.dev](https://2fb35d07.korea-replay.pages.dev/)**이며 artifact는 `c0c3a3a0baee575f6a85dfa584066b1bb121ad20b6fa2ad22fe1b301563959af`, 입력 static bundle은 `00a803e91de88513`입니다. 기존 production과 3D catalog·지도·실거래·데이터 origin이 같습니다. `motion-candidate-remote.json`의 runtime·앱 JS/CSS·index/catalog·정적 404 검사는 통과했습니다. 그러나 **production은 로컬 포장만 완료했고 업로드·승격하지 않았습니다.** 해당 묶음의 `NOT_PROMOTED.json`도 이 상태를 기록합니다. 현재 대표 주소는 위 `07e46d75…` / `e484a6…`를 유지합니다.
+
+| 후보 미리보기 측정 | 결과 |
+|---|---|
+| 초기 준비: cold 10회 / warm 10회, prime 1회 제외 | 중앙값 1,143.9ms / 509.6ms, P95·최대 1,293.0ms / 942.3ms |
+| 서울↔부산 20왕복·40표본 | 마지막 600개 이동 프레임 P95 22.2ms, 창별 P95 최대 38.9ms, **29/40개 창이 33ms 초과** |
+| 실제 캔버스 | 이동 중 1280×720·배율 1 → 정지 후 1920×1080·배율 1.5 |
+
+Radeon 860M·CSS 1280×720·DPR 2·20Mbps/50ms·Balanced/AC, 수집·빌드·업로드·감사 중지 조건입니다. 초기 시간의 정의와 nearest-rank P95는 위와 같습니다. 초기 20회 모두 전경·오류/알림 0·3D 엔진/GLB/지형 요청 0이었습니다. 원시는 `motion-candidate-2d-performance.json`, 이동 기록은 `motion-candidate-city-20-roundtrips.json`입니다. 마지막 창의 개선을 전체 목표 통과로 확대하지 않아 **공개 승격을 보류**합니다. 전체 이동을 합친 P95가 아니며, 현재 production은 이동 중에도 1920×1080이므로 같은 화질의 개선 배율이나 10배 향상을 주장하지 않습니다.
+
+후보 40표본에서 오류/알림 0, 캔버스 1개, 요청 동시 최대 4개였습니다. JS heap은 최대 173,874,297 B·최종 138,652,642 B, 묶음 캐시는 최대·최종 11,139,325 B·75개였습니다. GC 시점이 다른 끝값으로 누수나 메모리 개선을 판정하지 않으며 GPU 메모리 측정도 아닙니다. `motion-candidate-input-and-engine.json`은 위 해상도 복원과 3D↔2D 캔버스 1개·오류 알림 0·2D 지도 오류 0의 표본입니다. 전국 3D 성능이나 모든 기능 검사를 대신하지 않습니다.
 
 ## 배포와 복구
 
