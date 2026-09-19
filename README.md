@@ -4,11 +4,15 @@
 
 지역 거래량 → 지역 비교 → 단지·계약월·면적 → 실거래 차트와 원문 표가 기본 흐름입니다. 거리·면적 측정, 행정경계 전환, 기기 내 즐겨찾기, 공유, 패널 접기를 지원합니다. `F`는 지도 집중, `Esc`는 복귀, `/`는 검색입니다. 회원가입 없이 탐색합니다.
 
-2026-09-20 확장판은 통합 검증 중입니다. 새 Pages 프로젝트 `korea-replay`와 `korea-replay-data`를 확보했으며 기존 공개 3D Worker와 자료는 보존했습니다. [구현·자료·성능 상태](docs/ATLAS_IMPLEMENTATION.md)와 [Pages 배포 절차](docs/PAGES_DEPLOYMENT.md)에서 실제 공개 여부를 구분합니다. 모든 건물의 정확성, 전국 60개월 수집, 10배 성능 개선을 완료했다고 주장하지 않습니다.
+**공개 서비스: [korea-replay.pages.dev](https://korea-replay.pages.dev/)**
+
+2026-09-20 Pages 앱 공개와 원격 응답·버전 고정 공유 검증을 완료했습니다. 전국 2D 지도, 2026-05~09 신고 거래와 기존 3D 전환을 제공합니다. 현행 지역 코드로 수집한 자료이며, 당월은 잠정치입니다. 공식 좌표를 연결한 실거래 단지는 아직 없으므로 거래 이름으로 지도 위치를 추정하지 않습니다.
+
+Radeon 860M·20Mbps/50ms 조건에서 전국 2D 지도 준비 시간은 최초 진입 10회 중앙값 **1,147ms**, 재방문 10회 **535.2ms**였습니다. 서울↔부산 20왕복 후 최근 600개 이동 프레임 P95는 **39.2ms**로 33ms 목표에 미달했습니다. 10배 개선도 입증하지 않았습니다. 이 공개판은 기능을 제공하는 릴리스이며 전체 성능 인수 완료판은 아닙니다. [공개 버전·측정 조건·남은 항목](docs/ATLAS_RELEASE_STATUS.md), [Pages 운영 절차](docs/PAGES_DEPLOYMENT.md)를 확인하세요. 모든 건물의 정확성, 최근 60개 완료월 수집, Pages 롤백 검증은 미완료입니다.
 
 ## 실행
 
-9월 20일 추가 개발: 첫 건물 목록을 4,307노드에서 96노드로 나누고, 도로·시설의 GPU 준비를 장면당 2개로 제한했습니다. 준비 중 도형이 숨김 캐시에서 다음 로딩을 막는 경로도 수정했습니다. 건물 부품 16건과 공식 도시철도 16노선 설정을 반영한 후보의 공개 전환은 별도 검증합니다. [현재 후보와 측정 범위](docs/STREAMING_AND_SUBWAY_EXPANSION.md)
+기존 3D는 첫 건물 목록을 4,307노드에서 96노드로 나누고 도로·시설의 GPU 준비를 장면당 2개로 제한합니다. 건물 부품 16건과 도시철도 16노선 설정의 구현·당시 검증 범위는 [스트리밍과 도시철도 기록](docs/STREAMING_AND_SUBWAY_EXPANSION.md)에 있습니다. 설정된 모든 원천의 연속 수집이나 전국 3D 성능 목표가 검증됐다는 뜻은 아닙니다.
 
 Node.js 24, Python 3.13을 사용해 검증했습니다.
 
@@ -17,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-브라우저에서 `http://127.0.0.1:5173/`을 엽니다. 이 작업 폴더에는 이미 수집한 공개 데이터가 있습니다. 새 체크아웃에는 지도 자료가 없으므로 [검증된 배포 백업 복원](docs/RECOVERY_AND_CLEANUP.md) 또는 아래 전국 데이터 처리를 별도로 수행합니다. 새 수집·재가공을 위한 Python 환경은 다음과 같이 준비합니다.
+브라우저에서 `http://127.0.0.1:5173/`을 엽니다. 대용량 지도 자료는 Git에 포함하지 않으므로 새 체크아웃에는 [검증된 배포 백업 복원](docs/RECOVERY_AND_CLEANUP.md) 또는 아래 전국 데이터 처리가 별도로 필요합니다. 새 수집·재가공을 위한 Python 환경은 다음과 같이 준비합니다.
 
 ```powershell
 python -m venv .venv
@@ -56,7 +60,7 @@ npm run build
 
 테스트용 입력은 `tests/`에만 있습니다. 공개 데이터 폴더에 모의 관측을 적재하지 않습니다. 테스트 통과와 실제 원천 정확성·운영 환경 검증은 별개입니다.
 
-2026-09-19 웹 541개 테스트·38개 파일, Python 394개 검사와 타입·린트·프로덕션 빌드가 통과했습니다. 중앙 브로커 등 새 로컬 코드의 검증과 공개 배포 여부는 구분합니다. 실제 명령·데이터·브라우저 검증 결과와 미완료 항목은 [검증 기록](docs/VALIDATION.md)에 정리했습니다. 공개판의 화면·Worker 전송 결과는 [지도 집중 검증](docs/MAP_FIRST_PERFORMANCE.md), 이전 013966a1 판의 초기 렌더 CPU·라벨 생성 결과는 [당시 라벨 성능 기록](docs/LABEL_RENDERING_PERFORMANCE.md)에 있습니다. 이번 변경의 전경 FPS 개선과 전국 P95 33ms·모든 생성 8ms 달성은 아직 입증하지 못했습니다.
+2026-09-20 [PR #3 병합 후 CI](https://github.com/pollmap/korea-replay-atlas/actions/runs/35467743759)에서 웹 806개·55파일, Python 768개(경고 4개), 타입·린트·프로덕션 빌드·공개 소스/이력 패턴 감사가 통과했습니다. 공개 환경의 최신 검증은 [릴리스 현황](docs/ATLAS_RELEASE_STATUS.md)에 있습니다. 이전 [검증 기록](docs/VALIDATION.md), [지도 집중 검증](docs/MAP_FIRST_PERFORMANCE.md), [라벨 성능 기록](docs/LABEL_RENDERING_PERFORMANCE.md)은 각각 당시 버전과 조건의 결과입니다. 전국 이동 P95 33ms·모든 생성 작업 8ms 달성을 입증한 자료로 합산하지 않습니다.
 
 ## 자료와 배포
 
@@ -64,10 +68,10 @@ npm run build
 - `.local/silver`: 정규화 중간 자료.
 - `.local/audit`: 제외·미연결 기록과 검증 보고서.
 - `public/data`: 공개 가능한 타일·외곽·기록과 버전별 카탈로그.
-- `worker/`: 조회 API와 TAGO 예약 수집기.
-- `migrations/`: D1 수집 대장·호출량·관측·배포 이력.
+- `worker/`: 조회 API와 현재 관측용 비공개 중앙 브로커.
+- `migrations/`: 이전 D1 수집 대장 설계. 현재 무료 Pages 운영의 필수 구성이나 활성화 완료 항목이 아닙니다.
 
-새 확장판은 **Cloudflare Pages 무료 프로젝트 두 개**에 앱·기존 3D 자료와 2D·부동산 자료를 나눠 게시합니다. [Pages REST 전용 절차](docs/PAGES_DEPLOYMENT.md)를 따르며 기존 `npm run deploy`는 레거시 Workers 버전 업로드 명령입니다. 결제 플랜·R2·유료 러너를 활성화하지 않습니다. 자체 코드는 [MIT](LICENSE), 데이터와 외부 라이브러리는 [각 이용조건](THIRD_PARTY_NOTICES.md)을 적용합니다.
+공개판은 **Cloudflare Pages 무료 프로젝트 두 개**에 앱·기존 3D 자료와 2D·부동산 자료를 나눠 게시했습니다. 공개 지도는 개발 노트북을 꺼도 제공되지만, 로컬 수집·재가공의 연속 서버 운영은 아직 완료하지 않았습니다. [Pages REST 전용 절차](docs/PAGES_DEPLOYMENT.md)를 따르며 기존 `npm run deploy`는 레거시 Workers 버전 업로드 명령입니다. 결제 플랜·R2·유료 러너는 활성화하지 않았습니다. 자체 코드는 [MIT](LICENSE), 데이터와 외부 라이브러리는 [각 이용조건](THIRD_PARTY_NOTICES.md)을 적용합니다.
 
 로컬 개발 API는 Worker의 같은 요청 처리 함수를 Node에서 실행합니다. 이 Windows 환경에서 workerd 실행이 EPERM으로 차단되어 도입한 개발용 경로이며, Cloudflare 실제 런타임 검증을 대신하지 않습니다.
 
