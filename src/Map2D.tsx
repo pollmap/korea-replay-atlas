@@ -5,7 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type {Asset,BBox,Catalog,LayerId,Place} from '../shared/contracts';
 import type {LiveTransitSnapshot} from '../shared/live-transit';
 import {QUALITY,type PerformanceSnapshot} from '../shared/map-performance';
-import {createMap2DFetcher,MAP2D_ATTRIBUTION,map2DHeight,map2DKey,map2DLayers,map2DZoom,readFlatCamera,selectMap2DAssets,type FlatCamera} from '../shared/map2d';
+import {createMap2DFetcher,MAP2D_ATTRIBUTION,map2DHeight,map2DKey,map2DLayers,map2DZoom,map2DOverviewPadding,readFlatCamera,selectMap2DAssets,type FlatCamera} from '../shared/map2d';
 import type {Selection} from './App';
 import type {MapHandle} from './MapScene';
 import type {Map2DWorkerRequest,Map2DWorkerResponse} from './map2d-data.worker';
@@ -20,7 +20,7 @@ import {map2DLiveBuses,map2DLiveBusSelection} from './map2d-live';
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
-interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string}|null;vectorPending?:boolean;lightweight:boolean;onSelect:(value:Selection)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
+interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string}|null;vectorPending?:boolean;lightweight:boolean;onSelect:(value:Selection)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {asset:Asset;source:string;layerIds:string[];url:string;record:number;features:number;vertices:number;}
 type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
@@ -38,7 +38,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const element=useRef<HTMLDivElement>(null),mapRef=useRef<LibreMap|null>(null),refreshRef=useRef<(()=>void)|null>(null);
   const latest=useRef(props);latest.current=props;
   useImperativeHandle(ref,()=>({
-    flyTo:(place:Place)=>{const map=mapRef.current;if(!map)return;if(place.id==='korea')map.fitBounds([[124.5,33],[132.15,38.7]],{padding:{top:140,bottom:85,left:60,right:60},duration:700});else map.flyTo({center:[place.lon,place.lat],zoom:map2DZoom(place.lat,place.range,map.getContainer().clientHeight),bearing:0,pitch:0,duration:700});},
+    flyTo:(place:Place,options)=>{const map=mapRef.current;if(!map)return;if(place.id==='korea'){const node=map.getContainer();map.fitBounds([[124.5,33],[132.15,38.7]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,options?.overviewPanelVisible??!!latest.current.overviewPanelVisible,options?.focused??latest.current.focused),duration:700});}else map.flyTo({center:[place.lon,place.lat],zoom:map2DZoom(place.lat,place.range,map.getContainer().clientHeight),bearing:0,pitch:0,duration:700});},
     north:()=>{mapRef.current?.easeTo({bearing:0,duration:450});},
     overhead:()=>{mapRef.current?.easeTo({bearing:0,pitch:0,duration:450});},
     camera:()=>null,
@@ -54,7 +54,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       locale:{'NavigationControl.ZoomIn':'확대','NavigationControl.ZoomOut':'축소','NavigationControl.ResetBearing':'북쪽으로','AttributionControl.ToggleAttribution':'지도 출처'},
       style:{version:8,sources:{},layers:[{id:'map2d-ocean',type:'background',paint:{'background-color':'#bedce5'}},...anchors.map(name=>({id:`map2d-anchor-${name}`,type:'background' as const,paint:{'background-opacity':0}}))]}});}
     catch{downloads.dispose();latest.current.onStatus('2D 지도를 시작하지 못했습니다. 브라우저의 그래픽 가속 상태를 확인해 주세요.');return;}
-    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:{top:140,bottom:85,left:60,right:60},duration:0});map.setPixelRatio(Math.min(devicePixelRatio,1.5));map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
+    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),duration:0});map.setPixelRatio(Math.min(devicePixelRatio,1.5));map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
     let worker:Worker;
     try{worker=new Worker(new URL('./map2d-data.worker.ts',import.meta.url),{type:'module'});}catch{map.remove();mapRef.current=null;downloads.dispose();latest.current.onStatus('2D 공간 처리기를 시작하지 못했습니다.');return;}
     let disposed=false,ready=false,moving=false,indexLoading=false,workerFailed=false,release='',sequence=0,revision=0,deferred=0,errors=0,frames=0,lastMovingFrame:number|null=null;

@@ -4,7 +4,7 @@ import {validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
 import {map2DSourceLayers} from '../src/Map2D';
 import type {Asset,LayerId} from '../shared/contracts';
 import type {GeoCollection} from '../shared/geometry';
-import {createMap2DFetcher,map2DHeight,map2DRoadClass,map2DZoom,prepareMap2DData,readFlatCamera,selectMap2DAssets,selectMap2DFeature} from '../shared/map2d';
+import {createMap2DFetcher,map2DHeight,map2DRoadClass,map2DZoom,map2DOverviewPadding,prepareMap2DData,readFlatCamera,selectMap2DAssets,selectMap2DFeature} from '../shared/map2d';
 import type {Map2DWorkerRequest,Map2DWorkerResponse} from '../src/map2d-data.worker';
 
 const polygon=[[[127.123456789123,36,18],[127.2,36,19],[127.2,36.1,20],[127.123456789123,36,18]],[[127.15,36.01],[127.16,36.01],[127.16,36.02],[127.15,36.01]]];
@@ -22,6 +22,15 @@ const allLayers=Object.fromEntries(['terrain','buildings','infrastructure','rail
 afterEach(()=>{vi.unstubAllGlobals();});
 
 describe('2D source-faithful worker preparation',()=>{
+  it('fits the national view above the mobile analysis sheet and beside the desktop panel',()=>{
+    const phone=map2DOverviewPadding(390,844,true),desktop=map2DOverviewPadding(1280,720,true),focus=map2DOverviewPadding(390,844,false,true);
+    expect(phone.bottom).toBeGreaterThanOrEqual(844*.4);expect(phone.top).toBeGreaterThanOrEqual(205);
+    expect(844-phone.top-phone.bottom).toBeGreaterThan(200);expect(desktop.left).toBeGreaterThan(368);
+    expect(focus.top+focus.bottom).toBeLessThan(phone.top+phone.bottom);
+    const smallPhone=map2DOverviewPadding(320,568,true);
+    expect(smallPhone.top).toBeGreaterThanOrEqual(205);expect(smallPhone.bottom).toBeGreaterThanOrEqual(568*.4);
+    for(const [w,h] of [[320,568],[844,390],[160,160]]){const padding=map2DOverviewPadding(w,h,true);expect(w-padding.left-padding.right).toBeGreaterThan(0);expect(h-padding.top-padding.bottom).toBeGreaterThanOrEqual(64);}
+  });
   it('preserves original ID/coordinates/holes/heights and restores shared attributes only on selection',async()=>{
     const {asset,bytes}=fixture(),prepared=await prepareMap2DData(asset,bytes);
     const render=JSON.parse(new TextDecoder().decode(prepared.bytes)) as GeoCollection;

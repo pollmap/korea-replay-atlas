@@ -22,7 +22,7 @@ import {SceneFrameAudit} from '../shared/scene-frame-audit';
 import {SceneLabelScheduler} from './label-scheduler';
 import {GatedFrameWorkBudget,StaticWorkGate} from './static-work-gate';
 
-export interface MapHandle {flyTo:(place:Place)=>void;north:()=>void;overhead:()=>void;camera:()=>number[]|null;flatCamera?:()=>[number,number,number,number]|null;viewport?:()=>Place|null;}
+export interface MapHandle {flyTo:(place:Place,options?:{overviewPanelVisible:boolean;focused:boolean})=>void;north:()=>void;overhead:()=>void;camera:()=>number[]|null;flatCamera?:()=>[number,number,number,number]|null;viewport?:()=>Place|null;}
 interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialCamera?:number[]|null;lightweight:boolean;onSelect:(value:Selection)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {releaseId:string;asset:Asset;source?:C.GeoJsonDataSource;primitive?:PrimitiveBundle;tileset?:C.Cesium3DTileset;imagery?:C.ImageryLayer;terrain?:C.TerrainProvider;distantOverview?:boolean;}
 const isBatchedGeometry=(asset:Asset)=>asset.format==='geojson'&&asset.source_id!=='natural-earth'&&asset.layer!=='depth';

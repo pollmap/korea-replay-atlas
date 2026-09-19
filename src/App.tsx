@@ -172,7 +172,7 @@ export default function App(){
     return()=>clearInterval(timer);
   },[playing,speed,mode,replayTo]);
   useEffect(()=>{if(mode==='replay'&&replayTo!==null&&instant>=replayTo)setPlaying(false);},[instant,mode,replayTo]);
-  const goTo=useCallback((p:Place)=>{setPlace(p);setQuery('');setSelection(null);mapRef.current?.flyTo(p);},[]);
+  const goTo=useCallback((p:Place)=>{setPlace(p);setQuery('');setSelection(null);mapRef.current?.flyTo(p,{overviewPanelVisible:!focusMode&&mode==='map'&&!menuOpen&&propertyOpen,focused:focusMode});},[focusMode,mode,menuOpen,propertyOpen]);
   const inspect=useCallback((value:Selection|null)=>{setSelection(value);if(value){setMenuOpen(false);setSunOpen(false);setObservationsOpen(false);}},[]);
   const acceptLiveTransit=useCallback((value:LiveTransitSnapshot|null)=>{setLiveTransit(value);setSelection(previous=>previous?.properties?.live?null:previous);},[]);
   const viewInstant=mode==='live'?liveInstant:instant;
@@ -224,7 +224,7 @@ export default function App(){
   const changeView=(view:'2d'|'3d')=>{if(view===mapView)return;const position=mapRef.current?.viewport?.();if(position)setPlace(position);setFlatCamera(null);setSpatialCamera(null);setPerformanceInfo(null);setMapView(view);setMeasurement(EMPTY_MEASUREMENT);if(view==='2d'&&(mode==='sun'||mode==='replay'))switchMode('map');};
   return <div className={`app-shell map-first is-${mapView} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
     {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전을 확인하는 중…'}</div>:<MapErrorBoundary key={mapView}><Suspense fallback={<div className="map-loading">대한민국의 지도를 펼치는 중…</div>}>
-      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo}/>
+      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={!focusMode&&mode==='map'&&!menuOpen&&!selection&&propertyOpen} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
       <a className="brand" href="#" onClick={e=>{e.preventDefault();goTo(PLACES[0]);}} aria-label="대한민국 전체 보기"><span className="brand-symbol">K<span>↗</span></span><span><strong>KOREA REPLAY</strong><small>도시와 부동산을 읽는 전국 지도</small></span></a>

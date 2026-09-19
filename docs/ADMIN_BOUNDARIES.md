@@ -1,10 +1,45 @@
 # 전국 행정경계 원천과 2D 후보
 
-확인일: **2026-09-20 KST**. 전국 시도·시군구와 개략 도로·철도·육지·수역을 MVT/PMTiles 후보로 검증했습니다. 전체 상세 도로·건물 평면·행정동은 후속 범위입니다. 이 문서의 로컬 후보는 공개 배포 완료를 의미하지 않습니다.
+확인일: **2026-09-20 KST**. 전국 시도·시군구와 개략 도로·철도·육지·수역을 MVT/PMTiles로 검증했고, 최신 데이터 미리보기의 새 저줌 파일까지 원격 검수를 마쳤습니다. 전체 상세 도로·건물 평면·행정동은 후속 범위입니다. 데이터 미리보기 공개와 새 Pages 앱 공개는 별도이며 앱은 아직 미공개입니다.
 
 ## 현재 전국 기본 지도 후보
 
-새 육지 보완 후보의 배포 검토 입력은 **`.local/map-tiles-20260920/sgis-land-candidate/publication.json`**입니다. 아래의 기존 후보와 원본은 모두 보존합니다. 이 문서의 후보 생성·로컬 검증은 원격 배포나 GPU 표시 검증과 구분합니다.
+모바일 전국 화면에서 z5 미만으로 진입하면 기존 모든 주제가 minzoom 5 이상이라 바다만 표시되는 오류를 수정한 데이터 입력은 **`.local/map-tiles-20260920/mobile-overview-candidate/publication.json`**입니다. 후보 생성·원격 데이터 읽기·GPU 표시 검증은 각각 구분합니다.
+
+- release: `map2d-55cb24b80a1df376c579`
+- catalog: `data/map-tiles/map2d-55cb24b80a1df376c579/catalog.json`
+- catalog SHA-256: `763bdfb628b2cc27c56e72cd33e94015c47f80b3f405f0ff29459d5c726269ab`
+- **269파일 / 76,495,031 B**. 아래 육지 보완 후보의 비카탈로그 **266파일 전부**를 원래 SHA·크기 그대로 재사용합니다. 기존 z5 이상 타일, 선택 속성, ID, 원천과 기준일은 동일합니다.
+- `land`와 `admin-sido`만 minzoom **3**으로 확장합니다. 새 PMTiles는 **51,530 B + 98,970 B**, 각각 z3·4 타일을 포함하여 128 KiB 목표와 1 MiB 상한을 모두 충족합니다. 나머지 주제의 줌 설정은 변경하지 않습니다.
+- z3·4 모두 육지 **103개 원본 ID**, 시도 **17개 원본 ID + 라벨 17개**를 확인했습니다. 본토·제주·울릉·독도 표본의 ID와 폴리곤 표현이 있고, 더 작은 섬 85개(z3)·84개(z4)는 점 표현을 유지합니다. 낮은 줌의 점은 측량된 해안이나 확대된 섬 폴리곤으로 설명하지 않습니다.
+- 검증: `.local/map-tiles-20260920/mobile-overview-validation-55cb24b80a1df376c579.json`. 실제 TypeScript catalog 계약, 모든 269파일 SHA·크기·의존관계, 266개 재사용 파일과 기존 상세 속성, official JS PMTiles reader 및 Mapbox MVT decode를 통과했습니다.
+
+`pipeline/map_tiles_overview.py`는 **검증된 z5 표시 형상만** 다시 양자화합니다. 269 MB SGIS 원본이나 전국 전체 도형을 다시 처리하지 않습니다. 실제 전국 자료가 각 주제의 단일 z5/27/12 타일 안쪽에 있어, donor 타일 경계나 buffer를 합칠 필요가 없음을 검사했습니다. 경계에 닿는 다른 입력은 자동 합병하지 않고 거부합니다. 시도 경계의 동일 ID·속성·형상 조각 87개 중복은 제거하고 나머지 선을 ID별 다중선으로 묶으며, 기존 라벨점 17개는 각각 한 번 유지합니다. 격자에서 사라지는 짧은 선을 추가 라벨점으로 바꾸지 않습니다.
+
+추가 표시 정점 반올림은 Web Mercator 기준 최대 **432.393 m(z3)**, **216.197 m(z4)**였습니다. 해당 줌의 512 px 타일에서 약 **0.0442 px**이며, 원본 지형의 측량 정확도나 연속 곡선의 오차 상한이 아닙니다. z5까지의 기존 간략화·정수 격자 오차도 계승하고, 작은 부분은 병합·축소될 수 있습니다. 원본 선택 속성은 기존 shard에서 그대로 조회합니다.
+
+추가 실제 z3·4 검사에서 SGIS 폴리곤 17개는 모두 유효하고 서로 겹친 면적은 0이었습니다. 엄격한 GEOS 공유 변 정점 일치 조건은 충족하지 않아 모든 경계의 틈까지 0이라고 주장하지 않습니다. 단일 donor 타일의 clip/buffer 경계 합병은 없으며, 이 검사는 별도 OSM 독도와 SGIS의 기존 원천 중첩을 제외합니다. 증빙은 `.local/map-tiles-20260920/mobile-overview-topology-55cb24b80a1df376c579.json`입니다.
+
+```powershell
+.venv\Scripts\python.exe -m pipeline.map_tiles_overview --baseline .local/map-tiles-20260920/sgis-land-candidate --output .local/map-tiles-20260920/mobile-overview-candidate
+node .local/map-tiles-20260920/verify-mobile-overview.mjs .local/map-tiles-20260920/mobile-overview-candidate .local/map-tiles-20260920/sgis-land-candidate .local/map-tiles-20260920/mobile-overview-validation-55cb24b80a1df376c579.json
+```
+
+두 명령의 출력은 새 경로만 허용합니다. 이미 생성된 위 경로를 다시 쓰거나 이전 후보를 덮어쓰지 않습니다.
+
+## 최신 데이터 미리보기의 원격 검증
+
+실제 데이터 미리보기는 [9009c3fb.korea-replay-data.pages.dev의 atlas manifest](https://9009c3fb.korea-replay-data.pages.dev/data/atlas/atlas-fc1cca5990aca870/manifest.json)입니다. `atlas-fc1cca5990aca870`는 위 지도 `map2d-55cb24b80a1df376c579`와 기존 거래 `property-d1a65c142e75d52a`를 고정합니다. atlas manifest SHA-256은 `31883558a180db6a4db2b080793c930ed0bcc7e1f208e7d8945a9b35e29b55d4`입니다.
+
+2026-09-20 KST 검수에서 **atlas·map catalog·추가 PMTiles 2개, 총 4 GET / 234,868 B / 동시 최대 2개 / 재시도 0회**만 수행했습니다. 네 응답 모두 HTTP 200, 실제 게시 본문과 로컬 stage의 SHA·크기·바이트 일치, CORS `*`, 1년 immutable 캐시 지시자와 content-type 검사를 통과했습니다. 실제 내려받은 PMTiles를 공식 JavaScript reader와 Mapbox decoder로 열어 z3·4마다 육지 103개 ID, 시도 17개 ID·라벨 17개를 확인했습니다. PMTiles 2개의 원격 바이트는 각각 51,530 B·98,970 B입니다.
+
+검증 결과는 `.local/national-visual-20260920/mobile-overview-data-remote.json`, SHA-256은 `9bea0bd73754aa6e7c7317c25223f2e4aef83b9c5f3eb424cd2b3c0ad88daf1e`입니다. 나머지 캐시 재사용 파일 2,060개는 이번에 다시 다운로드하지 않았습니다. 기존 지도·거래와 누락 파일 404 검사는 보존된 이전 `.local/national-visual-20260920/data-pages-remote.json`에 연결하며, 새 origin의 404를 이번 검사에 포함했다고 주장하지 않습니다. `CF-Cache-Status`가 없어 캐시 HIT 성능도 판정하지 않았습니다.
+
+공개 소스 PR #1·#2는 병합됐고 모바일 수정 PR은 준비 중입니다. **새 Pages 앱은 아직 미공개**이며 예정 앱 주소의 성공, GPU·모바일 전체 표시, 최근 60개 완료월 수집, 모든 위치의 정확도, 첫 표시 2초·10배 성능 개선, Pages 롤백 달성을 이 데이터 검사로 대체하지 않습니다. 전체 배포 단계는 [전국 지도·부동산 확장 검증 현황](ATLAS_RELEASE_STATUS.md)에 기록합니다.
+
+## 육지 보완 후보 — 보존
+
+직전 육지 보완 후보는 **`.local/map-tiles-20260920/sgis-land-candidate/publication.json`**입니다. 아래의 기존 후보와 원본도 모두 보존합니다.
 
 - release: `map2d-f882deab7b81016f2b61`
 - catalog: `data/map-tiles/map2d-f882deab7b81016f2b61/catalog.json`
@@ -82,7 +117,7 @@ SGIS는 [공식 이용 안내](https://sgis.mods.go.kr/view/pss/dataProvdIntrcn)
 
 | 수준 | DBF 행 수 | SHX 도형 색인 수 | 원본 코드·이름 필드 | 현재 범위 |
 |---|---:|---:|---|---|
-| 시도 | 17 | 17 | `SIDO_CD`, `SIDO_NM` | z5~9 MVT·선택 속성 후보 완료 |
+| 시도 | 17 | 17 | `SIDO_CD`, `SIDO_NM` | z3~9 MVT·선택 속성 후보 완료. z3~4는 z5 표시 정밀도 계승 |
 | 시군구 | 252 | 252 | `SIGUNGU_CD`, `SIGUNGU_NM` | z8~11 MVT·선택 속성 후보 완료 |
 | 읍면동 | 3,559 | 3,559 | `ADM_CD`, `ADM_NM` | 원본 확보·속성/색인 대조. 전체 도형 가공은 아직 미수행 |
 
@@ -138,7 +173,7 @@ MVT 인코딩 뒤 매 타일을 다시 디코드해 포함하기로 한 stable I
 저장소 루트에서 실행합니다. 기존 후보 디렉터리가 있으면 새 이름을 사용해야 하며 덮어쓰지 않습니다.
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests/test_admin_boundaries.py tests/test_map_tiles.py tests/test_map_tiles_publication.py tests/test_map_tiles_land.py -q
+.venv\Scripts\python.exe -m pytest tests/test_admin_boundaries.py tests/test_map_tiles.py tests/test_map_tiles_publication.py tests/test_map_tiles_land.py tests/test_map_tiles_overview.py -q
 npm exec vitest run tests/map-tiles.test.ts -- --maxWorkers=2
 .venv\Scripts\python.exe -m pipeline.map_tiles --proof --levels sido,sigungu --output .local/map-tiles-20260920/new-seoul-proof
 ```
@@ -151,7 +186,7 @@ npm exec vitest run tests/map-tiles.test.ts -- --maxWorkers=2
 
 전국 후보는 `--proof`를 제외합니다. `--basemap`은 이미 게시된 개략 도로·철도와 전국 land/water만 우선 사용하며, 전체 상세 도로·건물 평면을 포함한 후보와 구분합니다. 입력·알고리즘 해시별 SQLite/RTree 작업 색인은 `.local/map-tiles-20260920/work`에 남아 중단 후 재사용됩니다. 기존 산출물을 덮어쓰지 않습니다.
 
-현재 관련 Python **50개**가 통과했습니다. 이전 프런트 계약 검증의 TypeScript **11개**, 전체 typecheck·관련 파일 lint 통과 기록도 유지됩니다. 이번 육지 보완은 프런트 파일을 변경하지 않았고 실제 새 후보를 기존 JS 계약으로 다시 검사했습니다. 이는 전체 프로젝트의 최종 검사 수가 아닙니다. 검사에는 공식 Python writer→공식 JavaScript PMTiles reader의 실제 바이너리 호환, 해시 오류·취소·공유 요청·캐시 제한, 모든 선택 속성 복원, 공간 조회·원본 ID 중복 조각 보존, 읽기 전용 체크포인트 재사용, 정수 격자에서 퇴화한 폴리곤의 보존과 조기 후보 승격 제한이 포함됩니다.
+현재 관련 Python **60개**가 통과했습니다. 이전 프런트 계약 검증의 TypeScript **11개**, 전체 typecheck·관련 파일 lint 통과 기록도 유지됩니다. 이번 육지·저줌 보완은 프런트 파일을 변경하지 않았고 실제 새 후보를 기존 JS 계약으로 다시 검사했습니다. 이는 전체 프로젝트의 최종 검사 수가 아닙니다. 검사에는 공식 Python writer→공식 JavaScript PMTiles reader의 실제 바이너리 호환, 해시 오류·취소·공유 요청·캐시 제한, 모든 선택 속성 복원, 공간 조회·원본 ID 중복 조각 보존, 읽기 전용 체크포인트 재사용, 정수 격자에서 퇴화한 폴리곤의 보존, 저줌 라벨 중복 방지와 조기 후보 승격 제한이 포함됩니다.
 
 64자리 표시 키를 사용한 최초 서울 실험 `.local/map-tiles-20260920/seoul-density-proof.json`에서 건물 z12(30,152피처), z13(14,612피처)는 decoded tile 1 MiB 상한을 넘겨 실패했습니다. z14(4,376피처)는 gzip 246,259 B로 모든 ID를 유지했습니다. 이후 16자리 표시 키가 도입됐으므로 이를 현 정책의 z13 실패 증거로 확대하지 않습니다. 전국 건물 후보의 현재 시작 줌 설정은 14이며 모든 전국 타일이 통과한 상태는 아닙니다. 상한을 임의로 올리지 않고 실제 밀도를 검증해야 합니다.
 
@@ -161,4 +196,4 @@ npm exec vitest run tests/map-tiles.test.ts -- --maxWorkers=2
 - 법정동과 행정동의 연계는 기준시점이 맞는 공식 연계표를 확보한 뒤 별도 계약으로 구현해야 합니다.
 - 2025-06-30 이후 개편은 최신 원천 릴리스로 갱신해야 하며 현재 명칭을 원본 기록에 임의 덮어쓰지 않습니다.
 - 도로·시설·건물의 정식 지번 주소는 별도 공식 주소 자료의 정확한 연결 없이는 채우지 않습니다.
-- 공개 포인터·브라우저·빌드·배포·Git·키는 변경하지 않았습니다.
+- 이 경계 생성·읽기 검증 작업에서는 공개 포인터·브라우저·앱 빌드·Git·키를 변경하지 않았습니다. 루트가 수행한 불변 데이터 업로드의 읽기 검증만 위에 기록했고, 새 앱의 공개 전환은 별도입니다.
