@@ -69,6 +69,8 @@ node scripts/pages-api.mjs verify .local/pages-release/<data-stage>/receipt.json
 
 실제 반환 URL과 배포 ID를 stage 밖으로 추정하지 않습니다. 업로드 성공 응답은 `remote-deployment-<id>.json`에 기록하며, 서비스 응답 확인은 별도입니다.
 
+업로드는 동시 2개 버킷으로 제한합니다. 각 버킷의 업로드 성공 응답을 받은 뒤 **그 버킷의 정확한 해시만** `upsert-hashes`로 등록하고 진행률을 기록합니다. 등록에 실패하거나 응답이 불명확하면 완료로 세지 않습니다. 실패 후 새 버킷을 시작하지 않고 진행 중인 두 작업을 정리한 뒤 종료합니다. 재시작은 전체 후보 해시에 대한 서버의 `check-missing` 결과로 판단하며, 누적 진행 건수로 과거 성공 파일을 추정하지 않습니다. 마지막 전체 해시 등록과 배포 POST 무재시도 원칙도 유지합니다. 이는 재업로드를 줄이기 위한 보존 절차이며 영구 백업은 아닙니다. [공식 등록 API](https://developers.cloudflare.com/api/resources/pages/subresources/assets/methods/upsert_hashes/)
+
 ## Runtime v2와 두 단계 앱 게시
 
 `shared/runtime-v2.ts`가 다음을 검증합니다.
@@ -122,4 +124,4 @@ MIT는 자체 코드만 적용하고 자료·타사 라이선스는 [고지](../
 
 ## 아직 필요한 원격 증거
 
-Pages 두 프로젝트의 실제 생성 응답, 앱/데이터 preview URL, multipart Worker Service binding 동작, production 승격, v2 공유와 rollback, 정리된 공개 Git PR/merge는 이후 실행 결과로 이 문서에 추가합니다.
+Pages 두 프로젝트를 생성했고 데이터 후보 `bec652ee.korea-replay-data.pages.dev`의 manifest·CORS·404와 표본 타일·실거래 해시를 확인했습니다. 공개 GitHub PR #1도 병합됐습니다. 앱 preview, multipart Worker Service binding 동작, production 승격, v2 공유와 rollback은 추가 원격 검증이 필요합니다. 최신 범위와 증거는 [검증 현황](ATLAS_RELEASE_STATUS.md)에 기록합니다.

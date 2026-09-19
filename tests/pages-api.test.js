@@ -3,7 +3,7 @@ import {mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {createPagesApi,createPagesAssetSession,pagesAssetHash,workerBundle,verifyPagesRemote} from '../scripts/pages-api.mjs';
+import {createPagesApi,createPagesAssetSession,pagesAssetHash,workerBundle,verifyPagesRemote,uploadPagesBuckets} from '../scripts/pages-api.mjs';
 import {verifyPagesStage} from '../scripts/pages-release.mjs';
 vi.mock('../scripts/pages-release.mjs',async importOriginal=>{
   const actual=await importOriginal();return {...actual,verifyPagesStage:vi.fn(actual.verifyPagesStage)};
@@ -12,6 +12,30 @@ const credentials={accountId:'a'.repeat(32),token:'fixture-not-a-real-credential
 const ok=result=>Response.json({success:true,result});
 const remoteRoots=[],previewOrigin='https://1234abcd.korea-replay.pages.dev',publicOrigin='https://korea-replay.pages.dev';
 const fixtureData={origin:'https://abcd1234.korea-replay-data.pages.dev',manifest_path:'/data/atlas/test/manifest.json',manifest_sha256:'b'.repeat(64)};
+describe('interrupted Pages uploads',()=>{
+  const buckets=['a','b','c','d'].map(key=>[{key}]);
+  it('registers each accepted bucket before counting it and permits server-side reuse',async()=>{
+    const retained=new Set(),events=[],progress=[];
+    const assets={upload:async items=>{events.push('upload:'+items[0].key);},retain:async hashes=>{events.push('retain:'+hashes[0]);hashes.forEach(hash=>retained.add(hash));}};
+    const uploaded=await uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries,onProgress:value=>{expect(retained.size).toBeGreaterThanOrEqual(value.files);progress.push(value);}});
+    expect(uploaded).toBe(4);expect(progress.at(-1).files).toBe(4);
+    for(const key of retained)expect(events.indexOf('upload:'+key)).toBeLessThan(events.indexOf('retain:'+key));
+    expect(buckets.flat().filter(entry=>!retained.has(entry.key))).toEqual([]);
+  });
+  it('settles the other accepted bucket and stops new work after a rejected upload',async()=>{
+    let release;const waiting=new Promise(resolve=>{release=resolve;}),retained=[],started=[],progress=[];
+    const assets={upload:async items=>{const key=items[0].key;started.push(key);if(key==='a')throw new Error('upload rejected');await waiting;},retain:async hashes=>{retained.push(...hashes);}};
+    let settled=false;
+    const result=uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries,onProgress:value=>progress.push(value)}).then(()=>null,error=>error).finally(()=>{settled=true;});
+    await new Promise(resolve=>setTimeout(resolve,0));expect(settled).toBe(false);release();
+    expect((await result).message).toBe('upload rejected');expect(started).toEqual(['a','b']);expect(retained).toEqual(['b']);expect(progress.at(-1).files).toBe(1);
+  });
+  it('does not count an ambiguous registration as confirmed or retry it locally',async()=>{
+    const progress=[],upload=vi.fn(async()=>{}),retain=vi.fn(async()=>{throw new Error('registration uncertain');});
+    await expect(uploadPagesBuckets({buckets:buckets.slice(0,1),assets:{upload,retain},loadItems:async entries=>entries,onProgress:value=>progress.push(value)})).rejects.toThrow('registration uncertain');
+    expect(progress).toEqual([]);expect(upload).toHaveBeenCalledTimes(1);expect(retain).toHaveBeenCalledTimes(1);
+  });
+});
 afterEach(async()=>{
   vi.restoreAllMocks();
   vi.mocked(verifyPagesStage).mockReset();
