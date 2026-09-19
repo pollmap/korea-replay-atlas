@@ -2,6 +2,10 @@ import json
 import errno
 import os
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
+from types import SimpleNamespace
+import time
 import pytest
 from pipeline import static_release as release
 from pipeline.core import atomic_json,digest
@@ -427,3 +431,127 @@ def test_incomplete_hardlinked_target_is_rejected_without_truncating_its_other_n
     with pytest.raises(ValueError,match='Existing staged file'):release.stage(plan,output=output,worker_dir=worker,reuse_bundle=bundle)
     assert target.read_bytes()==origin.read_bytes()==b'fixture data must survive'
     assert os.path.samefile(origin,target)
+
+
+def test_reuse_budget_charges_new_payload_only_and_retains_30gib(fixture,monkeypatch):
+    _,_,client,worker,output=fixture
+    (client/'large-static.bin').write_bytes(b'a'*(1024*1024))
+    plan,first,bundle,before=staged_fixture(fixture)
+    free=release.DISK_RESERVE_BYTES+64*1024
+    assert free < release.DISK_RESERVE_BYTES+plan['bytes']
+    assert release.DISK_RESERVE_BYTES==30*1024**3
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=free))
+    result=release.stage(plan,output=output,worker_dir=worker,reuse_bundle=bundle)
+    assert result['bundle_id']!=first['bundle_id']
+    assert result['staging']['copied_files']==0
+    assert result['staging']['linked_files']==len(plan['files'])
+    assert os.path.samefile(Path(result['bundle'])/'client/large-static.bin',bundle/'client/large-static.bin')
+    assert {p.relative_to(bundle).as_posix():p.read_bytes() for p in bundle.rglob('*') if p.is_file()}==before
+
+
+def test_new_asset_bytes_cannot_spend_reserved_space_before_stage_creation(fixture,monkeypatch):
+    base,input_path,client,worker,output=fixture
+    _,first,bundle,before=staged_fixture(fixture)
+    (client/'new-static.bin').write_bytes(b'b'*(1024*1024))
+    plan=release.prepare(input_path,client_dir=client,base=base,output=output)
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=release.DISK_RESERVE_BYTES+64*1024))
+    with pytest.raises(ValueError,match='30 GiB disk reserve'):
+        release.stage(plan,output=output,worker_dir=worker,reuse_bundle=bundle)
+    assert list((output/'bundles').iterdir())==[bundle]
+    assert json.loads((output/'static-stage.json').read_bytes())==first
+    assert {p.relative_to(bundle).as_posix():p.read_bytes() for p in bundle.rglob('*') if p.is_file()}==before
+
+
+def test_cross_volume_assets_are_budgeted_as_copies_before_attempting_links(fixture,monkeypatch):
+    _,_,client,worker,output=fixture
+    (client/'large-static.bin').write_bytes(b'c'*(1024*1024))
+    plan,first,bundle,_=staged_fixture(fixture)
+    monkeypatch.setattr(release,'_same_volume',lambda source,device:False)
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=release.DISK_RESERVE_BYTES+64*1024))
+    monkeypatch.setattr(release.os,'link',lambda *args,**kwargs:pytest.fail('Insufficient cross-volume copy budget must fail first'))
+    with pytest.raises(ValueError,match='30 GiB disk reserve'):
+        release.stage(plan,output=output,worker_dir=worker,reuse_bundle=bundle)
+    assert list((output/'bundles').iterdir())==[bundle]
+    assert json.loads((output/'static-stage.json').read_bytes())==first
+
+
+def test_failed_hardlink_rechecks_copy_budget_without_truncating_prior_data(fixture,monkeypatch):
+    _,_,client,worker,output=fixture
+    (client/'large-static.bin').write_bytes(b'd'*(1024*1024))
+    plan,first,bundle,before=staged_fixture(fixture)
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=release.DISK_RESERVE_BYTES+64*1024))
+    def failed_link(*args,**kwargs):raise OSError(errno.EPERM,'fixture unsupported hardlinks')
+    monkeypatch.setattr(release.os,'link',failed_link)
+    with pytest.raises(ValueError,match='30 GiB disk reserve'):
+        release.stage(plan,output=output,worker_dir=worker,reuse_bundle=bundle)
+    incomplete=next(p for p in (output/'bundles').iterdir() if p!=bundle)
+    assert not (incomplete/'client/large-static.bin').exists()
+    assert not (incomplete/'receipt.json').exists()
+    assert json.loads((output/'static-stage.json').read_bytes())==first
+    assert {p.relative_to(bundle).as_posix():p.read_bytes() for p in bundle.rglob('*') if p.is_file()}==before
+
+
+def test_four_fallback_copies_cannot_spend_the_same_free_bytes(tmp_path,monkeypatch):
+    source=tmp_path/'source.bin';source.write_bytes(b'e'*100)
+    sha=digest(source);disk=release._StageDiskBudget(tmp_path)
+    state={'free':release.DISK_RESERVE_BYTES+250,'active':0,'peak':0};state_lock=Lock();start=Barrier(4)
+    original=release._copy_new
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=state['free']))
+    def tracked_copy(*args):
+        with state_lock:
+            state['active']+=1;state['peak']=max(state['peak'],state['active'])
+        try:
+            time.sleep(.01)
+            original(*args)
+            with state_lock:state['free']-=100
+        finally:
+            with state_lock:state['active']-=1
+    monkeypatch.setattr(release,'_copy_new',tracked_copy)
+    def run(index):
+        start.wait()
+        try:disk.copy(source,tmp_path/f'copy-{index}.bin',100,sha);return True
+        except ValueError as error:
+            assert '30 GiB disk reserve' in str(error)
+            return False
+    with ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(run,range(4)))
+    assert results.count(True)==2 and results.count(False)==2
+    assert state['peak']==1 and state['free']==release.DISK_RESERVE_BYTES+50
+    assert len(list(tmp_path.glob('copy-*.bin')))==2
+
+
+def test_metadata_and_operational_pointer_each_recheck_current_space(tmp_path,monkeypatch):
+    disk=release._StageDiskBudget(tmp_path)
+    target=tmp_path/'receipt.json';pointer=tmp_path/'static-stage.json'
+    atomic_json(pointer,{'preserve':'old'})
+    old=pointer.read_bytes()
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=release.DISK_RESERVE_BYTES+1))
+    with pytest.raises(ValueError,match='30 GiB disk reserve'):disk.write(target,b'new metadata')
+    with pytest.raises(ValueError,match='30 GiB disk reserve'):disk.pointer(pointer,{'new':'release'})
+    assert not target.exists() and pointer.read_bytes()==old
+    assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_metadata_failure_after_assets_does_not_mark_a_bundle_complete(fixture,monkeypatch):
+    _,_,_,worker,output=fixture
+    plan,first,bundle,before=staged_fixture(fixture)
+    state={'free':release.DISK_RESERVE_BYTES+1024*1024}
+    monkeypatch.setattr(release.shutil,'disk_usage',lambda path:SimpleNamespace(free=state['free']))
+    original=release._copy_new
+    def changed_free_space(source,target,size,sha):
+        original(source,target,size,sha)
+        if target.parent.name=='worker':state['free']=release.DISK_RESERVE_BYTES-1
+    monkeypatch.setattr(release,'_copy_new',changed_free_space)
+    with pytest.raises(ValueError,match='30 GiB disk reserve'):
+        release.stage(plan,output=output,worker_dir=worker,reuse_bundle=bundle)
+    incomplete=next(p for p in (output/'bundles').iterdir() if p!=bundle)
+    assert not (incomplete/'receipt.json').exists()
+    assert json.loads((output/'static-stage.json').read_bytes())==first
+    assert {p.relative_to(bundle).as_posix():p.read_bytes() for p in bundle.rglob('*') if p.is_file()}==before
+
+
+def test_concurrently_grown_source_cannot_write_beyond_checked_copy_size(tmp_path):
+    source=tmp_path/'growing.bin';target=tmp_path/'partial.bin'
+    source.write_bytes(b'0123456789')
+    with pytest.raises(ValueError,match='Source changed while copying'):
+        release._copy_new(source,target,3,'0'*64)
+    assert target.read_bytes()==b'012' and source.read_bytes()==b'0123456789'

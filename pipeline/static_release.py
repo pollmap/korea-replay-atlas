@@ -14,6 +14,7 @@ import os
 import re
 from pathlib import Path
 import shutil
+from threading import Lock
 from .core import ROOT, PUBLIC, LOCAL, atomic_json, digest, now
 from .geometry_budget import verify_geometry_budgets
 from .building_counts import building_count_contract
@@ -21,6 +22,7 @@ from .recovery_bundle import broker_deployment_contract, no_links, read_json, re
 
 MAX_FILES = 20_000
 MAX_FILE_BYTES = 24 * 1024 * 1024
+DISK_RESERVE_BYTES = 30 * 1024**3
 NOT_FOUND = '<!doctype html><html lang="ko"><meta charset="utf-8"><title>자료 없음</title><body>요청한 자료를 찾을 수 없습니다.</body></html>'
 
 
@@ -306,7 +308,13 @@ def _copy_new(source, target, size, sha):
     no_links(source);no_links(target)
     target.parent.mkdir(parents=True,exist_ok=True)
     with source.open('rb') as incoming,target.open('xb') as outgoing:
-        shutil.copyfileobj(incoming,outgoing,1024*1024)
+        remaining=size
+        while remaining:
+            chunk=incoming.read(min(remaining,1024*1024))
+            if not chunk:raise ValueError('Source changed while copying: '+str(source))
+            outgoing.write(chunk);remaining-=len(chunk)
+        # A concurrently grown source must not allocate beyond the checked budget.
+        if incoming.read(1):raise ValueError('Source changed while copying: '+str(source))
     _verified_file(target,size,sha,'Source changed while copying')
 
 
@@ -320,6 +328,48 @@ def _write_new(target, content):
 
 def _json_bytes(value):
     return json.dumps(value,ensure_ascii=False,separators=(',',':'),allow_nan=False).encode()
+
+
+class _StageDiskBudget:
+    """Serialize allocating writes so four materializers cannot spend the same free space."""
+    def __init__(self, volume_path):
+        self.volume_path=volume_path
+        self.lock=Lock()
+
+    def require(self, new_bytes):
+        if shutil.disk_usage(self.volume_path).free < DISK_RESERVE_BYTES+new_bytes:
+            raise ValueError('Static staging would consume the 30 GiB disk reserve')
+
+    def copy(self, source, target, size, sha):
+        with self.lock:
+            self.require(size)
+            _copy_new(source,target,size,sha)
+
+    def link(self, source, target):
+        with self.lock:
+            self.require(0)
+            no_links(source);no_links(target)
+            target.parent.mkdir(parents=True,exist_ok=True)
+            os.link(source,target,follow_symlinks=False)
+
+    def write(self, target, content):
+        with self.lock:
+            if _existing_file(target,len(content),hashlib.sha256(content).hexdigest()):return
+            self.require(len(content))
+            _write_new(target,content)
+
+    def pointer(self, target, value):
+        with self.lock:
+            content=_json_bytes(value);no_links(target)
+            if target.exists() and target.read_bytes()==content:return
+            # atomic_json needs space for the entire temporary file while the old
+            # operational pointer still exists. Its old size is already allocated.
+            self.require(len(content))
+            atomic_json(target,value)
+
+
+def _same_volume(source, device):
+    return source.stat().st_dev==device
 
 
 def _verified_reuse_bundle(path):
@@ -423,27 +473,57 @@ def stage(plan, *, output=LOCAL/'deploy', worker_dir=ROOT/'dist'/'korea_replay',
         target_names.add(name.casefold())
     if len(target_names)!=plan['count'] or len(target_names)>MAX_FILES:raise ValueError('Invalid final static file count')
     no_links(destination)
+    volume=destination
+    while not volume.exists():volume=volume.parent
+    disk=_StageDiskBudget(volume);device=volume.stat().st_dev
+    catalog_source=Path(plan['catalog_path']);catalog_size=catalog_source.stat().st_size
+    header_bytes=headers.encode();not_found_bytes=NOT_FOUND.encode()
+    verification=[{'target':e['target'],'sha256':e['sha256'],'bytes':e['bytes']} for e in plan['files']]
+    verification.extend([
+        {'target':'data/catalog.json','sha256':plan['catalog_hash'],'bytes':catalog_size},
+        {'target':'_headers','sha256':hashlib.sha256(header_bytes).hexdigest(),'bytes':len(header_bytes)},
+        {'target':'404.html','sha256':hashlib.sha256(not_found_bytes).hexdigest(),'bytes':len(not_found_bytes)},
+    ])
+    generated=[(client/'_headers',header_bytes),(client/'404.html',not_found_bytes),
+               (destination/'wrangler.json',_json_bytes(config)),
+               (destination/'asset-manifest.json',_json_bytes(verification))]
+    planned_copy_bytes=0
+    for entry in plan['files']:
+        if _existing_file(client/entry['target'],entry['bytes'],entry['sha256']):continue
+        previous=old_assets.get(entry['target'])
+        if (previous and previous['sha256']==entry['sha256'] and previous['bytes']==entry['bytes']
+            and _same_volume(reused/'client'/entry['target'],device)):continue
+        planned_copy_bytes+=entry['bytes']
+    for source,target,size,sha in [(catalog_source,client/'data/catalog.json',catalog_size,plan['catalog_hash']),
+        *[(Path(e['path']),destination/e['target'],Path(e['path']).stat().st_size,e['sha256']) for e in worker_entries]]:
+        if not _existing_file(target,size,sha):planned_copy_bytes+=size
+    for target,content in generated:
+        if not _existing_file(target,len(content),hashlib.sha256(content).hexdigest()):planned_copy_bytes+=len(content)
+    # Matching same-volume immutable assets cost directory entries, not another
+    # complete data payload. Unexpected hardlink failures are guarded individually.
+    # Final receipt/pointer sizes become known later and have separate write checks.
+    disk.require(planned_copy_bytes)
+    print(json.dumps({'stage':'static-stage-space','planned_new_bytes':planned_copy_bytes,
+                      'reserve_bytes':DISK_RESERVE_BYTES},ensure_ascii=False),flush=True)
     client.mkdir(parents=True,exist_ok=True)
-    if shutil.disk_usage(client).free < plan['bytes']+30*1024**3:
-        raise ValueError('Static staging would consume the 30 GiB disk reserve')
     def materialize(entry):
         target=client/entry['target'];source=Path(entry['path'])
         _verified_file(source,entry['bytes'],entry['sha256'],'Source changed after preparation')
         if _existing_file(target,entry['bytes'],entry['sha256']):return 'resumed',entry['bytes']
         previous=old_assets.get(entry['target'])
-        if previous and previous['sha256']==entry['sha256'] and previous['bytes']==entry['bytes']:
+        if (previous and previous['sha256']==entry['sha256'] and previous['bytes']==entry['bytes']
+            and _same_volume(reused/'client'/entry['target'],device)):
             origin=reused/'client'/entry['target'];no_links(origin);no_links(target)
-            target.parent.mkdir(parents=True,exist_ok=True)
-            try:os.link(origin,target,follow_symlinks=False)
+            try:disk.link(origin,target)
             except FileExistsError:raise ValueError('Staged target appeared while linking: '+str(target)) from None
             except OSError:
                 # EXDEV, unsupported links or permissions: create a separate new
                 # copy, preserving the old bundle and any partial target on error.
-                _copy_new(source,target,entry['bytes'],entry['sha256'])
+                disk.copy(source,target,entry['bytes'],entry['sha256'])
                 return 'copied',entry['bytes']
             _verified_file(target,entry['bytes'],entry['sha256'],'Reused static file changed while linking')
             return 'linked',entry['bytes']
-        _copy_new(source,target,entry['bytes'],entry['sha256'])
+        disk.copy(source,target,entry['bytes'],entry['sha256'])
         return 'copied',entry['bytes']
     staging={kind:0 for kind in ('linked_files','linked_bytes','copied_files','copied_bytes','resumed_files','resumed_bytes')}
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -451,25 +531,24 @@ def stage(plan, *, output=LOCAL/'deploy', worker_dir=ROOT/'dist'/'korea_replay',
             staging[kind+'_files']+=1;staging[kind+'_bytes']+=size
             if index%1000==0 or index==len(plan['files']):
                 print(json.dumps({'stage':'static-stage','done':index,'total':len(plan['files']),**staging}),flush=True)
-    catalog_source=Path(plan['catalog_path']);catalog_size=catalog_source.stat().st_size
     _verified_file(catalog_source,catalog_size,plan['catalog_hash'],'Catalog changed after preparation')
     if not _existing_file(client/'data/catalog.json',catalog_size,plan['catalog_hash']):
-        _copy_new(catalog_source,client/'data/catalog.json',catalog_size,plan['catalog_hash'])
-    _write_new(client/'_headers',headers.encode());_write_new(client/'404.html',NOT_FOUND.encode())
+        disk.copy(catalog_source,client/'data/catalog.json',catalog_size,plan['catalog_hash'])
+    disk.write(client/'_headers',header_bytes);disk.write(client/'404.html',not_found_bytes)
     actual={p.relative_to(client).as_posix() for p in tree_files(client)}
     if actual!={e['target'] for e in plan['files']}|{'data/catalog.json','_headers','404.html'}:
         raise ValueError('Final bundle has unexpected static files')
     for entry in worker_entries:
         target=destination/safe_relative(entry['target']);source=Path(entry['path']);size=source.stat().st_size
         _verified_file(source,size,entry['sha256'],'Worker changed while staging')
-        if not _existing_file(target,size,entry['sha256']):_copy_new(source,target,size,entry['sha256'])
+        if not _existing_file(target,size,entry['sha256']):disk.copy(source,target,size,entry['sha256'])
     if {p.relative_to(destination).as_posix() for p in tree_files(destination/'worker')}!={e['target'] for e in worker_entries}:
         raise ValueError('Final bundle has unexpected Worker files')
-    _write_new(destination/'wrangler.json',_json_bytes(config))
-    verification=[{'target':e['target'],'sha256':e['sha256'],'bytes':e['bytes']} for e in plan['files']]
-    verification.extend({'target':name,'sha256':digest(client/name),'bytes':(client/name).stat().st_size}
-                        for name in ['data/catalog.json','_headers','404.html'])
-    _write_new(destination/'asset-manifest.json',_json_bytes(verification))
+    disk.write(destination/'wrangler.json',_json_bytes(config))
+    for entry in verification:
+        if entry['target'] in ('data/catalog.json','_headers','404.html'):
+            _verified_file(client/entry['target'],entry['bytes'],entry['sha256'],'Generated metadata changed while staging')
+    disk.write(destination/'asset-manifest.json',_json_bytes(verification))
     receipt={**{k:v for k,v in plan.items() if k!='files'},'count':len(actual),'bundle':str(destination.resolve()),
              'config':str((destination/'wrangler.json').resolve()),'config_hash':digest(destination/'wrangler.json'),
              'manifest_hash':digest(destination/'asset-manifest.json'),'worker_files':worker_entries,
@@ -489,8 +568,8 @@ def stage(plan, *, output=LOCAL/'deploy', worker_dir=ROOT/'dist'/'korea_replay',
             raise ValueError('Archived bundle Worker receipt does not match the staged release')
         receipt=prior
     else:
-        _write_new(archive,_json_bytes(receipt))
-    atomic_json(output/'static-stage.json',receipt)
+        disk.write(archive,_json_bytes(receipt))
+    disk.pointer(output/'static-stage.json',receipt)
     return receipt
 
 

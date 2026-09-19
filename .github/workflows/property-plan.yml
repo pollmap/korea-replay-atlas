@@ -5,9 +5,10 @@ on:
       regions:
         description: Checked-in official legal-code registry JSON path
         required: true
+        default: 'config/molit-legal-region-registry.json'
         type: string
       months:
-        description: Number of historical months, maximum 61
+        description: Total months including current month, maximum 61
         default: '61'
         type: string
 permissions:
@@ -27,25 +28,14 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.13'
-      - run: python -m pip install -r requirements.lock.txt
       - name: Validate paths and write plan only
         env:
           REGISTRY_INPUT: ${{ inputs.regions }}
           MONTHS_INPUT: ${{ inputs.months }}
         run: |
           python - <<'PY'
-          import os, pathlib, subprocess
-          root = pathlib.Path.cwd().resolve()
-          registry = (root / os.environ['REGISTRY_INPUT']).resolve()
-          if not registry.is_relative_to(root / 'config') or not registry.is_file() or registry.suffix != '.json':
-              raise SystemExit('Use a verified registry JSON inside config/')
-          months = int(os.environ['MONTHS_INPUT'])
-          if not 1 <= months <= 61:
-              raise SystemExit('Months must be 1..61')
-          output = root / '.local' / 'property-plan-ci'
-          subprocess.run(['python', '-B', '-m', 'pipeline.real_estate_fetch', '--root', str(output),
-              '--regions', str(registry), '--months', str(months), '--max-requests', '600',
-              '--max-bytes', '67108864', '--daily-budget', '8000', '--min-interval', '0.3'], check=True)
-          # No --execute, no API secret, no publication, and no raw artifact upload.
-          print('Collection plan generated. Source HTTP and publication were not requested.')
+          import os
+          from pipeline.real_estate_plan import main
+          main(['--regions', os.environ['REGISTRY_INPUT'], '--months', os.environ['MONTHS_INPUT']])
+          # Stdlib only: no --execute mode, key, network, SQLite, publication or raw upload.
           PY

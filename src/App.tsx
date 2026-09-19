@@ -214,7 +214,7 @@ export default function App(){
     const flatCamera=mapRef.current?.flatCamera?.();if(flatCamera)params.set('flatCamera',flatCamera.join(','));
     const camera=mapRef.current?.camera();if(camera)params.set('camera',camera.join(','));
     const propertyView=propertyViewRef.current;
-    if(propertyView&&atlas.content){params.set('propertyRelease',atlas.content.property.release_id);params.set('regionCode',propertyView.region);params.set('trade',propertyView.trade);params.set('month',propertyView.month);params.set('complex',propertyView.complex);params.set('area',propertyView.area);params.set('compareRegions',propertyView.compare.join(','));params.set('compareComplexes',propertyView.compareComplexes.join(','));}
+    if(propertyView&&atlas.content){params.set('propertyRelease',atlas.content.property.release_id);params.set('regionCode',propertyView.region);params.set('trade',propertyView.trade);params.set('month',propertyView.month);params.set('complex',propertyView.complex);params.set('area',propertyView.area);params.set('compareRegions',propertyView.compare.join(','));params.set('compareComplexes',propertyView.compareComplexes.join(','));if(propertyView.includeReview)params.set('review','include');else params.delete('review');}
     let url:string;try{url='schema_version' in runtime?versionedShareUrlV2(runtime,catalog.release_id,params):versionedShareUrl(runtime,catalog.release_id,params);}catch(error){setNotice(error instanceof Error?error.message:'공유 링크를 만들지 못했습니다.');return;}
     try{await navigator.clipboard.writeText(url);setNotice('현재 장소·시각·자료 버전의 링크를 복사했습니다.');}
     catch{setNotice(`링크 복사가 허용되지 않았습니다. 공유 주소: ${url}`);}

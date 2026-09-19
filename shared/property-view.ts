@@ -1,6 +1,6 @@
-import type {PropertyTransaction,RegionMetric} from './property';
+import type {PropertyStatus,PropertyTransaction,RegionMetric} from './property';
 import {eligiblePropertyTransactions} from './property';
-export interface PropertyViewState {region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];}
+export interface PropertyViewState {region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;}
 export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
   const p=new URLSearchParams(hash.replace(/^#/,'')),region=p.get('regionCode')??'',month=p.get('month')??'',complex=p.get('complex')??'',area=p.get('area')??'';
   return {region:/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
@@ -8,7 +8,8 @@ export function readPropertyView(hash:string,period:{from:string;to:string;lates
     complex:/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
     area:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
     compare:[...new Set((p.get('compareRegions')??'').split(',').filter(v=>/^\d{5}$/.test(v)))].slice(0,3),
-    compareComplexes:[...new Set((p.get('compareComplexes')??'').split(',').filter(v=>/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(v)))].slice(0,3)};
+    compareComplexes:[...new Set((p.get('compareComplexes')??'').split(',').filter(v=>/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(v)))].slice(0,3),
+    includeReview:p.get('review')==='include'};
 }
 
 export const monthLabel=(month:string)=>`${month.slice(0,4)}.${month.slice(4,6)}`;
@@ -19,6 +20,19 @@ export function moneyLabel(value:number|null):string {
 }
 export function metricCount(metric:RegionMetric):number|null{return ['complete','empty'].includes(metric.status)?metric.eligible_rows:null;}
 export function propertyStatus(status:string):string{return ({complete:'수집 완료',empty:'신고 없음',failed:'조회 실패',partial:'부분 수집',pending:'수집 대기'} as Record<string,string>)[status]??'미확인';}
+export interface PropertyRowsView {state:'ready'|'loading'|'unavailable'|'error';count:number|null;message:string;}
+/** A filtered zero is meaningful only after the selected partition has been loaded. */
+export function propertyRowsView({status,loading,loaded,error,count}:{status:PropertyStatus|undefined;loading:boolean;loaded:boolean;error:string;count:number}):PropertyRowsView{
+  if(status!=='complete'&&status!=='empty')return {state:'unavailable',count:null,message:status==='pending'?'선택 기간은 수집 대기 중입니다.':status==='partial'?'선택 기간은 부분 수집 상태입니다. 전체 거래를 확인할 수 없습니다.':status==='failed'?'선택 기간의 원천 조회에 실패했습니다.':'선택 기간의 자료가 없습니다.'};
+  if(error)return {state:'error',count:null,message:'거래 자료를 불러오지 못했습니다. 거래 건수를 확인할 수 없습니다.'};
+  if(loading||!loaded)return {state:'loading',count:null,message:'선택 월의 거래를 불러오는 중…'};
+  return {state:'ready',count,message:count===0?'선택한 조건에 해당하는 신고 거래가 없습니다.':''};
+}
+/** Keep a pinned filter visible even when the new month has no matching area. */
+export function propertyAreaOptions(areas:readonly string[],selected:string,dataReady:boolean):{value:string;label:string}[]{
+  const available=new Set(areas);
+  return [...new Set([...areas,...(selected?[selected]:[])])].sort((a,b)=>Number(a)-Number(b)).map(value=>({value,label:`${value} ㎡${available.has(value)?'':dataReady?' · 현재 기간 거래 없음':' · 자료 확인 전'}`}));
+}
 export function transactionRows(rows:readonly PropertyTransaction[],filters:{trade:'sale'|'rent';complex:string|null;area:string;cancelled:boolean}):PropertyTransaction[]{
   return (filters.cancelled?rows:eligiblePropertyTransactions(rows)).filter(row=>row.trade_type===filters.trade&&(!filters.complex||row.complex_id===filters.complex)&&(!filters.area||row.area_m2===filters.area)).sort((a,b)=>(b.contract_date??'').localeCompare(a.contract_date??'')||a.id.localeCompare(b.id));
 }

@@ -54,13 +54,13 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       locale:{'NavigationControl.ZoomIn':'확대','NavigationControl.ZoomOut':'축소','NavigationControl.ResetBearing':'북쪽으로','AttributionControl.ToggleAttribution':'지도 출처'},
       style:{version:8,sources:{},layers:[{id:'map2d-ocean',type:'background',paint:{'background-color':'#bedce5'}},...anchors.map(name=>({id:`map2d-anchor-${name}`,type:'background' as const,paint:{'background-opacity':0}}))]}});}
     catch{downloads.dispose();latest.current.onStatus('2D 지도를 시작하지 못했습니다. 브라우저의 그래픽 가속 상태를 확인해 주세요.');return;}
-    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:{top:140,bottom:85,left:60,right:60},duration:0});map.setPixelRatio(Math.min(devicePixelRatio,1.5));map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true,customAttribution:MAP2D_ATTRIBUTION}),'bottom-right');
+    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:{top:140,bottom:85,left:60,right:60},duration:0});map.setPixelRatio(Math.min(devicePixelRatio,1.5));map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
     let worker:Worker;
     try{worker=new Worker(new URL('./map2d-data.worker.ts',import.meta.url),{type:'module'});}catch{map.remove();mapRef.current=null;downloads.dispose();latest.current.onStatus('2D 공간 처리기를 시작하지 못했습니다.');return;}
     let disposed=false,ready=false,moving=false,indexLoading=false,workerFailed=false,release='',sequence=0,revision=0,deferred=0,errors=0,frames=0,lastMovingFrame:number|null=null;
     let settleTimer:ReturnType<typeof setTimeout>|undefined,indexController:AbortController|undefined,commitFrame:number|undefined,pickController:AbortController|undefined,liveTimer:ReturnType<typeof setInterval>|undefined;
     let resolved:Asset[]=[],wanted=new Set<string>();
-    let vectorProtocol:ReturnType<typeof createMapTilesProtocol>|undefined,vectorRelease='';
+    let vectorProtocol:ReturnType<typeof createMapTilesProtocol>|undefined,vectorRelease='',firstReadyRelease='';
     const vectorSourceIds:string[]=[],vectorLayerIds:string[]=[];
     const resources=new Map<string,Resource>(),jobs=new Map<string,{controller:AbortController}>(),frameSamples:number[]=[];
     const pending=new Map<number,{resolve:(value:Map2DWorkerResponse)=>void;reject:(error:unknown)=>void;detach:()=>void}>();
@@ -182,7 +182,16 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     const settle=()=>{clearTimeout(settleTimer);settleTimer=setTimeout(()=>{if(disposed||document.hidden||map.isMoving())return;moving=false;refresh();for(const waiter of [...waiters])waiter.resume();lastMovingFrame=null;report();},250);};
     const start=()=>{moving=true;clearTimeout(settleTimer);indexController?.abort();indexLoading=false;lastMovingFrame=null;report();};
     const visibility=()=>{if(document.hidden){clearTimeout(settleTimer);indexController?.abort();indexLoading=false;lastMovingFrame=null;}else settle();report();};
-    const onRender=()=>{frames++;node.dataset.map2dFrames=String(frames);if(moving&&!document.hidden){const now=performance.now();if(lastMovingFrame!==null){frameSamples.push(now-lastMovingFrame);if(frameSamples.length>600)frameSamples.shift();}lastMovingFrame=now;}else lastMovingFrame=null;};
+    // The delayed fetch-settle flag remains true after camera motion ends. Do not
+    // count idle tile-arrival gaps as animation frames in the moving-frame metric.
+    const onRender=()=>{frames++;node.dataset.map2dFrames=String(frames);if(map.isMoving()&&!document.hidden){const now=performance.now();if(lastMovingFrame!==null){frameSamples.push(now-lastMovingFrame);if(frameSamples.length>600)frameSamples.shift();}lastMovingFrame=now;}else lastMovingFrame=null;};
+    const onIdle=()=>{
+      if(disposed||!ready||document.hidden||latest.current.vectorPending&&!vectorProtocol||!map.areTilesLoaded())return;
+      const loaded=vectorProtocol?vectorProtocol.snapshot().cachedArchives>0:resources.size>0&&!indexLoading&&!jobs.size;
+      if(!loaded)return;
+      const current=vectorRelease||release,now=performance.now().toFixed(2);node.dataset.map2dLastIdleMs=now;
+      if(firstReadyRelease!==current){firstReadyRelease=current;node.dataset.map2dFirstReadyMs=now;}
+    };
     const click=(event:MapMouseEvent)=>{
       const measurement=latest.current.measurement??EMPTY_MEASUREMENT;
       if(measurement.mode!=='none'){if(measurement.points.length<512)latest.current.onMeasurement?.(measureMap(measurement.mode,[...measurement.points,[event.lngLat.lng,event.lngLat.lat]]));return;}
@@ -204,7 +213,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       liveTimer=setInterval(refreshLive,5000);
     });
     map.on('load',()=>{ready=true;map.addSource('measure',{type:'geojson',data:measurementGeoJSON(latest.current.measurement??EMPTY_MEASUREMENT)});map.addLayer({id:'measure-fill',type:'fill',source:'measure',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#317a63','fill-opacity':.15}});map.addLayer({id:'measure-line',type:'line',source:'measure',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#246b55','line-width':3}});map.addLayer({id:'measure-point',type:'circle',source:'measure',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':5,'circle-color':'#246b55','circle-stroke-color':'#ffffff','circle-stroke-width':2}});refresh();});map.on('movestart',start);map.on('moveend',settle);map.on('resize',settle);map.on('render',onRender);map.on('click',click);map.on('error',failure);map.on('sourcedata',report);
-    document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
+    map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
       disposed=true;refreshRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
       indexController?.abort();pickController?.abort();for(const job of jobs.values())job.controller.abort();for(const waiter of [...waiters])waiter.reject();downloads.dispose();

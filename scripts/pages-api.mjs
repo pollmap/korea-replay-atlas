@@ -16,6 +16,14 @@ function mime(name){return ({'.html':'text/html; charset=utf-8','.js':'applicati
 class PagesApiError extends Error {
   constructor(status,codes){super(`Pages API rejected request (${status}; codes ${codes.join(',')||'unknown'})`);this.status=status;this.codes=codes;}
 }
+function uploadTokenExpiresAt(token){
+  // Unverified JWT metadata is only a refresh hint; it never grants authorization.
+  if(typeof token!=='string'||token.length>32768)return null;
+  const parts=token.split('.');if(parts.length!==3||!/^[A-Za-z0-9_-]+$/.test(parts[1]))return null;
+  try{const exp=JSON.parse(Buffer.from(parts[1],'base64url').toString('utf8'))?.exp;
+    return typeof exp==='number'&&exp>=0&&Number.isFinite(exp*1000)&&exp*1000<=Number.MAX_SAFE_INTEGER?exp*1000:null;
+  }catch{return null;}
+}
 export function createPagesApi({accountId,token,fetcher=fetch}){
   if(!/^[a-f0-9]{32}$/i.test(accountId)||typeof token!=='string'||!token.trim()||/[\r\n]/.test(token))throw new Error('Pages credentials are missing or malformed');
   const account=`/accounts/${accountId}/pages/projects`;
@@ -45,15 +53,20 @@ export function createPagesApi({accountId,token,fetcher=fetch}){
 }
 /** Only idempotent content-addressed asset APIs may refresh/retry; never deployment POST. */
 export function createPagesAssetSession(api,project){
-  projectName(project);let current=null,pending=null;
+  projectName(project);let current=null,expiresAt=null,pending=null;
   const refresh=failedToken=>{
     if(pending)return pending;
     // A slower failed request may hold the token which another upload already replaced.
     if(current!==null&&current!==failedToken)return Promise.resolve(current);
-    pending=Promise.resolve().then(()=>api.uploadToken(project)).then(token=>{current=token;return token;}).finally(()=>{pending=null;});
+    pending=Promise.resolve().then(()=>api.uploadToken(project)).then(token=>{
+      const expiry=uploadTokenExpiresAt(token);
+      if(expiry!==null&&expiry<=Date.now())throw new Error('Pages returned an already expired upload credential');
+      current=token;expiresAt=expiry;return token;
+    }).finally(()=>{pending=null;});
     return pending;
   };
-  const token=()=>pending??(current!==null?Promise.resolve(current):refresh(null));
+  // Check every asset operation, including the final retain, without idle refresh timers.
+  const token=()=>pending??(current!==null&&(expiresAt===null||expiresAt>Date.now()+60000)?Promise.resolve(current):refresh(current));
   const run=async(operation,value)=>{
     const used=await token();
     try{return await api[operation](value,used);}
@@ -108,7 +121,12 @@ export async function deployPagesStage({receiptPath,projectRoot=process.cwd(),ap
 }
 export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.cwd(),fetcher=fetch}){
   const checked=await verifyPagesStage(receiptPath,{projectRoot}),project=checked.receipt.project,url=new URL(origin);
-  if(url.origin!==origin||!new RegExp(`^[a-f0-9]{8}\\.${project}\\.pages\\.dev$`).test(url.hostname)||url.protocol!=='https:')throw new Error('An actual immutable deployment origin is required');
+  const production=origin===`https://${project}.pages.dev`;
+  if(url.origin!==origin||(!production&&!new RegExp(`^[a-f0-9]{8}\\.${project}\\.pages\\.dev$`).test(url.hostname))||url.protocol!=='https:')throw new Error('An actual immutable deployment or exact production origin is required');
+  // The public host shares the already verified candidate. Immutable hosts always pin themselves,
+  // including the immutable URL assigned to a production upload by Pages.
+  const snapshotOrigin=project==='korea-replay'?(production?checked.receipt.policy?.snapshot_origin:origin):null;
+  if(project==='korea-replay'&&!snapshotOrigin)throw new Error('Production verification requires the staged verified immutable share target');
   const samples=[],get=async pathname=>{
     const response=await fetcher(origin+pathname,{redirect:'error',cache:'no-store',signal:AbortSignal.timeout(30000)});
     return response;
@@ -117,7 +135,7 @@ export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.
     const response=await get('/api/v2/runtime'),runtime=await response.json();
     if(response.status!==200||runtime.schema_version!==2||runtime.platform!=='cloudflare-pages'||runtime.project!==project
       ||runtime.artifact_sha256!==checked.receipt.artifact_sha256||runtime.release_id!==checked.receipt.policy.release_id
-      ||runtime.snapshot?.origin!==origin||runtime.snapshot?.hash!==url.hostname.slice(0,8)
+      ||runtime.snapshot?.origin!==snapshotOrigin||runtime.snapshot?.hash!==new URL(snapshotOrigin).hostname.slice(0,8)
       ||JSON.stringify(runtime.data)!==JSON.stringify(checked.receipt.policy.data))throw new Error('Remote runtime does not match the staged app/data pin');
     samples.push({path:'/api/v2/runtime',passed:true});
   }
@@ -126,9 +144,10 @@ export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.
     if(response.status!==200||bytes.length!==entry.bytes||sha(bytes)!==entry.sha256)throw new Error('Remote static bytes differ: '+name);
     if(project==='korea-replay-data'&&response.headers.get('Access-Control-Allow-Origin')!=='*')throw new Error('Data CORS is not public');samples.push({path:pathname,passed:true});}
   const missing='/data/__pages-verification-missing__.json',missingResponse=await get(missing);await missingResponse.body?.cancel();if(missingResponse.status!==404)throw new Error('Missing data did not return HTTP 404');samples.push({path:missing,passed:true});
-  const report={schema_version:1,passed:true,origin,project,artifact_sha256:checked.receipt.artifact_sha256,release_id:checked.receipt.release_id,samples,
+  const report={schema_version:1,passed:true,origin,origin_kind:production?'production':'immutable',snapshot_origin:snapshotOrigin,project,artifact_sha256:checked.receipt.artifact_sha256,release_id:checked.receipt.release_id,samples,
     scope:'Runtime, all application JS/CSS, index/catalog or data atlas, CORS and static 404. Browser visuals, live API, data closure and rollback require separate verification.'};
-  await writeFile(path.join(checked.directory,'verified-preview-'+url.hostname.slice(0,8)+'.json'),JSON.stringify(report,null,2)+'\n',{flag:'wx'});return report;
+  const reportName=production?'verified-production.json':'verified-preview-'+url.hostname.slice(0,8)+'.json';
+  await writeFile(path.join(checked.directory,reportName),JSON.stringify(report,null,2)+'\n',{flag:'wx'});return report;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
@@ -138,7 +157,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     else if(command==='create'&&flag==='--execute')result=await api.create(target);
     else if(command==='upload'&&['--preview','--production'].includes(flag))result=await deployPagesStage({receiptPath:target,api,production:flag==='--production',onProgress:value=>process.stdout.write(JSON.stringify(value)+'\n')});
     else if(command==='verify')result=await verifyPagesRemote({receiptPath:target,origin:flag});
-    else throw new Error('Usage: inspect <project> | create <project> --execute | upload <receipt> --preview|--production | verify <receipt> <actual-preview-origin>; credentials only in environment');
+    else throw new Error('Usage: inspect <project> | create <project> --execute | upload <receipt> --preview|--production | verify <receipt> <actual-preview-or-production-origin>; credentials only in environment');
     process.stdout.write(JSON.stringify(result,null,2)+'\n');
   }catch(error){process.stderr.write(String(error.message)+'\n');process.exitCode=1;}
 }

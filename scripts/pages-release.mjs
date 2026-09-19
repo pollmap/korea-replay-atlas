@@ -41,6 +41,16 @@ async function filesIn(directory,prefix=''){
 }
 async function parallel(items,action){let cursor=0;await Promise.all(Array.from({length:4},async()=>{while(cursor<items.length)await action(items[cursor++]);}));}
 function fileEntry(target,bytes){return {target,bytes:bytes.byteLength,sha256:digest(bytes)};}
+export function pagesHeaders(source){
+  // GLBs in the audited static bundle are uncompressed glTF binaries. Pages
+  // negotiates wire compression itself; a copied Worker gzip hint would label
+  // an identity response incorrectly. Leave every other path policy intact.
+  let route='';
+  return source.split(/\r?\n/).filter(line=>{
+    if(line&&!/^\s/.test(line)&&!line.startsWith('#'))route=line.trim();
+    return !(route==='/data/*.glb'&&/^\s+Content-Encoding\s*:/i.test(line));
+  }).join('\n');
+}
 function auditEntries(entries){
   if(!Array.isArray(entries)||!entries.length||entries.length>PAGE_LIMITS.files||new Set(entries.map(entry=>entry.target)).size!==entries.length)throw new Error('Duplicate assets or Pages 20,000-file limit exceeded');
   for(const entry of entries){safePath(entry.target);if(!SHA.test(entry.sha256)||!Number.isSafeInteger(entry.bytes)||entry.bytes<0||entry.bytes>PAGE_LIMITS.bytes)throw new Error('Invalid hash/size or Pages 25 MiB limit exceeded');}
@@ -121,6 +131,11 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
   if(input.some(entry=>entry.target==='_routes.json'||entry.target.startsWith('_worker.js')))throw new Error('Reserved Pages file in source bundle');
   const generated=new Map(),sources=new Map(),entries=input.map(entry=>({target:entry.target,sha256:entry.sha256,bytes:entry.bytes}));
   for(const entry of entries)sources.set(entry.target,path.join(receipt.bundle,'client',entry.target));
+  const headerIndex=entries.findIndex(entry=>entry.target==='_headers');
+  if(headerIndex>=0){
+    const original=await readFile(sources.get('_headers'),'utf8'),normalized=pagesHeaders(original);
+    if(normalized!==original){entries.splice(headerIndex,1);sources.delete('_headers');generated.set('_headers',Buffer.from(normalized));}
+  }
   for(const entry of receipt.worker_files){const target='_worker.js/app/'+entry.target.slice('worker/'.length),file=path.join(receipt.bundle,entry.target);sources.set(target,file);entries.push({target,sha256:entry.sha256,bytes:(await lstat(file)).size});}
   const compiled=await build({entryPoints:[path.join(projectRoot,'worker','pages-adapter.ts')],bundle:true,write:false,format:'esm',platform:'browser',target:'es2022',legalComments:'inline'});
   generated.set('_worker.js/adapter.js',Buffer.from(compiled.outputFiles[0].contents));generated.set('_worker.js/index.js',Buffer.from(wrapper));generated.set('_routes.json',Buffer.from(json(routes)));

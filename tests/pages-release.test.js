@@ -3,16 +3,16 @@ import {mkdtemp,mkdir,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {stagePagesApp,stagePagesData,verifyPagesStage,copyImmutable} from '../scripts/pages-release.mjs';
+import {stagePagesApp,stagePagesData,verifyPagesStage,copyImmutable,pagesHeaders} from '../scripts/pages-release.mjs';
 import {deployPagesStage,verifyPagesRemote} from '../scripts/pages-api.mjs';
 const roots=[],sha=value=>createHash('sha256').update(value).digest('hex'),json=value=>JSON.stringify(value);
 const release='pub-0123456789abcdef',data={origin:'https://1234abcd.korea-replay-data.pages.dev',manifest_path:'/data/atlas/atlas-fixture/manifest.json',manifest_sha256:'a'.repeat(64)};
 async function put(file,value){await mkdir(path.dirname(file),{recursive:true});await writeFile(file,value);}
 afterEach(async()=>{for(const root of roots.splice(0)){if(path.dirname(root)!==path.resolve(tmpdir())||!path.basename(root).startsWith('korea-pages-'))throw new Error('Unsafe fixture cleanup');await rm(root,{recursive:true,force:true});}});
-async function fixture(){
+async function fixture(headers='/download-gate.js\n  Cache-Control: no-cache\n'){
   const projectRoot=await mkdtemp(path.join(tmpdir(),'korea-pages-'));roots.push(projectRoot);
   const bundle=path.join(projectRoot,'.local/deploy/bundles/fixture'),client=path.join(bundle,'client'),receiptPath=path.join(bundle,'receipt.json');
-  const bodies={'index.html':'<!doctype html><title>Public fixture</title>','404.html':'missing','_headers':'/download-gate.js\n  Cache-Control: no-cache\n',
+  const bodies={'index.html':'<!doctype html><title>Public fixture</title>','404.html':'missing','_headers':headers,
     'data/catalog.json':json({release_id:release,assets:[]}), 'data/sample.geojson':json({type:'FeatureCollection',features:[]})};
   const manifest=[];for(const [target,body] of Object.entries(bodies)){await put(path.join(client,target),body);manifest.push({target,sha256:sha(body),bytes:Buffer.byteLength(body)});}
   const worker="export default {fetch(){return new Response('fixture')}};";await put(path.join(bundle,'worker/index.js'),worker);
@@ -32,6 +32,17 @@ async function dataFixture(root,kind){
   await put(publication,json({schema_version:1,[kind]:{path:target,sha256:sha(body),release_id:id},files:[{path:target,sha256:sha(body),byte_length:Buffer.byteLength(body)}]}));return publication;
 }
 describe('independent Pages release stages',()=>{
+  it('lets Pages negotiate raw GLB compression while preserving the immutable Worker bundle and other header policies',async()=>{
+    const source='/data/*.glb\n  Content-Encoding: gzip\n  Vary: Accept-Encoding\n/data/already-compressed.gz\n  Content-Encoding: gzip\n/data/catalog.json\n  Cache-Control: no-cache\n';
+    const f=await fixture(source),result=await stagePagesApp({...f,data}),checked=await verifyPagesStage(result.receiptPath,{projectRoot:f.projectRoot});
+    expect(await readFile(path.join(f.client,'_headers'),'utf8')).toBe(source);
+    const output=await readFile(path.join(checked.client,'_headers'),'utf8');
+    expect(output).not.toContain('/data/*.glb\n  Content-Encoding: gzip');
+    expect(output).toContain('/data/already-compressed.gz\n  Content-Encoding: gzip');
+    expect(output).toContain('/data/catalog.json\n  Cache-Control: no-cache');
+    expect((await stat(path.join(f.client,'_headers'))).ino).not.toBe((await stat(path.join(checked.client,'_headers'))).ino);
+    expect(pagesHeaders(output)).toBe(output);
+  });
   it('hardlinks audited immutable assets, privately copies the existing API and keeps the original bundle byte-identical',async()=>{
     const f=await fixture(),before=await readFile(f.receiptPath),result=await stagePagesApp({...f,data});
     const checked=await verifyPagesStage(result.receiptPath,{projectRoot:f.projectRoot});

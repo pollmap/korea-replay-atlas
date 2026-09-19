@@ -4,7 +4,40 @@
 
 ## 현재 전국 기본 지도 후보
 
-실제 배포 검토 입력은 **`.local/map-tiles-20260920/candidate/publication.json`**입니다. 이전 시도 단독 후보와 실패한 중간 후보를 최종 입력으로 혼동하지 않습니다.
+새 육지 보완 후보의 배포 검토 입력은 **`.local/map-tiles-20260920/sgis-land-candidate/publication.json`**입니다. 아래의 기존 후보와 원본은 모두 보존합니다. 이 문서의 후보 생성·로컬 검증은 원격 배포나 GPU 표시 검증과 구분합니다.
+
+- release: `map2d-f882deab7b81016f2b61`
+- catalog: `data/map-tiles/map2d-f882deab7b81016f2b61/catalog.json`
+- catalog SHA-256: `5580708797eb810b0f3ca7c694988bc27d2b5830b64ff1d3d9859a325418c992`
+- **267파일 / 76,343,640 B**. 기존 227파일 / 65,924,437 B는 바이트·SHA까지 동일하게 재사용했습니다. 도로·철도·수역·행정경계 주제의 ID·형상·속성·줌 설정은 그대로입니다.
+- 새 육지는 **SGIS 시도 17개 + 보존된 OSM 독도 해안 86개**, 총 103개 원본 선택 레코드를 사용합니다. z5~12, PMTiles 38개 + 속성 1개입니다. 최고 줌 이후는 overzoom입니다.
+- 가장 큰 새 land archive는 **507,148 B**, 전체 지도 archive 최대는 **509,496 B**입니다. 모든 파일·decoded MVT의 1 MiB 상한을 검증했습니다.
+- 독립 JS 검증: `.local/map-tiles-20260920/sgis-land-validation-f882deab7b81016f2b61.json`. 실제 TypeScript schema, 전체 파일의 SHA·길이·의존관계, 원본 103개 선택 레코드 완전 일치, official JavaScript PMTiles reader와 Mapbox decoder의 부산·독도·울릉·제주 채움이 통과했습니다.
+
+## 육지 표시의 원천과 정밀도
+
+기존 Natural Earth 국가 윤곽은 소축척 지도용입니다. 부산 북항 범위 `[129.015,35.08,129.09,35.145]`에서 최대 3,496.5 m 직선 구간이 있었고, 보존된 OSM 해안과 EPSG:5179 좌표계의 20 m 간격으로 비교한 최대 차이는 2,269.6 m였습니다. 같은 구역에서 기존 z9 MVT와 Natural Earth 원천 사이의 차이는 약 3.86 m였습니다. 이는 **원천 간 차이와 표시 변환 차이**를 구분한 것이며 현장 측량 정확도가 아닙니다. [Natural Earth 소축척 해안 설명](https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-coastline/)
+
+새 land는 **2025-06-30 SGIS 통계 행정경계 기반 육지 표시**입니다. 공식 해안측량, 지적도, 법정동이나 현재 매립지의 완전한 정확도를 의미하지 않습니다. 부산의 SGIS와 OSM 원천은 중앙값 약 2.2 m로 가까웠지만 방향에 따라 최대 283.7~406.0 m 차이가 남았습니다. 원천 기준일과 형태 차이를 숨기지 않습니다. 독도 OSM과 SGIS 도형이 겹치는 부분도 있으며 서로 다른 날짜의 원천을 임의로 일치시키지 않았습니다.
+
+`pipeline/map_tiles_land.py`는 원본 좌표와 선택 속성을 보존한 채 타일 교차 후 실제 8,192 정수 격자에서 GEOS `valid_output` 정밀도 축소를 수행합니다. 격자보다 좁은 부분은 분리·병합·축소될 수 있습니다. 형상 전체가 격자보다 작으면 원본 ID를 가진 `subpixel_anchor`로 표시합니다. 0 tolerance로 일직선 중간 정점만 제거하고 그 전후 채움의 완전 일치를 검사합니다. 기존의 invalid polygon을 전체 outline으로 전환하는 경로는 이 육지 후보에 적용하지 않습니다. [GEOS/Shapely 정밀도 축소의 실제 동작](https://shapely.readthedocs.io/en/stable/reference/shapely.set_precision.html)
+
+매 타일에서 원본 ID 유지, 유효한 폴리곤·구멍, encode/decode 후 채움 동등성과 크기를 검사했습니다. z12의 부산·독도·울릉·제주 표본에서는 원본 경계의 **2.389 m(Web Mercator) 폭** 밖에 생긴 채움 변화 면적이 0이었습니다. 이는 네 표본의 정수 격자 변환 검사이며 전국 실제 해안 오차 상한을 뜻하지 않습니다.
+
+추가 저줌 검사에서 z5~9의 90타일 중 21개는 GEOS의 엄격한 공유 변 정점 일치 조건을 충족하지 않았습니다. 그중 18개는 면적 겹침 0, 나머지 3개는 최대 0.8 정수 격자 제곱의 겹침이었습니다. 512 px 타일의 해당 원래 줌에서 0.003125 px²에 해당합니다. 개별 폴리곤 채움·유효성 검사는 통과했지만 **모든 공유 경계가 완전 무오차라고 주장하지 않습니다.** 세부 증빙은 `.local/map-tiles-20260920/sgis-land-topology-f882deab7b81016f2b61.json`입니다.
+
+새 catalog의 `sources`는 실제로 남은 OSM·SGIS만 포함합니다. 교체된 Natural Earth 및 사용하지 않는 Overture를 현재 후보의 사용 출처로 표시하지 않습니다. 기존 원본과 이전 릴리스에는 해당 출처가 그대로 보존됩니다.
+
+```powershell
+.venv\Scripts\python.exe -m pipeline.map_tiles_land --baseline .local/map-tiles-20260920/candidate --source-work .local/map-tiles-20260920/work/aed5a621760281b23b30 --output .local/map-tiles-20260920/sgis-land-candidate
+node .local/map-tiles-20260920/verify-sgis-land.mjs .local/map-tiles-20260920/sgis-land-candidate .local/map-tiles-20260920/candidate .local/map-tiles-20260920/sgis-land-validation-f882deab7b81016f2b61.json
+```
+
+출력 후보와 검증 JSON이 이미 있으면 명령은 거부합니다. 재실행 검토에는 새 출력 이름을 사용해야 합니다. 후보의 `work/land.sqlite`와 줌별 증빙은 생성 이력을 보존하며 공개 파일 목록에는 포함하지 않습니다.
+
+## 기존 전국 기본 지도 후보 — 보존
+
+이전 입력은 `.local/map-tiles-20260920/candidate/publication.json`입니다. 소축척 Natural Earth 육지 표시의 한계가 확인되어 위의 새 후보를 만들었으며 이 230개 파일은 덮어쓰지 않았습니다.
 
 - release: `map2d-aed5a621760281b23b30`
 - catalog: `data/map-tiles/map2d-aed5a621760281b23b30/catalog.json`
@@ -105,7 +138,7 @@ MVT 인코딩 뒤 매 타일을 다시 디코드해 포함하기로 한 stable I
 저장소 루트에서 실행합니다. 기존 후보 디렉터리가 있으면 새 이름을 사용해야 하며 덮어쓰지 않습니다.
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests/test_admin_boundaries.py tests/test_map_tiles.py tests/test_map_tiles_publication.py -q
+.venv\Scripts\python.exe -m pytest tests/test_admin_boundaries.py tests/test_map_tiles.py tests/test_map_tiles_publication.py tests/test_map_tiles_land.py -q
 npm exec vitest run tests/map-tiles.test.ts -- --maxWorkers=2
 .venv\Scripts\python.exe -m pipeline.map_tiles --proof --levels sido,sigungu --output .local/map-tiles-20260920/new-seoul-proof
 ```
@@ -118,7 +151,7 @@ npm exec vitest run tests/map-tiles.test.ts -- --maxWorkers=2
 
 전국 후보는 `--proof`를 제외합니다. `--basemap`은 이미 게시된 개략 도로·철도와 전국 land/water만 우선 사용하며, 전체 상세 도로·건물 평면을 포함한 후보와 구분합니다. 입력·알고리즘 해시별 SQLite/RTree 작업 색인은 `.local/map-tiles-20260920/work`에 남아 중단 후 재사용됩니다. 기존 산출물을 덮어쓰지 않습니다.
 
-현재 관련 Python **41개**, TypeScript **11개** 통과 및 전체 typecheck·관련 파일 lint 통과입니다. 이는 전체 프로젝트의 최종 검사 수가 아닙니다. 검사에는 공식 Python writer→공식 JavaScript PMTiles reader의 실제 바이너리 호환, 해시 오류·취소·공유 요청·캐시 제한, 모든 선택 속성 복원, 공간 조회·원본 ID 중복 조각 보존, 읽기 전용 체크포인트 재사용, 정수 격자에서 퇴화한 폴리곤의 보존과 조기 후보 승격 제한이 포함됩니다.
+현재 관련 Python **50개**가 통과했습니다. 이전 프런트 계약 검증의 TypeScript **11개**, 전체 typecheck·관련 파일 lint 통과 기록도 유지됩니다. 이번 육지 보완은 프런트 파일을 변경하지 않았고 실제 새 후보를 기존 JS 계약으로 다시 검사했습니다. 이는 전체 프로젝트의 최종 검사 수가 아닙니다. 검사에는 공식 Python writer→공식 JavaScript PMTiles reader의 실제 바이너리 호환, 해시 오류·취소·공유 요청·캐시 제한, 모든 선택 속성 복원, 공간 조회·원본 ID 중복 조각 보존, 읽기 전용 체크포인트 재사용, 정수 격자에서 퇴화한 폴리곤의 보존과 조기 후보 승격 제한이 포함됩니다.
 
 64자리 표시 키를 사용한 최초 서울 실험 `.local/map-tiles-20260920/seoul-density-proof.json`에서 건물 z12(30,152피처), z13(14,612피처)는 decoded tile 1 MiB 상한을 넘겨 실패했습니다. z14(4,376피처)는 gzip 246,259 B로 모든 ID를 유지했습니다. 이후 16자리 표시 키가 도입됐으므로 이를 현 정책의 z13 실패 증거로 확대하지 않습니다. 전국 건물 후보의 현재 시작 줌 설정은 14이며 모든 전국 타일이 통과한 상태는 아닙니다. 상한을 임의로 올리지 않고 실제 밀도를 검증해야 합니다.
 
