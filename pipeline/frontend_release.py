@@ -32,7 +32,17 @@ MUTABLE_ROOT = frozenset(('index.html', 'download-gate.js'))
 ROOT_FILES = MUTABLE_ROOT | {'.assetsignore'}
 CHUNK_NAME = re.compile(r'assets/([A-Za-z0-9_][A-Za-z0-9_.-]*)-[A-Za-z0-9_-]{8}\.(js|css)\Z')
 SEOUL_KAPT_GEOJSON_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c26622debe82'
-SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-8360eb2d88be0ab4-[A-Za-z0-9_-]{8}\.geojson\Z')
+SEOUL_KAPT_JOINED_SHA = '33058dae0a1d86c302b2f1c5b0dff9d71241a60031880f4f738c9fe506611792'
+SEOUL_KAPT_ASSET_HASHES = {
+    '8360eb2d88be0ab4': SEOUL_KAPT_GEOJSON_SHA,
+    '33058dae0a1d86c3': SEOUL_KAPT_JOINED_SHA,
+}
+SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
+
+
+def _approved_seoul_geojson(name: str, sha: str, size: int) -> bool:
+    match = SEOUL_KAPT_GEOJSON.fullmatch(name)
+    return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 1024 * 1024)
 FORBIDDEN_NAME = re.compile(r'(?i)(?:^|[-_.])(?:secrets?|credentials?|tokens?|private|id_rsa)(?:$|[-_.])')
 CREDENTIAL_PATTERNS = (
     re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),
@@ -123,7 +133,7 @@ def _frontend_entries(client: Path, previous: dict):
         sha = digest(path)
         prior = old.get(name)
         unchanged = prior and prior['sha256'] == sha and prior['bytes'] == size
-        approved_geojson = bool(SEOUL_KAPT_GEOJSON.fullmatch(name) and sha == SEOUL_KAPT_GEOJSON_SHA and size <= 1024 * 1024)
+        approved_geojson = _approved_seoul_geojson(name, sha, size)
         if name not in MUTABLE_ROOT and not family and not unchanged and not approved_geojson:
             raise ValueError('Copied frontend assets changed; full staging is required')
         if family and prior and not unchanged:
@@ -142,7 +152,10 @@ def _frontend_entries(client: Path, previous: dict):
             if any(pattern.search(body) for pattern in CREDENTIAL_PATTERNS):
                 raise ValueError('Credential-like content is forbidden in the frontend')
         result.append({'path': str(path), 'target': name, 'bytes': size, 'sha256': sha})
-    stable_names = set(old) - {name for name in old if _family(name)}
+    # Immutable app previews retain their former URL. A replaced, SHA-checked
+    # Seoul point version need not be copied into the next app bundle.
+    stable_names = set(old) - {name for name, entry in old.items()
+                               if _family(name) or _approved_seoul_geojson(name, entry['sha256'], entry['bytes'])}
     if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != families:
         raise ValueError('Frontend files or chunk families are missing; full staging is required')
     return result

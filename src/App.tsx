@@ -65,8 +65,13 @@ export default function App(){
   const [runtimeError,setRuntimeError]=useState('');
   const atlas=useAtlas(runtime&&'schema_version' in runtime?runtime:null,runtimeChecked,runtimeError);
   const [propertyOpen,setPropertyOpen]=useState(true);
-  const [requestedRegion,setRequestedRegion]=useState<{code:string;request:number}>();
+  const [requestedRegion,setRequestedRegion]=useState<{code:string;request:number;complexId?:string;skipLocate?:boolean}>();
   const selectPropertyRegion=useCallback((code:string)=>{setPropertyOpen(true);setSelection(null);setMenuOpen(false);setCityToolsOpen(false);setFocusMode(false);setMode('map');setPlaying(false);setTimeOpen(false);setSunOpen(false);setLayers(previous=>({...previous,sun:false}));setRequestedRegion(previous=>({code,request:(previous?.request??0)+1}));},[]);
+  const selectPropertyComplex=useCallback((code:string,complexId:string)=>{
+    if(!/^11\d{3}$/.test(code)||!new RegExp(`^molit-apt:${code}:[A-Za-z0-9_-]{1,64}$`).test(complexId))return;
+    setPropertyOpen(true);setSelection(null);setMenuOpen(false);setFocusMode(false);setMode('map');
+    setRequestedRegion(previous=>({code,complexId,skipLocate:true,request:(previous?.request??0)+1}));
+  },[]);
   const [boundaries,setBoundaries]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('boundaries')!=='off');
   const propertyViewRef=useRef<PropertyViewState|null>(null);
   const [propertyTrade,setPropertyTrade]=useState<'sale'|'rent'>(()=>new URLSearchParams(location.hash.slice(1)).get('trade')==='rent'?'rent':'sale');
@@ -247,7 +252,7 @@ export default function App(){
   const showNational=()=>{selectPropertyRegion('');setPlace(PLACES[0]);setQuery('');mapRef.current?.flyTo(PLACES[0],{overviewPanelVisible:true,focused:false});};
   return <div className={`app-shell map-first atlas-shell is-${mapView} ${propertyVisible?'has-property':propertyRequested&&atlas.state==='loading'?'reserves-property':''} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
     {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전을 확인하는 중…'}</div>:<MapErrorBoundary key={mapView}><Suspense fallback={<div className="map-loading">대한민국의 지도를 펼치는 중…</div>}>
-      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion,propertyTrade}:{})}/>
+      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion,onPropertyComplex:selectPropertyComplex,propertyTrade}:{})}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
       <a className="brand" href="#" onClick={e=>{e.preventDefault();showNational();}} aria-label="대한민국 전체 보기"><span className="brand-symbol" aria-hidden="true">K</span><span className="brand-wordmark"><strong>KOREA REPLAY</strong><small>전국 지도 · 아파트 실거래</small></span></a>
