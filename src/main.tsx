@@ -4,6 +4,10 @@ import App from './App';
 import {startDownloadGate} from './download-gate';
 import './styles.css';
 import './download-gate.css';
+import './property-discovery.css';
+import './property-history.css';
+import './atlas-shell.css';
+import './atlas-property.css';
 
 void startDownloadGate().catch(()=>{
   document.body.dataset.downloadGate='unavailable';document.body.dataset.downloadGateReason='startup_failed';document.body.dataset.downloadGateLimit='unavailable';

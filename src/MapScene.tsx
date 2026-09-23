@@ -21,6 +21,7 @@ import {reconcileSceneAssets,type SceneAssetResult} from './scene-assets';
 import {SceneFrameAudit} from '../shared/scene-frame-audit';
 import {SceneLabelScheduler} from './label-scheduler';
 import {GatedFrameWorkBudget,StaticWorkGate} from './static-work-gate';
+import {railDisplayColor} from '../shared/rail-style';
 
 export interface MapHandle {flyTo:(place:Place,options?:{overviewPanelVisible:boolean;focused:boolean})=>void;north:()=>void;overhead:()=>void;camera:()=>number[]|null;flatCamera?:()=>[number,number,number,number]|null;viewport?:()=>Place|null;}
 interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialCamera?:number[]|null;lightweight:boolean;onSelect:(value:Selection)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
@@ -414,13 +415,14 @@ const MapScene=forwardRef<MapHandle,Props>(function MapScene(props,ref){
               if(stale()){source.entities.removeAll();return;}
               for(const entity of source.entities.values){
                 const properties=entity.properties?.getValue(v.clock.currentTime)??{};
-                if(entity.polyline){entity.polyline.clampToGround=new C.ConstantProperty(false);entity.polyline.width=new C.ConstantProperty(5);entity.polyline.material=new C.ColorMaterialProperty(C.Color.fromCssColorString('#8969ae'));entity.polyline.arcType=new C.ConstantProperty(C.ArcType.NONE);}
+                const lineColor=C.Color.fromCssColorString(railDisplayColor(properties,asset,String(entity.id)));
+                if(entity.polyline){entity.polyline.clampToGround=new C.ConstantProperty(false);entity.polyline.width=new C.ConstantProperty(5);entity.polyline.material=new C.ColorMaterialProperty(lineColor);entity.polyline.arcType=new C.ConstantProperty(C.ArcType.NONE);}
                 if(entity.position){
                   entity.billboard=undefined;const coordinates=C.Cartographic.fromCartesian(entity.position.getValue(v.clock.currentTime)!);
                   entity.position=new C.ConstantPositionProperty(C.Cartesian3.fromRadians(coordinates.longitude,coordinates.latitude,properties.display_height));
-                  entity.point=new C.PointGraphics({pixelSize:9,color:C.Color.fromCssColorString('#956449'),outlineColor:C.Color.WHITE,outlineWidth:2,heightReference:C.HeightReference.NONE});
+                  entity.point=new C.PointGraphics({pixelSize:9,color:lineColor,outlineColor:C.Color.WHITE,outlineWidth:2,heightReference:C.HeightReference.NONE});
                   entity.label=new C.LabelGraphics({text:properties.name,font:'12px sans-serif',fillColor:C.Color.fromCssColorString('#59432e'),outlineColor:C.Color.WHITE,outlineWidth:3,style:C.LabelStyle.FILL_AND_OUTLINE,pixelOffset:new C.Cartesian2(0,-17),distanceDisplayCondition:new C.DistanceDisplayCondition(0,6000)});
-                  entity.polyline=new C.PolylineGraphics({positions:[C.Cartesian3.fromRadians(coordinates.longitude,coordinates.latitude,properties.surface_height),C.Cartesian3.fromRadians(coordinates.longitude,coordinates.latitude,properties.display_height)],width:2,material:C.Color.fromCssColorString('#956449')});
+                  entity.polyline=new C.PolylineGraphics({positions:[C.Cartesian3.fromRadians(coordinates.longitude,coordinates.latitude,properties.surface_height),C.Cartesian3.fromRadians(coordinates.longitude,coordinates.latitude,properties.display_height)],width:2,material:lineColor});
                 }
                 await workBudget.checkpoint(signal);
               }

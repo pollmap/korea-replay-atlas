@@ -78,6 +78,19 @@ describe('viewport work admission and quality hysteresis',()=>{
     expect(result.bytes).toBeLessThanOrEqual(QUALITY.low.bytes);expect(result.vertices).toBeLessThanOrEqual(QUALITY.low.vertices);
     expect(selectViewAssets([...roads,depth],{...view,layers:{...layers,depth:false}}).assets.some(a=>a.layer==='depth')).toBe(false);
   });
+  it('keeps nearby street detail before additional overview files consume the entire budget',()=>{
+    const roads=Array.from({length:10},(_,i)=>asset(`detail-${i}`,{detail_level:'detail',byte_length:2*1024*1024,vertex_count:10000}));
+    const overviews=Array.from({length:3},(_,i)=>asset(`overview-${i}`,{detail_level:'overview',min_camera_height:60000,byte_length:5*1024*1024,vertex_count:30000}));
+    const result=selectViewAssets([...roads,...overviews],view);
+    expect(result.assets[0].id).toBe('overview-0');
+    expect(result.assets[1].id).toBe('detail-0');
+    expect(result.assets.filter(a=>a.id==='detail-0')).toHaveLength(1);
+    expect(result.assets.filter(a=>a.id==='overview-0')).toHaveLength(1);
+    expect(result.fallback).toBe(true);expect(result.deferred).toBeGreaterThan(0);
+    expect(result.bytes).toBeLessThanOrEqual(QUALITY.low.bytes);
+    expect(result.vertices).toBeLessThanOrEqual(QUALITY.low.vertices);
+    expect(result.assets.length).toBeLessThanOrEqual(QUALITY.low.files);
+  });
   it('reduces transient camera work and restores the same settled quality after movement',()=>{
     expect(sceneQuality('high',true,true)).toMatchObject({resolution:.75,sse:1024,shadows:false});
     expect(sceneQuality('high',false,true)).toMatchObject({resolution:1,sse:16,shadows:true});

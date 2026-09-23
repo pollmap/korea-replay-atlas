@@ -24,11 +24,13 @@ afterEach(()=>{vi.unstubAllGlobals();});
 describe('2D source-faithful worker preparation',()=>{
   it('fits the national view above the mobile analysis sheet and beside the desktop panel',()=>{
     const phone=map2DOverviewPadding(390,844,true),desktop=map2DOverviewPadding(1280,720,true),focus=map2DOverviewPadding(390,844,false,true);
-    expect(phone.bottom).toBeGreaterThanOrEqual(844*.4);expect(phone.top).toBeGreaterThanOrEqual(205);
-    expect(844-phone.top-phone.bottom).toBeGreaterThan(200);expect(desktop.left).toBeGreaterThan(368);
+    expect(phone.bottom).toBeGreaterThanOrEqual(844*.43);expect(phone.top).toBeGreaterThanOrEqual(140);
+    expect(844-phone.top-phone.bottom).toBeGreaterThan(200);expect(desktop.left).toBe(424);
+    expect(desktop.right).toBe(80);expect(desktop.top).toBe(140);
+    expect(map2DOverviewPadding(1000,720,true).left).toBe(344);
     expect(focus.top+focus.bottom).toBeLessThan(phone.top+phone.bottom);
     const smallPhone=map2DOverviewPadding(320,568,true);
-    expect(smallPhone.top).toBeGreaterThanOrEqual(205);expect(smallPhone.bottom).toBeGreaterThanOrEqual(568*.4);
+    expect(smallPhone.top).toBeGreaterThanOrEqual(140);expect(smallPhone.bottom).toBeGreaterThanOrEqual(568*.43);
     for(const [w,h] of [[320,568],[844,390],[160,160]]){const padding=map2DOverviewPadding(w,h,true);expect(w-padding.left-padding.right).toBeGreaterThan(0);expect(h-padding.top-padding.bottom).toBeGreaterThanOrEqual(64);}
   });
   it('preserves original ID/coordinates/holes/heights and restores shared attributes only on selection',async()=>{

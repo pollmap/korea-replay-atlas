@@ -25,7 +25,7 @@ from .mesh import write_glb
 from .mesh_metadata_audit import audit_glb, parse_glb
 from .glb_merge import merge_tiles, normalize_empty_metadata
 
-VERSION = 'spatial-retile-2'
+VERSION = 'spatial-retile-3'
 MAX_GLB = 4 * 1024 * 1024
 MAX_JSON = 3 * 1024 * 1024
 MINIMAL = ('source_record_id', 'kind', 'name', 'highway', 'railway', 'building', 'height', 'height_method', 'quality_state', 'render_eligible')
@@ -140,8 +140,20 @@ def emit_compact(features, folder, stem, template, maximum=MAX_JSON):
     document = compact_features(features)
     payload = encoded(document)
     if len(payload) > maximum and len(features) > 1:
-        middle = len(features) // 2
-        return emit_compact(features[:middle], folder, stem+'a', template, maximum) + emit_compact(features[middle:], folder, stem+'b', template, maximum)
+        # Source order is often an OSM edit history, not geographic order. Its
+        # two halves can each span an entire city, forcing the client to load
+        # both even for a small view. Partition whole features on the widest
+        # geographic axis; retain crossing geometry and every original vertex.
+        positioned = [(feature_position(feature), feature) for feature in features]
+        west = min(point[0] for point, _ in positioned)
+        east = max(point[0] for point, _ in positioned)
+        south = min(point[1] for point, _ in positioned)
+        north = max(point[1] for point, _ in positioned)
+        axis = 0 if (east-west)*math.cos(math.radians((south+north)/2)) >= north-south else 1
+        ordered = [feature for _, feature in sorted(positioned, key=lambda item: (
+            item[0][axis], item[0][1-axis], str(item[1].get('id', ''))))]
+        middle = len(ordered) // 2
+        return emit_compact(ordered[:middle], folder, stem+'a', template, maximum) + emit_compact(ordered[middle:], folder, stem+'b', template, maximum)
     if len(payload) >= 24 * 1024 * 1024:
         raise ValueError('Individual GeoJSON feature exceeds asset limit')
     if restore_features(document) != features:
