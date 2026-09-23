@@ -15,7 +15,9 @@
 .property-month{max-width:126px;flex:0 1 126px}.property-month select{max-width:100%;width:100%;font-family:inherit;font-size:12px;color:#4d607a;padding:9px 6px;border:1px solid #e0e7f0;background:#fff;border-radius:7px;min-height:40px}
 .property-period{font-size:11px;margin:0;color:#6f8095;white-space:nowrap}
 .property-caption{font-size:11px;color:#78869a;line-height:1.7}
-.property-coordinate-note{padding:10px 12px;margin:12px 0 0;border-left:3px solid #16805f;background:#f0f8f4;color:#315d49}
+.property-header .point-link-status{display:inline-block;margin-top:5px;color:#16805f;font-size:11px;font-weight:650}
+.complex-facts.compact .property-coordinate-note{padding:8px 10px;margin:8px 0 0;border-left:3px solid #16805f;background:#f0f8f4;border-radius:0 5px 5px 0;color:#315d49}
+.complex-facts.compact .property-coordinate-note summary{color:#315d49;font-size:11px}
 .property-body .national-stat{padding:8px 0 19px;margin:0;background:none;border:0;border-radius:0}
 .national-stat>span:first-child{font-size:12px;color:#667c96}.property-body .national-stat strong{font-size:36px;color:#192e4f;letter-spacing:-1.2px;margin:5px 0 3px;font-weight:750}.national-stat strong small{font-size:15px;color:#7b8ea7;font-weight:500}.national-stat>span:last-child{font-size:11px;color:#78899c}
 .region-shortcuts{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none;margin:0 -24px 8px;padding:1px 24px 5px}.region-shortcuts::-webkit-scrollbar{display:none}.region-shortcuts button{flex:0 0 auto;min-width:48px;min-height:36px;padding:5px 10px;border:1px solid #e0e7f0;border-radius:18px;background:#fff;color:#526982;font-size:11px;font-weight:600;white-space:nowrap}.region-shortcuts button:hover{border-color:#9ab8f0;color:#205bd3}.region-shortcuts button[aria-pressed=true]{border-color:#2563eb;background:#edf4ff;color:#1d55be}

@@ -249,6 +249,10 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
           const identity=kaptHit.properties?.property_complex_id,match=/^molit-apt:(11\d{3}):[A-Za-z0-9_-]{1,64}$/.exec(typeof identity==='string'?identity:'');
           if(match&&kaptHit.properties?.property_release_id===latest.current.vectorData?.property?.release_id&&latest.current.onPropertyComplex){
             latest.current.onPropertyComplex(match[1],identity);
+            if(matchMedia('(max-width:780px)').matches){
+              // Keep the selected point above the mobile bottom sheet.
+              map.easeTo({center:[coordinates[0],coordinates[1]],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:300});
+            }
             return;
           }
           latest.current.onSelect({name,sourceId:code,
