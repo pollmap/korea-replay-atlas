@@ -69,7 +69,8 @@ export default function App(){
   const selectPropertyRegion=useCallback((code:string)=>{setPropertyOpen(true);setSelection(null);setMenuOpen(false);setCityToolsOpen(false);setFocusMode(false);setMode('map');setPlaying(false);setTimeOpen(false);setSunOpen(false);setLayers(previous=>({...previous,sun:false}));setRequestedRegion(previous=>({code,request:(previous?.request??0)+1}));},[]);
   const [boundaries,setBoundaries]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('boundaries')!=='off');
   const propertyViewRef=useRef<PropertyViewState|null>(null);
-  const onPropertyView=useCallback((value:PropertyViewState)=>{propertyViewRef.current=value;},[]);
+  const [propertyTrade,setPropertyTrade]=useState<'sale'|'rent'>(()=>new URLSearchParams(location.hash.slice(1)).get('trade')==='rent'?'rent':'sale');
+  const onPropertyView=useCallback((value:PropertyViewState)=>{propertyViewRef.current=value;setPropertyTrade(value.trade);},[]);
   const [menuOpen,setMenuOpen]=useState(false);
   const [cityToolsOpen,setCityToolsOpen]=useState(false);
   const [focusMode,setFocusMode]=useState(false);
@@ -246,7 +247,7 @@ export default function App(){
   const showNational=()=>{selectPropertyRegion('');setPlace(PLACES[0]);setQuery('');mapRef.current?.flyTo(PLACES[0],{overviewPanelVisible:true,focused:false});};
   return <div className={`app-shell map-first atlas-shell is-${mapView} ${propertyVisible?'has-property':propertyRequested&&atlas.state==='loading'?'reserves-property':''} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
     {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전을 확인하는 중…'}</div>:<MapErrorBoundary key={mapView}><Suspense fallback={<div className="map-loading">대한민국의 지도를 펼치는 중…</div>}>
-      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion}:{})}/>
+      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion,propertyTrade}:{})}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
       <a className="brand" href="#" onClick={e=>{e.preventDefault();showNational();}} aria-label="대한민국 전체 보기"><span className="brand-symbol" aria-hidden="true">K</span><span className="brand-wordmark"><strong>KOREA REPLAY</strong><small>전국 지도 · 아파트 실거래</small></span></a>
@@ -303,7 +304,7 @@ export default function App(){
       {selection.qualityFlags?.slice(0,2).map(flag=><p key={flag}>{QUALITY_NOTICES[flag]??'원천값의 추가 검토가 필요합니다.'}</p>)}
       {selection.provenance&&<><span className="evidence-badge">{EVIDENCE_LABEL[selection.provenance.evidence_type??'unverified']}</span><dl>
         <dt>자료 버전</dt><dd>{selection.provenance.dataset_version??'미확인'}</dd>
-        <dt>출처</dt><dd>{SOURCES.find(s=>s.id===selection.provenance?.source_id)?.title??selection.provenance.source_id}</dd>
+        <dt>출처</dt><dd>{selection.provenance.source_id==='seoul-openaptinfo'?<a href="https://data.seoul.go.kr/dataList/OA-15818/A/1/datasetView.do" target="_blank" rel="noreferrer">서울시 공동주택 아파트 정보 ↗</a>:SOURCES.find(s=>s.id===selection.provenance?.source_id)?.title??selection.provenance.source_id}</dd>
         {(selection.provenance.source_record_id||selection.sourceId)&&<><dt>원본 ID</dt><dd>{selection.provenance.source_record_id||selection.sourceId}</dd></>}
       </dl></>}
     </aside>}

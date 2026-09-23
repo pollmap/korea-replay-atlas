@@ -17,16 +17,22 @@ import {atlasFetch} from './atlas-client';
 import {vectorLayers} from './vector-style';
 import {map2DLiveBuses,map2DLiveBusSelection} from './map2d-live';
 import type {PropertyRegions,PropertyRelease} from '../shared/property';
-import {pickedPropertyRegion,regionMapBubbleImage,regionMapData,regionMapLayer,REGION_MAP_IMAGE,REGION_MAP_LAYER,REGION_MAP_SOURCE} from './region-map-layer';
+import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBubbleImage,regionMapData,regionMapLayer,PROVINCE_MAP_LAYER,REGION_MAP_IMAGE,REGION_MAP_LAYER,REGION_MAP_SOURCE} from './region-map-layer';
 
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
-interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
+interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {asset:Asset;source:string;layerIds:string[];url:string;record:number;features:number;vertices:number;}
 type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
 const anchors=['land','water','area','road','point'] as const;
+const SEOUL_KAPT_SOURCE='seoul-kapt-provider-points';
+const SEOUL_KAPT_SELECTED='seoul-kapt-selected-point';
+const SEOUL_KAPT_URL=new URL('./data/seoul-kapt-points-8360eb2d88be0ab4.geojson',import.meta.url).href;
+// Fit the mainland and Jeju for legible national discovery. Offshore islands
+// remain in the same world and can be reached through search or panning.
+const NATIONAL_OVERVIEW:[[number,number],[number,number]]=[[125,33],[130.2,38.7]];
 export const map2DSourceLayers=(source:string,asset:Asset):{layer:LayerSpecification;before:string}[]=>{
   const fillAnchor=asset.source_id==='natural-earth'?'land':asset.layer==='terrain'?'water':'area';
   return [
@@ -39,13 +45,13 @@ export const map2DSourceLayers=(source:string,asset:Asset):{layer:LayerSpecifica
 const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const element=useRef<HTMLDivElement>(null),mapRef=useRef<LibreMap|null>(null),refreshRef=useRef<(()=>void)|null>(null);
   const latest=useRef(props);latest.current=props;
-  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions}:null);},[props.vectorData]);
+  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,trade:props.propertyTrade}:null);},[props.vectorData,props.propertyTrade]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
   useImperativeHandle(ref,()=>({
     flyTo:(place:Place,options)=>{
       const map=mapRef.current;if(!map)return;
       const node=map.getContainer(),padding=map2DOverviewPadding(node.clientWidth,node.clientHeight,options?.overviewPanelVisible??!!latest.current.overviewPanelVisible,options?.focused??latest.current.focused);
-      if(place.id==='korea')map.fitBounds([[124.5,33],[132.15,38.7]],{padding,duration:700});
+      if(place.id==='korea')map.fitBounds(NATIONAL_OVERVIEW,{padding,duration:700});
       // Offset the target into the unobscured viewport without persisting camera
       // padding, which would otherwise shift later national fits/shared cameras.
       else map.flyTo({center:[place.lon,place.lat],offset:[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2],zoom:map2DZoom(place.lat,place.range,Math.max(64,Math.min(node.clientHeight-padding.top-padding.bottom,node.clientWidth-padding.left-padding.right))),bearing:0,pitch:0,duration:700});
@@ -65,7 +71,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       locale:{'NavigationControl.ZoomIn':'확대','NavigationControl.ZoomOut':'축소','NavigationControl.ResetBearing':'북쪽으로','AttributionControl.ToggleAttribution':'지도 출처'},
       style:{version:8,sources:{},layers:[{id:'map2d-ocean',type:'background',paint:{'background-color':'#e7edf5'}},...anchors.map(name=>({id:`map2d-anchor-${name}`,type:'background' as const,paint:{'background-opacity':0}}))]}});}
     catch{downloads.dispose();latest.current.onStatus('2D 지도를 시작하지 못했습니다. 브라우저의 그래픽 가속 상태를 확인해 주세요.');return;}
-    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds([[124.5,33],[132.15,38.7]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),duration:0});map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
+    mapRef.current=map;if(initial.id==='korea'&&!shared)map.fitBounds(NATIONAL_OVERVIEW,{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),duration:0});map.addControl(new NavigationControl({visualizePitch:false}),'bottom-right');map.addControl(new ScaleControl({unit:'metric',maxWidth:100}),'bottom-left');map.addControl(new AttributionControl({compact:true}),'bottom-right');
     let worker:Worker;
     try{worker=new Worker(new URL('./map2d-data.worker.ts',import.meta.url),{type:'module'});}catch{map.remove();mapRef.current=null;downloads.dispose();latest.current.onStatus('2D 공간 처리기를 시작하지 못했습니다.');return;}
     const resolution=createMap2DPixelRatioController(map,()=>devicePixelRatio);
@@ -157,6 +163,21 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       for(const [key,resource] of resources)if(resource.asset.layer!=='terrain'&&!latest.current.layers[resource.asset.layer])remove(key);
       for(const asset of selected.assets)load(asset);prune();report();
     };
+    const loadSeoulKaptPoints=()=>{
+      if(disposed||!ready)return;
+      const bounds=map.getBounds();
+      const visible=map.getZoom()>=10&&bounds.getEast()>=126.6&&bounds.getWest()<=127.4&&bounds.getNorth()>=37.3&&bounds.getSouth()<=37.8;
+      node.dataset.seoulKaptVisible=String(visible);
+      if(!visible||map.getSource(SEOUL_KAPT_SOURCE))return;
+      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:SEOUL_KAPT_URL,cluster:true,clusterRadius:42,clusterMaxZoom:13,attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
+      map.addLayer({id:'seoul-kapt-clusters',type:'circle',source:SEOUL_KAPT_SOURCE,minzoom:10,filter:['has','point_count'],paint:{'circle-color':'#244fc0','circle-opacity':.88,'circle-radius':['step',['get','point_count'],15,20,19,100,24],'circle-stroke-color':'#fff','circle-stroke-width':2}});
+      map.addLayer({id:'seoul-kapt-cluster-count',type:'symbol',source:SEOUL_KAPT_SOURCE,minzoom:10,filter:['has','point_count'],layout:{'text-field':['concat',['get','point_count_abbreviated'],'개'],'text-size':10,'text-font':['Malgun Gothic','sans-serif']},paint:{'text-color':'#fff'}});
+      map.addLayer({id:'seoul-kapt-points',type:'circle',source:SEOUL_KAPT_SOURCE,minzoom:10,filter:['!',['has','point_count']],paint:{'circle-color':'#2859c4','circle-radius':['interpolate',['linear'],['zoom'],10,4,15,6],'circle-stroke-color':'#fff','circle-stroke-width':2,'circle-opacity':.93}});
+      map.addSource(SEOUL_KAPT_SELECTED,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+      map.addLayer({id:'seoul-kapt-selected-halo',type:'circle',source:SEOUL_KAPT_SELECTED,minzoom:10,paint:{'circle-color':'#ffb12b','circle-radius':15,'circle-opacity':.28,'circle-stroke-color':'#fff','circle-stroke-width':2}});
+      map.addLayer({id:'seoul-kapt-selected-core',type:'circle',source:SEOUL_KAPT_SELECTED,minzoom:10,paint:{'circle-color':'#f28d20','circle-radius':6,'circle-stroke-color':'#fff','circle-stroke-width':2}});
+      node.dataset.seoulKaptLayer='provider-points-crs-unconfirmed';
+    };
     const installVectors=()=>{
       const input=latest.current.vectorData;if(!ready||!input||vectorRelease===input.map.release_id)return;
       for(const id of vectorLayerIds)if(map.getLayer(id))map.removeLayer(id);for(const id of vectorSourceIds)if(map.getSource(id))map.removeSource(id);vectorLayerIds.length=0;vectorSourceIds.length=0;
@@ -192,7 +213,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       void resolveSceneAssets(catalog,bbox,height,controller.signal,downloads.fetcher,assets=>publish(assets),map2DLayers(latest.current.layers)).then(assets=>{if(!active())return;indexLoading=false;publish(assets,true);prune();}).catch(()=>{if(!active())return;indexLoading=false;controller.abort();errors++;prune();report();});
       report();
     };
-    const settle=()=>{if(disposed||resolution.applying)return;clearTimeout(settleTimer);settleTimer=setTimeout(()=>{settleTimer=undefined;if(disposed||document.hidden||map.isMoving()||resolution.inputHeld)return;resolution.restore();moving=false;refresh();for(const waiter of [...waiters])waiter.resume();lastMovingFrame=null;report();},250);};
+    const settle=()=>{if(disposed||resolution.applying)return;clearTimeout(settleTimer);settleTimer=setTimeout(()=>{settleTimer=undefined;if(disposed||document.hidden||map.isMoving()||resolution.inputHeld)return;resolution.restore();moving=false;refresh();loadSeoulKaptPoints();for(const waiter of [...waiters])waiter.resume();lastMovingFrame=null;report();},250);};
     const start=(event:{originalEvent?:unknown})=>{if(disposed||resolution.applying)return;moving=true;clearTimeout(settleTimer);resolution.moveStart(event.originalEvent);indexController?.abort();indexLoading=false;lastMovingFrame=null;report();};
     const visibility=()=>{if(document.hidden){resolution.releasePointers();clearTimeout(settleTimer);indexController?.abort();indexLoading=false;lastMovingFrame=null;}else settle();report();};
     // Capture before MapLibre's mouse/touch/wheel handlers. Resizing an active
@@ -217,8 +238,23 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const hits=map.queryRenderedFeatures(event.point);
       const liveHit=hits.find(feature=>typeof feature.properties?.live_bus_id==='string');
       if(liveHit){const selection=map2DLiveBusSelection(latest.current.liveTransit,liveHit.properties.live_bus_id);if(selection)latest.current.onSelect(selection);return;}
+      const kaptHit=hits.find(feature=>feature.source===SEOUL_KAPT_SOURCE);
+      if(kaptHit){
+        if(kaptHit.properties?.cluster){map.easeTo({center:event.lngLat,zoom:Math.min(15,map.getZoom()+2),duration:350});return;}
+        const code=kaptHit.properties?.kapt_code,name=kaptHit.properties?.name;
+        if(typeof code==='string'&&typeof name==='string'){
+          const coordinates=kaptHit.geometry.type==='Point'?kaptHit.geometry.coordinates:[event.lngLat.lng,event.lngLat.lat];
+          (map.getSource(SEOUL_KAPT_SELECTED) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates},properties:{kapt_code:code}}]});
+          latest.current.onSelect({name,sourceId:code,
+          detail:'서울시 공동주택 아파트 정보의 K-apt ID와 제공 좌표입니다. 좌표계·점의 의미는 원천 명세에서 확인되지 않았으며, 국토부 실거래 단지 ID와 아직 연결하지 않았습니다.',
+          provenance:{source_id:'seoul-openaptinfo',source_record_id:code,dataset_version:'2026-09-23',retrieved_at:'2026-09-23T04:36:36Z',evidence_type:'official_record'}});
+        }
+        return;
+      }
       const regionCode=pickedPropertyRegion(hits,regionDataRef.current);
       if(regionCode&&latest.current.onPropertyRegion){pickController?.abort();latest.current.onPropertyRegion(regionCode);return;}
+      const provinceCenter=pickedPropertyProvince(hits,regionDataRef.current);
+      if(provinceCenter){map.easeTo({center:provinceCenter,zoom:7,duration:450});return;}
       const vectorHit=vectorProtocol&&hits.find(feature=>typeof feature.properties?.stable_id==='string'&&feature.source.startsWith('vector-'));
       if(vectorHit&&vectorProtocol){pickController?.abort();const controller=new AbortController();pickController=controller;void vectorProtocol.pick(vectorHit.source.slice(7),vectorHit.properties.stable_id,controller.signal).then(value=>{if(value&&!disposed&&!controller.signal.aborted)latest.current.onSelect(value);}).catch(()=>undefined);return;}
       const hit=hits.find(feature=>Number.isSafeInteger(feature.properties?.map2d_index));if(!hit)return;
@@ -230,9 +266,10 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     const refreshRegions=()=>{
       if(disposed||!ready)return;
       const current=regionDataRef.current,source=map.getSource(REGION_MAP_SOURCE) as GeoJSONSource|undefined;
-      if(source&&installedRegions!==current){source.setData(current.data);installedRegions=current;}
+      if(source&&installedRegions!==current){source.setData({type:'FeatureCollection',features:[...current.data.features,...current.provinces.features]});installedRegions=current;}
       node.dataset.propertyRegionCount=String(current.data.features.length);node.dataset.propertyRegionExcluded=String(current.excluded);node.dataset.propertyRegionMonth=current.month;
       if(map.getLayer(REGION_MAP_LAYER))map.setLayoutProperty(REGION_MAP_LAYER,'visibility',(latest.current.measurement?.mode??'none')==='none'?'visible':'none');
+      if(map.getLayer(PROVINCE_MAP_LAYER))map.setLayoutProperty(PROVINCE_MAP_LAYER,'visibility',(latest.current.measurement?.mode??'none')==='none'?'visible':'none');
     };
     refreshRegionsRef.current=refreshRegions;
     const refreshLive=()=>{if(disposed||!ready||document.hidden)return;const data=map2DLiveBuses(latest.current.liveTransit);if(node.dataset.liveBusCount===String(data.features.length))return;(map.getSource('live-buses') as GeoJSONSource|undefined)?.setData(data);node.dataset.liveBusCount=String(data.features.length);};
@@ -242,14 +279,16 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       map.addLayer({id:'live-bus-points',type:'circle',source:'live-buses',paint:{'circle-color':'#12846e','circle-radius':6,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
       liveTimer=setInterval(refreshLive,5000);
     });
-    map.on('load',()=>{ready=true;map.addSource('measure',{type:'geojson',data:measurementGeoJSON(latest.current.measurement??EMPTY_MEASUREMENT)});map.addLayer({id:'measure-fill',type:'fill',source:'measure',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#317a63','fill-opacity':.15}});map.addLayer({id:'measure-line',type:'line',source:'measure',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#246b55','line-width':3}});map.addLayer({id:'measure-point',type:'circle',source:'measure',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':5,'circle-color':'#246b55','circle-stroke-color':'#ffffff','circle-stroke-width':2}});refresh();});map.on('movestart',start);map.on('moveend',settle);map.on('resize',settle);map.on('render',onRender);map.on('click',click);map.on('error',failure);map.on('sourcedata',report);
+    map.on('load',()=>{ready=true;map.addSource('measure',{type:'geojson',data:measurementGeoJSON(latest.current.measurement??EMPTY_MEASUREMENT)});map.addLayer({id:'measure-fill',type:'fill',source:'measure',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#317a63','fill-opacity':.15}});map.addLayer({id:'measure-line',type:'line',source:'measure',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#246b55','line-width':3}});map.addLayer({id:'measure-point',type:'circle',source:'measure',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':5,'circle-color':'#246b55','circle-stroke-color':'#ffffff','circle-stroke-width':2}});refresh();loadSeoulKaptPoints();});map.on('movestart',start);map.on('moveend',settle);map.on('resize',settle);map.on('render',onRender);map.on('click',click);map.on('error',failure);map.on('sourcedata',report);
     map.on('load',()=>{
       map.addImage(REGION_MAP_IMAGE,regionMapBubbleImage(),{pixelRatio:2,stretchX:[[12,68]],stretchY:[[12,52]],content:[12,10,68,54]});
-      installedRegions=regionDataRef.current;map.addSource(REGION_MAP_SOURCE,{type:'geojson',data:installedRegions.data});map.addLayer(regionMapLayer());refreshRegions();
+      installedRegions=regionDataRef.current;map.addSource(REGION_MAP_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[...installedRegions.data.features,...installedRegions.provinces.features]}});map.addLayer(provinceMapLayer());map.addLayer(regionMapLayer());refreshRegions();
       if(map.getLayer('live-bus-points'))map.moveLayer('live-bus-points');
     });
     map.on('mouseenter',REGION_MAP_LAYER,()=>{if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';});
     map.on('mouseleave',REGION_MAP_LAYER,()=>{map.getCanvas().style.cursor=(latest.current.measurement?.mode??'none')==='none'?'':'crosshair';});
+    map.on('mouseenter',PROVINCE_MAP_LAYER,()=>{if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';});
+    map.on('mouseleave',PROVINCE_MAP_LAYER,()=>{map.getCanvas().style.cursor=(latest.current.measurement?.mode??'none')==='none'?'':'crosshair';});
     const canvas=map.getCanvas();canvas.addEventListener('pointerdown',pointerDown,{capture:true,passive:true});canvas.addEventListener('wheel',wheel,{capture:true,passive:true});
     window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
@@ -265,6 +304,6 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   useEffect(()=>{refreshRegionsRef.current?.();},[regions,props.measurement]);
   useEffect(()=>{const source=mapRef.current?.getSource('live-buses') as GeoJSONSource|undefined;const data=map2DLiveBuses(props.liveTransit);source?.setData(data);if(element.current)element.current.dataset.liveBusCount=String(data.features.length);},[props.liveTransit]);
   useEffect(()=>{const map=mapRef.current;if(!map)return;const source=map.getSource('measure') as GeoJSONSource|undefined;source?.setData(measurementGeoJSON(props.measurement??EMPTY_MEASUREMENT));map.getCanvas().style.cursor=props.measurement&&props.measurement.mode!=='none'?'crosshair':'';},[props.measurement]);
-  return <><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
+  return <><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">서울시 K-apt 제공 점 · 좌표계 검토 중 · 실거래 단지 미연결</div>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
 });
 export default Map2D;

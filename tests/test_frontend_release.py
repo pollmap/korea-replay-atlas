@@ -107,6 +107,24 @@ def test_frontend_only_preserves_data_contracts_and_hardlinks_without_raw_audit(
     assert_prior_unchanged(fixture)
 
 
+def test_exact_public_seoul_point_asset_can_be_added_without_mutating_prior_data(fixture):
+    source = Path(__file__).resolve().parents[1] / 'src/data/seoul-kapt-points-8360eb2d88be0ab4.geojson'
+    target = fixture.client / 'assets/seoul-kapt-points-8360eb2d88be0ab4-Fbg8DdT6.geojson'
+    target.write_bytes(source.read_bytes())
+    result = restage(fixture)
+    staged = Path(result['bundle']) / 'client' / target.relative_to(fixture.client)
+    assert digest(staged) == frontend.SEOUL_KAPT_GEOJSON_SHA
+    assert_prior_unchanged(fixture)
+
+
+def test_seoul_point_asset_name_cannot_hide_different_content(fixture):
+    target = fixture.client / 'assets/seoul-kapt-points-8360eb2d88be0ab4-Fbg8DdT6.geojson'
+    target.write_bytes(b'{"type":"FeatureCollection","features":[]}')
+    with pytest.raises(ValueError, match='Copied frontend assets changed'):
+        restage(fixture)
+    assert_no_new_bundle(fixture)
+
+
 @pytest.mark.parametrize('name', [
     'data/insert.json', 'DATA/insert.json', '.env', '.env.production', '.dev.vars',
     'assets/.env', 'assets/private-12345678.js', 'assets/newChunk-12345678.js',
