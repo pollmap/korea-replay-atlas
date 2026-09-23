@@ -19,6 +19,7 @@ import osmium
 
 from .core import LOCAL, PUBLIC, atomic_json, digest
 from .rail_routes import distance, interpolate_station_depths
+from .rail_lifecycle import rail_lifecycle
 
 VERSION = 'seoul-subway-route-depth-v1'
 LIMITS = {'station_match_m': 400, 'snap_m': 120, 'min_length_m': 150,
@@ -33,7 +34,7 @@ def selected_relation(tags):
     return (tags.get('type') == 'route' and tags.get('route') == 'subway'
             and tags.get('ref') in tuple('12345678')
             and any(s in tags.get('name', '') for s in ('서울', '수도권'))
-            and tags.get('state') not in ('proposed', 'temporary'))
+            and rail_lifecycle(tags) == 'existing')
 
 
 def normalize_name(name):
@@ -100,7 +101,7 @@ def relation_graph(relation, extract):
         way = extract['ways'].get(str(ref))
         if not way or way['tags'].get('railway') not in ('subway', 'rail', 'light_rail'):
             continue
-        if way['tags'].get('disused') == 'yes' or way['tags'].get('abandoned') == 'yes':
+        if rail_lifecycle(way['tags']) != 'existing':
             continue
         for a, b in zip(way['nodes'], way['nodes'][1:]):
             if str(a) not in extract['nodes'] or str(b) not in extract['nodes']:

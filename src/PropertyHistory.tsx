@@ -1,0 +1,42 @@
+import {useEffect,useMemo,useState} from 'react';
+import type {PropertyComplex,PropertyRegionDetail,PropertyTransaction} from '../shared/property';
+import {HISTORY_RANGES,historyDay,historyMonths,historyPrice,historySummary,type HistoryRange} from '../shared/property-history';
+import {moneyLabel,monthLabel,propertyAreaOptions,transactionCsv,transactionRows} from '../shared/property-view';
+import {loadPropertyHistory,type HistoryResult} from './property-history-loader';
+
+export default function PropertyHistory({detail,complex,origin,month,trade,area,onArea,range,onRange,includeReview}:{detail:PropertyRegionDetail;complex:PropertyComplex;origin:string;month:string;trade:'sale'|'rent';area:string;onArea:(area:string)=>void;range:HistoryRange;onRange:(value:HistoryRange)=>void;includeReview:boolean}){
+  const [loaded,setLoaded]=useState<{key:string;months:HistoryResult[]}>({key:'',months:[]}),[error,setError]=useState(''),[attempt,setAttempt]=useState(0),[selected,setSelected]=useState(''),[limit,setLimit]=useState(12);
+  const key=`${detail.release_id}:${complex.id}:${month}:${trade}:${range}`;
+  useEffect(()=>{const controller=new AbortController();setLoaded({key,months:[]});setError('');setSelected('');setLimit(12);
+    void loadPropertyHistory({detail,end:month,count:range,trade,complex:complex.id,origin,signal:controller.signal,onMonth:result=>setLoaded(previous=>previous.key===key?{key,months:[...previous.months,result]}:previous)}).catch(reason=>{if(!controller.signal.aborted)setError(reason instanceof Error?reason.message:'거래 이력 조회 실패');});
+    return()=>controller.abort();
+  },[detail,complex.id,origin,month,trade,range,key,attempt]);
+  const months=useMemo(()=>historyMonths(month,range),[month,range]);
+  const results=loaded.key===key?loaded.months:[],ready=results.filter(r=>r.status==='ready').length,pending=results.length<months.length&&!error;
+  const raw=useMemo(()=>loaded.key===key?loaded.months.flatMap(r=>r.rows):[],[loaded,key]);
+  const rows=useMemo(()=>transactionRows(raw,{trade,complex:complex.id,area,cancelled:includeReview}),[raw,trade,complex.id,area,includeReview]);
+  const areas=useMemo(()=>[...new Set(raw.filter(r=>r.area_m2).map(r=>r.area_m2!))],[raw]);
+  const summary=useMemo(()=>historySummary(transactionRows(raw,{trade,complex:complex.id,area,cancelled:false})),[raw,trade,complex.id,area]);
+  const first=`${months[0].slice(0,4)}-${months[0].slice(4)}-01`,endDate=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(4)),0)).toISOString().slice(0,10),from=historyDay(first),to=historyDay(endDate);
+  const points=rows.filter(row=>row.contract_date&&historyPrice(row)!==null&&historyDay(row.contract_date)>=from&&historyDay(row.contract_date)<=to).slice(0,1000),chartSummary=historySummary(points),chosen=points.find(row=>row.id===selected)??summary.latest;
+  const choose=(row:PropertyTransaction)=>setSelected(row.id);
+  const download=()=>{const url=URL.createObjectURL(new Blob([transactionCsv(rows)],{type:'text/csv;charset=utf-8'}));const anchor=document.createElement('a');anchor.href=url;anchor.download=`korea-replay-${complex.source_complex_id}-${months[0]}-${month}-${trade}.csv`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  return <section className="property-history" aria-label="단지 실거래 이력">
+    <div className="history-title"><h3>{trade==='sale'?'매매 실거래':'전월세 실거래'}</h3><span>{monthLabel(month)}까지</span></div>
+    {error&&<p role="alert">{error}</p>}
+    {!pending&&results.some(row=>row.status==='error')&&<button className="history-retry" onClick={()=>setAttempt(value=>value+1)}>실패한 이력 다시 확인</button>}
+    <div className="history-summary"><div className="history-main-price"><span>{area?'최근 신고 거래':'최근 거래 · 면적 혼합'}</span><strong>{summary.latest?moneyLabel(historyPrice(summary.latest)):'—'}</strong><small>{summary.latest?`${summary.latest.contract_date} · ${summary.latest.area_m2}㎡ · ${summary.latest.floor??'미상'}층`:pending?'거래를 불러오는 중':'확인된 거래 없음'}</small></div><div className="history-total"><span>기간 내 거래</span><strong>{ready?summary.count.toLocaleString():'—'}<small>건</small></strong></div></div>
+    <div className="history-controls"><label className="property-search"><span className="sr-only">전용면적</span><select aria-label="이력 전용면적" value={area} onChange={event=>onArea(event.target.value)}><option value="">전체 면적</option>{propertyAreaOptions(areas,area,!pending&&ready===months.length).map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</select></label><div className="history-ranges" role="group" aria-label="실거래 조회 기간">{HISTORY_RANGES.map(value=><button key={value} aria-pressed={range===value} onClick={()=>onRange(value)}>{value}개월</button>)}</div></div>
+    <p className="history-coverage" role="status">{monthLabel(months[0])}–{monthLabel(month)} · {ready}/{months.length}개월 확인{pending?' · 불러오는 중':''}{ready<months.length&&!pending?' · 미확인 기간 있음':''}{!area?' · 면적 혼합':''}</p>
+    {!!points.length&&<><svg className="history-chart" viewBox="0 0 320 180" role="group" aria-label="기간별 실거래 점. 점을 선택하면 계약 정보를 확인합니다.">
+      <text x="8" y="13">{moneyLabel(chartSummary.max)}원</text><text x="8" y="145">{moneyLabel(chartSummary.min)}원</text>{[30,84,138].map(y=><line key={y} x1="12" y1={y} x2="308" y2={y} stroke="#e7ecf4" strokeDasharray="3 4"/>)}<line x1="12" y1="150" x2="308" y2="150" stroke="#dce3ec"/>
+      {months.map((value,i)=>{const result=results.find(r=>r.month===value),start=historyDay(`${value.slice(0,4)}-${value.slice(4)}-01`),x=12+(start-from)/Math.max(1,to-from)*296;return <g key={value}>{result?.status!=='ready'&&<rect x={x} y="23" width={296/months.length} height="120" fill="#eef1ee"><title>{monthLabel(value)} {result?.status==='error'?'조회 실패':'확인되지 않은 기간'}</title></rect>}{(months.length<=6||i%3===0||i===months.length-1)&&<text x={Math.min(308,x)} y="170" textAnchor={i===months.length-1?'end':'start'}>{monthLabel(value)}</text>}</g>;})}
+      {points.map(row=>{const x=12+(historyDay(row.contract_date!)-from)/Math.max(1,to-from)*296,y=chartSummary.max===chartSummary.min?85:138-(historyPrice(row)!-chartSummary.min!)/(chartSummary.max!-chartSummary.min!)*108,label=`${row.contract_date} · ${row.area_m2}㎡ · ${row.floor??'미상'}층 · ${moneyLabel(historyPrice(row))}원${trade==='rent'?` · 월 ${moneyLabel(row.monthly_rent_krw)}원`:''}${row.cancellation==='cancelled'?' · 해제':''}`;return <circle key={row.id} cx={x} cy={y} r={row.id===chosen?.id?5:3.8} fill={row.cancellation==='cancelled'?'#a07963':'#247a5a'} opacity=".85" tabIndex={0} role="button" aria-label={label} onFocus={()=>choose(row)} onClick={()=>choose(row)} onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();choose(row);}}}><title>{label}</title></circle>;})}
+    </svg>{chosen&&<p className="history-point" aria-live="polite">{chosen.contract_date} · {chosen.area_m2}㎡ · {chosen.floor??'미상'}층 <strong>{moneyLabel(historyPrice(chosen))}원</strong>{trade==='rent'&&` · 월 ${moneyLabel(chosen.monthly_rent_krw)}원`}{chosen.cancellation==='cancelled'?' · 해제':''}</p>}</>}
+    {!points.length&&!pending&&<p className="property-empty">{rows.length?'기록은 있으나 차트에 표시할 기간 내 금액·계약일이 없습니다.':ready?'확인된 기간에 선택 조건의 신고 거래가 없습니다.':'선택 기간의 거래를 확인하지 못했습니다.'}</p>}
+    <div className="history-table-title"><h3>계약 기록</h3><button onClick={download} disabled={!rows.length||pending}>CSV 내려받기</button></div>
+    <div className="transaction-table"><table><thead><tr><th>계약일·층</th><th>전용면적</th><th>{trade==='sale'?'매매가':'보증금 / 월세'}</th></tr></thead><tbody>{rows.slice(0,limit).map(row=><tr key={row.id} className={selected===row.id?'history-selected':''}><td>{row.contract_date}<small>{row.floor??'미상'}층{row.cancellation==='cancelled'?' · 해제':row.quality==='invalid'?' · 검토':''}</small></td><td>{row.area_m2}㎡</td><td>{moneyLabel(historyPrice(row))}{trade==='rent'&&<small>월 {moneyLabel(row.monthly_rent_krw)}</small>}</td></tr>)}</tbody></table></div>
+    {rows.length>limit&&<button className="load-more" onClick={()=>setLimit(n=>n+24)}>계약 기록 더 보기 ({Math.min(limit,rows.length)}/{rows.length})</button>}
+    <p className="property-caption">금액 단위 원 · 회색 영역은 미확인 기간으로 0건과 다릅니다.{includeReview?' 차트·표는 검토·취소 기록 포함, 상단 요약은 유효 거래만 표시합니다.':' 취소·미확인 매매 제외.'}{trade==='rent'?' 월세와 보증금은 함께 확인하세요.':''}{points.length<rows.length?' 차트는 기간 내 금액·계약일이 있는 최근 최대 1,000건, 표·CSV는 선택한 전체 기록입니다.':''}</p>
+  </section>;
+}

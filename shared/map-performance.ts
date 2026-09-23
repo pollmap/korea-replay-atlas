@@ -62,12 +62,13 @@ export function selectViewAssets(assets:Asset[],options:{bbox:BBox;height:number
   const priority=(a:Asset)=>a.format==='quantized-mesh'?0:a.source_id==='natural-earth'?1:a.format==='replay'||a.layer==='depth'?2:a.format==='imagery'?3:a.detail_level==='overview'?4:a.format==='3d-tiles'?6:5;
   const distance=(a:Asset)=>((a.bbox[0]+a.bbox[2]-bbox[0]-bbox[2])*Math.cos((bbox[1]+bbox[3])*Math.PI/360))**2+(a.bbox[1]+a.bbox[3]-bbox[1]-bbox[3])**2;
   const visible=filtered.filter(a=>(a.min_camera_height===undefined||height>=a.min_camera_height)&&(a.max_camera_height===undefined||height<a.max_camera_height)).sort((a,b)=>priority(a)-priority(b)||distance(a)-distance(b)||a.id.localeCompare(b.id));
-  let bytes=0,vertices=0,deferred=0,geoFiles=0;const selected:Asset[]=[];
+  let bytes=0,vertices=0,deferred=0,geoFiles=0;const selected:Asset[]=[],admitted=new Set<Asset>();
   const admit=(a:SizedAsset)=>{
+    if(admitted.has(a))return true;
     const geometry=a.format==='geojson'&&a.source_id!=='natural-earth';
     const cost=geometry?(a.byte_length??a.bytes??a.count*600):0,count=geometry?geometryVertexEstimate(a):0;
     if(geometry&&(geoFiles>=budget.files||bytes+cost>budget.bytes||vertices+count>budget.vertices))return false;
-    selected.push(a);bytes+=cost;vertices+=count;if(geometry)geoFiles++;return true;
+    selected.push(a);admitted.add(a);bytes+=cost;vertices+=count;if(geometry)geoFiles++;return true;
   };
   const geometry=visible.filter(a=>a.format==='geojson'&&a.source_id!=='natural-earth') as SizedAsset[];
   const overloaded=geometry.length>budget.files||geometry.reduce((sum,a)=>sum+(a.byte_length??a.bytes??a.count*600),0)>budget.bytes||geometry.reduce((sum,a)=>sum+geometryVertexEstimate(a),0)>budget.vertices;
@@ -76,8 +77,15 @@ export function selectViewAssets(assets:Asset[],options:{bbox:BBox;height:number
   // a coarse fallback. These small special layers still use the same budget.
   for(const a of visible)if(priority(a)<4&&!admit(a))deferred++;
   if(overloaded){
-    // Reserve coarse coverage before admitting detail; never exceed the same budget.
+    // Keep a coarse anchor, then let the nearest detail in each layer compete
+    // before the remaining coarse files. Reserving every overview first could
+    // consume the entire budget and show no street detail at all in a city view.
     const overview=filtered.filter(a=>a.detail_level==='overview'&&!visible.includes(a)&&(a.max_camera_height===undefined||height<a.max_camera_height)).sort((a,b)=>distance(a)-distance(b));
+    for(const a of overview)if(admit(a)){fallback=true;break;}
+    if(fallback){
+      const detailLayers=new Set<LayerId>();
+      for(const a of geometry)if(a.detail_level!=='overview'&&!detailLayers.has(a.layer)&&admit(a))detailLayers.add(a.layer);
+    }
     for(const a of overview){if(admit(a))fallback=true;}
   }
   for(const a of visible)if(priority(a)>=4&&!admit(a))deferred++;

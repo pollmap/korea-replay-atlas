@@ -56,6 +56,43 @@ def test_actual_byte_cap_splits_without_losing_identity(tmp_path):
     assert all(t['extras']['bytes'] <= 10000 or t['extras']['feature_count'] == 1 for t in tiles)
 
 
+def test_compact_size_split_is_spatial_and_preserves_every_source_row(tmp_path, monkeypatch):
+    public = tmp_path/'public'
+    monkeypatch.setattr(retile, 'PUBLIC', public)
+    # Interleaved edit order used to make both files intersect both neighborhoods.
+    features = [building('west-a', 126), building('east-a', 128),
+                building('west-b', 126.001), building('east-b', 128.001)]
+    before = copy.deepcopy(features)
+    maximum = max(len(retile.encoded(retile.compact_features(features[::2]))),
+                  len(retile.encoded(retile.compact_features(features[1::2]))))
+    assets = retile.emit_compact(features, public/'geometry', 'roads', {}, maximum=maximum)
+    assert len(assets) == 2
+    restored = [feature for asset in assets for feature in retile.restore_features(
+        json.loads((public/asset['url'].removeprefix('/data/')).read_bytes()))]
+    assert sorted(restored, key=lambda f: f['id']) == sorted(before, key=lambda f: f['id'])
+    assert features == before
+    assert assets[0]['bbox'][2] < assets[1]['bbox'][0]
+    assert sum(a['vertex_count'] for a in assets) == sum(retile.vertex_count(f['geometry']) for f in before)
+    assert all(a['byte_length'] <= maximum for a in assets)
+
+
+def test_compact_spatial_split_uses_north_south_axis_and_keeps_crossing_lines(tmp_path, monkeypatch):
+    public = tmp_path/'public'
+    monkeypatch.setattr(retile, 'PUBLIC', public)
+    features = []
+    for i, latitude in enumerate((35, 38, 35.01, 38.01)):
+        features.append({'type': 'Feature', 'id': str(i), 'properties': {'kind': 'road'},
+                         'geometry': {'type': 'LineString', 'coordinates': [[127, latitude], [127.01, latitude+.01]]}})
+    maximum = max(len(retile.encoded(retile.compact_features(features[::2]))),
+                  len(retile.encoded(retile.compact_features(features[1::2]))))
+    assets = retile.emit_compact(features, public/'geometry', 'north-south', {}, maximum=maximum)
+    assert len(assets) == 2 and assets[0]['bbox'][3] < assets[1]['bbox'][1]
+    restored = [feature for asset in assets for feature in retile.restore_features(
+        json.loads((public/asset['url'].removeprefix('/data/')).read_bytes()))]
+    assert sorted(restored, key=lambda f: f['id']) == sorted(features, key=lambda f: f['id'])
+    assert retile.emit_compact(features, public/'geometry', 'north-south', {}, maximum=maximum) == assets
+
+
 def test_source_quality_partition_is_complete_and_resumeable(tmp_path, monkeypatch):
     public = tmp_path/'public'
     monkeypatch.setattr(retile, 'PUBLIC', public)

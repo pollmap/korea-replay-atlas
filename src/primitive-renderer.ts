@@ -5,6 +5,7 @@ import {FrameWorkBudget} from '../shared/map-performance';
 import type {PrimitiveAdmission,PreparingPrimitive,PrimitiveLease} from '../shared/primitive-admission';
 import {displayedBuildingHeight,finiteProperty,selectedProperties,type MapSelection} from '../shared/selection';
 import type {SceneLabelScheduler,ScheduledLabel} from './label-scheduler';
+import {railDisplayColor} from '../shared/rail-style';
 
 export interface PrimitiveSelection extends MapSelection {sourceId:string;properties:GeoProperties;}
 export interface PrimitivePick {sourceId:string;properties:GeoProperties;asset:Asset;}
@@ -34,7 +35,7 @@ export function selectionFromProperties(id:string,p:GeoProperties,asset:Asset):P
 const colors=new Map<string,C.Color>();
 const color=(value:string)=>{let result=colors.get(value);if(!result){result=C.Color.fromCssColorString(value);colors.set(value,result);}return result;};
 function fill(p:GeoProperties,asset:Asset):C.Color{return color(p.kind==='water'?'#a8ced4':p.kind==='industrial_land'?'#c9c6b7':String(p.kind).startsWith('airport')?'#c7cbd0':p.kind==='port'?'#bbcec6':asset.layer==='buildings'?'#e5e1d3':'#dce4cd');}
-function stroke(p:GeoProperties,asset:Asset):C.Color{return color(asset.layer==='rail'?'#a79571':p.kind==='ferry_route'?'#699ba8':p.kind==='airport_runway'?'#8a9299':'#f5f2df');}
+function stroke(p:GeoProperties,asset:Asset):C.Color{return color(asset.layer==='rail'?railDisplayColor(p,asset):p.kind==='ferry_route'?'#699ba8':p.kind==='airport_runway'?'#8a9299':'#f5f2df');}
 const major=(p:GeoProperties)=>['airport','port','settlement','ferry_terminal','bus_station','station'].includes(String(p.kind));
 
 /** Static batched geometry, without thousands of Entity/PropertyBag/Visualizer objects. */

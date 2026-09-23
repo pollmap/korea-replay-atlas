@@ -18,6 +18,7 @@ import {EMPTY_MEASUREMENT,measureMap} from '../shared/map-tools';
 import {readFlatCamera,type FlatCamera} from '../shared/map2d';
 import {assertPinnedDeploymentV2,validateRuntimeV2,versionedShareUrlV2,type RuntimeV2} from '../shared/runtime-v2';
 import {useAtlas} from './useAtlas';
+import {regionNavigationPlace} from './region-navigation';
 import type {PropertyViewState} from './PropertyExplorer';
 const MapScene=lazy(()=>import('./MapScene'));
 const Map2D=lazy(()=>import('./Map2D'));
@@ -64,10 +65,13 @@ export default function App(){
   const [runtimeError,setRuntimeError]=useState('');
   const atlas=useAtlas(runtime&&'schema_version' in runtime?runtime:null,runtimeChecked,runtimeError);
   const [propertyOpen,setPropertyOpen]=useState(true);
+  const [requestedRegion,setRequestedRegion]=useState<{code:string;request:number}>();
+  const selectPropertyRegion=useCallback((code:string)=>{setPropertyOpen(true);setSelection(null);setMenuOpen(false);setCityToolsOpen(false);setFocusMode(false);setMode('map');setPlaying(false);setTimeOpen(false);setSunOpen(false);setLayers(previous=>({...previous,sun:false}));setRequestedRegion(previous=>({code,request:(previous?.request??0)+1}));},[]);
   const [boundaries,setBoundaries]=useState(()=>new URLSearchParams(location.hash.slice(1)).get('boundaries')!=='off');
   const propertyViewRef=useRef<PropertyViewState|null>(null);
   const onPropertyView=useCallback((value:PropertyViewState)=>{propertyViewRef.current=value;},[]);
   const [menuOpen,setMenuOpen]=useState(false);
+  const [cityToolsOpen,setCityToolsOpen]=useState(false);
   const [focusMode,setFocusMode]=useState(false);
   const [timeOpen,setTimeOpen]=useState(initial.mode==='replay'||initial.mode==='sun');
   const [timeExpanded,setTimeExpanded]=useState(false);
@@ -79,8 +83,10 @@ export default function App(){
   const [flatCamera,setFlatCamera]=useState<FlatCamera|null>(()=>readFlatCamera(location.hash));
   const [spatialCamera,setSpatialCamera]=useState<number[]|null|undefined>(undefined);
   const mapRef=useRef<MapHandle|null>(null);
+  const propertyFrameDone=useRef(false);
   const dialogRef=useRef<HTMLElement|null>(null);
   const searchRef=useRef<HTMLInputElement|null>(null);
+  const cityToolsRef=useRef<HTMLDivElement|null>(null);
   const searchWorkerRef=useRef<Worker|null>(null);
   const searchRequestRef=useRef(0);
   useEffect(()=>{
@@ -108,11 +114,16 @@ export default function App(){
       if(sourcesOpen||event.ctrlKey||event.metaKey||event.altKey)return;
       const editing=event.target instanceof HTMLInputElement||event.target instanceof HTMLTextAreaElement||event.target instanceof HTMLSelectElement||(event.target as HTMLElement)?.isContentEditable;
       if(event.key==='/'&&!editing){event.preventDefault();setFocusMode(false);requestAnimationFrame(()=>searchRef.current?.focus());}
-      if(event.key.toLowerCase()==='f'&&!editing&&!event.ctrlKey&&!event.metaKey&&!event.altKey){event.preventDefault();setFocusMode(value=>!value);setQuery('');}
-      if(event.key==='Escape'){setQuery('');setMenuOpen(false);setFocusMode(false);}
+      if(event.key.toLowerCase()==='f'&&!editing&&!event.ctrlKey&&!event.metaKey&&!event.altKey){event.preventDefault();setFocusMode(value=>!value);setQuery('');setCityToolsOpen(false);}
+      if(event.key==='Escape'){setQuery('');setMenuOpen(false);if(cityToolsRef.current?.contains(document.activeElement))cityToolsRef.current.querySelector<HTMLButtonElement>('.city-tools-toggle')?.focus();setCityToolsOpen(false);setFocusMode(false);}
     };
     document.addEventListener('keydown',shortcut);return()=>document.removeEventListener('keydown',shortcut);
   },[sourcesOpen]);
+  useEffect(()=>{
+    if(!cityToolsOpen)return;
+    const outside=(event:PointerEvent)=>{if(event.target instanceof Node&&!cityToolsRef.current?.contains(event.target))setCityToolsOpen(false);};
+    document.addEventListener('pointerdown',outside);return()=>document.removeEventListener('pointerdown',outside);
+  },[cityToolsOpen]);
   useEffect(()=>{
     const id=++searchRequestRef.current;
     if(!query.trim())return;
@@ -173,6 +184,13 @@ export default function App(){
   },[playing,speed,mode,replayTo]);
   useEffect(()=>{if(mode==='replay'&&replayTo!==null&&instant>=replayTo)setPlaying(false);},[instant,mode,replayTo]);
   const goTo=useCallback((p:Place)=>{setPlace(p);setQuery('');setSelection(null);mapRef.current?.flyTo(p,{overviewPanelVisible:!focusMode&&mode==='map'&&!menuOpen&&propertyOpen,focused:focusMode});},[focusMode,mode,menuOpen,propertyOpen]);
+  useEffect(()=>{
+    if(propertyFrameDone.current||!atlas.content)return;propertyFrameDone.current=true;
+    const params=new URLSearchParams(location.hash.slice(1));
+    if(params.has('flatCamera')||params.has('camera')||params.has('position'))return;
+    const region=atlas.content.regions.regions.find(row=>row.lawd_code===params.get('regionCode'));
+    const target=region?regionNavigationPlace(region,atlas.content.map):null;if(target)goTo(target);
+  },[atlas.content,goTo]);
   const inspect=useCallback((value:Selection|null)=>{setSelection(value);if(value){setMenuOpen(false);setSunOpen(false);setObservationsOpen(false);}},[]);
   const acceptLiveTransit=useCallback((value:LiveTransitSnapshot|null)=>{setLiveTransit(value);setSelection(previous=>previous?.properties?.live?null:previous);},[]);
   const viewInstant=mode==='live'?liveInstant:instant;
@@ -183,6 +201,7 @@ export default function App(){
   const timeLabel=timeFormatter.format(new Date(instant));
   const visiblePlaces=query?searchResults:[];
   const switchMode=(next:ExploreMode)=>{
+    setCityToolsOpen(false);
     if(next==='replay'&&!days.length){setNotice('재생 가능한 관측 기록이 아직 적재되지 않았습니다. 햇빛 실험은 바로 이용할 수 있습니다.');return;}
     setMode(next);setPlaying(false);setNotice('');
     setTimeOpen(next==='sun'||next==='replay');setSunOpen(next==='sun');
@@ -214,7 +233,7 @@ export default function App(){
     const flatCamera=mapRef.current?.flatCamera?.();if(flatCamera)params.set('flatCamera',flatCamera.join(','));
     const camera=mapRef.current?.camera();if(camera)params.set('camera',camera.join(','));
     const propertyView=propertyViewRef.current;
-    if(propertyView&&atlas.content){params.set('propertyRelease',atlas.content.property.release_id);params.set('regionCode',propertyView.region);params.set('trade',propertyView.trade);params.set('month',propertyView.month);params.set('complex',propertyView.complex);params.set('area',propertyView.area);params.set('compareRegions',propertyView.compare.join(','));params.set('compareComplexes',propertyView.compareComplexes.join(','));if(propertyView.includeReview)params.set('review','include');else params.delete('review');}
+    if(propertyView&&atlas.content){params.set('propertyRelease',atlas.content.property.release_id);params.set('regionCode',propertyView.region);params.set('trade',propertyView.trade);params.set('month',propertyView.month);params.set('complex',propertyView.complex);params.set('area',propertyView.area);params.set('historyMonths',String(propertyView.historyMonths));params.set('compareRegions',propertyView.compare.join(','));params.set('compareComplexes',propertyView.compareComplexes.join(','));if(propertyView.includeReview)params.set('review','include');else params.delete('review');}
     let url:string;try{url='schema_version' in runtime?versionedShareUrlV2(runtime,catalog.release_id,params):versionedShareUrl(runtime,catalog.release_id,params);}catch(error){setNotice(error instanceof Error?error.message:'공유 링크를 만들지 못했습니다.');return;}
     try{await navigator.clipboard.writeText(url);setNotice('현재 장소·시각·자료 버전의 링크를 복사했습니다.');}
     catch{setNotice(`링크 복사가 허용되지 않았습니다. 공유 주소: ${url}`);}
@@ -222,39 +241,42 @@ export default function App(){
   const deploymentBlocked=initial.deployment!==null&&(!runtimeChecked||!!runtimeError);
   const ActiveMap=mapView==='2d'?Map2D:MapScene;
   const changeView=(view:'2d'|'3d')=>{if(view===mapView)return;const position=mapRef.current?.viewport?.();if(position)setPlace(position);setFlatCamera(null);setSpatialCamera(null);setPerformanceInfo(null);setMapView(view);setMeasurement(EMPTY_MEASUREMENT);if(view==='2d'&&(mode==='sun'||mode==='replay'))switchMode('map');};
-  return <div className={`app-shell map-first is-${mapView} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
+  const propertyRequested=!focusMode&&mode==='map'&&!menuOpen&&!selection&&propertyOpen;
+  const propertyVisible=!!atlas.content&&propertyRequested;
+  const showNational=()=>{selectPropertyRegion('');setPlace(PLACES[0]);setQuery('');mapRef.current?.flyTo(PLACES[0],{overviewPanelVisible:true,focused:false});};
+  return <div className={`app-shell map-first atlas-shell is-${mapView} ${propertyVisible?'has-property':propertyRequested&&atlas.state==='loading'?'reserves-property':''} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
     {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전을 확인하는 중…'}</div>:<MapErrorBoundary key={mapView}><Suspense fallback={<div className="map-loading">대한민국의 지도를 펼치는 중…</div>}>
-      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={!focusMode&&mode==='map'&&!menuOpen&&!selection&&propertyOpen} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo}/>
+      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion}:{})}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
-      <a className="brand" href="#" onClick={e=>{e.preventDefault();goTo(PLACES[0]);}} aria-label="대한민국 전체 보기"><span className="brand-symbol">K<span>↗</span></span><span><strong>KOREA REPLAY</strong><small>도시와 부동산을 읽는 전국 지도</small></span></a>
-      <div className="search-wrap"><span aria-hidden="true">⌕</span><input ref={searchRef} aria-label="지역 또는 역 검색" role="combobox" aria-autocomplete="list" aria-controls="place-search-results" aria-expanded={!!query} aria-activedescendant={searchActive>=0&&visiblePlaces[searchActive]?`place-result-${searchActive}`:undefined} placeholder="지역·역·장소 검색" maxLength={80} value={query} onChange={e=>{setQuery(e.target.value);setSearchActive(-1);setSearchResults([]);setSearchStatus('검색 중…');}} onKeyDown={event=>{if(event.key==='ArrowDown'){event.preventDefault();setSearchActive(index=>Math.min(visiblePlaces.length-1,index+1));}else if(event.key==='ArrowUp'){event.preventDefault();setSearchActive(index=>Math.max(0,index-1));}else if(event.key==='Enter'&&visiblePlaces[searchActive]){event.preventDefault();goTo(visiblePlaces[searchActive]);setSearchActive(-1);}else if(event.key==='Escape'){event.preventDefault();setQuery('');setSearchActive(-1);}}}/><kbd>/</kbd>
+      <a className="brand" href="#" onClick={e=>{e.preventDefault();showNational();}} aria-label="대한민국 전체 보기"><span className="brand-symbol" aria-hidden="true">K</span><span className="brand-wordmark"><strong>KOREA REPLAY</strong><small>전국 지도 · 아파트 실거래</small></span></a>
+      <div className="search-wrap"><svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></svg><input ref={searchRef} aria-label="지역 또는 역 검색" role="combobox" aria-autocomplete="list" aria-controls="place-search-results" aria-expanded={!!query} aria-activedescendant={searchActive>=0&&visiblePlaces[searchActive]?`place-result-${searchActive}`:undefined} placeholder="지역·역·장소를 찾아보세요" maxLength={80} value={query} onChange={e=>{setQuery(e.target.value);setSearchActive(-1);setSearchResults([]);setSearchStatus('검색 중…');}} onKeyDown={event=>{if(event.key==='ArrowDown'){event.preventDefault();setSearchActive(index=>Math.min(visiblePlaces.length-1,index+1));}else if(event.key==='ArrowUp'){event.preventDefault();setSearchActive(index=>Math.max(0,index-1));}else if(event.key==='Enter'&&visiblePlaces[searchActive]){event.preventDefault();goTo(visiblePlaces[searchActive]);setSearchActive(-1);}else if(event.key==='Escape'){event.preventDefault();setQuery('');setSearchActive(-1);}}}/><kbd>/</kbd>
       {query&&<div id="place-search-results" className="search-results" role="listbox" aria-label="장소 검색 결과">{visiblePlaces.length?visiblePlaces.map((p,index)=><button id={`place-result-${index}`} key={p.id} role="option" aria-selected={index===searchActive} tabIndex={-1} onClick={()=>goTo(p)}><b>{p.name}</b><span>{p.region}</span></button>):<p role="status">{searchStatus}</p>}</div>}</div>
-      <div className="mode-switch" aria-label="탐색 모드"><button aria-pressed={mode==='map'} onClick={()=>switchMode('map')}>지도 탐색</button><button aria-pressed={mode==='live'} onClick={()=>switchMode('live')}>현재 관측</button><button aria-pressed={mode==='replay'} onClick={()=>switchMode('replay')}>기록</button><button aria-pressed={mode==='sun'} onClick={()=>switchMode('sun')}>햇빛</button></div>
-      <button className="share-button" aria-disabled={mode==='live'} title={mode==='live'?LIVE_SHARE_NOTICE:undefined} onClick={share}>공유 ↗</button>
+      <nav className="header-actions" aria-label="서비스 메뉴"><button className="explore-button" aria-pressed={mode==='map'} onClick={()=>{switchMode('map');setPropertyOpen(true);setMenuOpen(false);setSelection(null);}}>지도 탐색</button>
+      <div className="city-tools" ref={cityToolsRef}><button className="city-tools-toggle" aria-expanded={cityToolsOpen} aria-controls="city-tools-menu" onClick={()=>setCityToolsOpen(value=>!value)}><span className="city-tools-label">도시 도구</span><svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m4 6 4 4 4-4"/></svg></button>
+      {cityToolsOpen&&<div className="city-tools-menu" id="city-tools-menu" role="group" aria-label="도시 탐색 도구"><p>도시를 더 자세히 탐색하기</p><button aria-pressed={mode==='live'} onClick={()=>switchMode('live')}><strong>현재 관측</strong><small>연결된 교통·기상 자료</small></button><button aria-pressed={mode==='replay'} onClick={()=>switchMode('replay')}><strong>기록</strong><small>보유한 관측 기록 재생</small></button><button aria-pressed={mode==='sun'} onClick={()=>switchMode('sun')}><strong>햇빛</strong><small>시각에 따른 태양·그림자</small></button>{mode!=='map'&&<div className="city-tools-context">{mode==='live'?<button onClick={()=>{setObservationsOpen(value=>!value);setCityToolsOpen(false);}} aria-expanded={observationsOpen}>관측 패널</button>:<><button onClick={()=>{setTimeOpen(value=>!value);setCityToolsOpen(false);}} aria-expanded={timeOpen}>시간 패널</button><button onClick={()=>{setSunOpen(value=>!value);setCityToolsOpen(false);}} aria-expanded={sunOpen}>태양 정보</button></>}</div>}<div className="city-tools-footer"><button onClick={()=>{setSourcesOpen(true);setCityToolsOpen(false);}}>데이터 출처</button><button aria-disabled={mode==='live'} onClick={()=>{void share();setCityToolsOpen(false);}}>공유</button></div></div>}</div>
+      <button className="share-button" aria-disabled={mode==='live'} title={mode==='live'?LIVE_SHARE_NOTICE:undefined} onClick={share}><svg aria-hidden="true" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 13V2m0 0L6 6m4-4 4 4M4 10v7h12v-7"/></svg>공유</button></nav>
     </header>
-    <nav className="mobile-mode-switch mode-switch" aria-label="모바일 탐색 모드" hidden={focusMode}><button aria-pressed={mode==='map'} onClick={()=>switchMode('map')}>지도 탐색</button><button aria-pressed={mode==='live'} onClick={()=>switchMode('live')}>현재 관측</button><button aria-pressed={mode==='replay'} onClick={()=>switchMode('replay')}>기록</button><button aria-pressed={mode==='sun'} onClick={()=>switchMode('sun')}>햇빛</button></nav>
     <nav className="map-dock" aria-label="지도 패널" hidden={focusMode}>
-      <button aria-pressed={mapView==='2d'} onClick={()=>changeView('2d')} title="빠른 평면 지도">2D</button>
-      <button aria-pressed={mapView==='3d'} onClick={()=>changeView('3d')} title="지형과 건물을 입체로 보기">3D</button>
-      <button onClick={()=>goTo(PLACES[0])} title="대한민국 전체로 이동">전국</button>
-      {atlas.content&&<button onClick={()=>{setPropertyOpen(v=>!v);setMenuOpen(false);setSelection(null);}} aria-expanded={propertyOpen}>지역 분석</button>}
-      {atlas.content&&mapView==='2d'&&<button onClick={()=>setBoundaries(v=>!v)} aria-pressed={boundaries} title="행정경계 · 2025년 6월 기준">경계</button>}
+      <div className="view-switch" role="group" aria-label="지도 표현"><button aria-pressed={mapView==='2d'} onClick={()=>changeView('2d')} title="빠른 평면 지도">2D</button><button aria-pressed={mapView==='3d'} onClick={()=>changeView('3d')} title="지형과 건물을 입체로 보기">3D</button></div>
+      <button className="dock-national" onClick={showNational} title="대한민국 전체로 이동">전국</button>
+      {atlas.content&&<button onClick={()=>{if(mode!=='map')switchMode('map');setPropertyOpen(mode==='map'?!propertyVisible:true);setMenuOpen(false);setSelection(null);}} aria-expanded={propertyVisible}>지역 분석</button>}
+      {atlas.content&&mapView==='2d'&&<button className="dock-boundaries" onClick={()=>setBoundaries(v=>!v)} aria-pressed={boundaries} title="행정경계 · 2025년 6월 기준">경계</button>}
       <button onClick={()=>setMenuOpen(v=>!v)} aria-expanded={menuOpen} aria-controls="layers-panel">레이어</button>
-      {mode==='live'?<button onClick={()=>{setObservationsOpen(v=>!v);if(!observationsOpen)setSelection(null);}} aria-expanded={observationsOpen} aria-controls="observations-host">관측</button>:mode!=='map'&&<>
-        <button onClick={()=>setTimeOpen(v=>!v)} aria-expanded={timeOpen} aria-controls="time-panel">시간</button>
-        <button onClick={()=>setSunOpen(v=>!v)} aria-expanded={sunOpen} aria-controls="sun-panel">태양</button>
+      {mode==='live'?<button className="dock-context" onClick={()=>{setObservationsOpen(v=>!v);if(!observationsOpen)setSelection(null);}} aria-expanded={observationsOpen} aria-controls="observations-host">관측</button>:mode!=='map'&&<>
+        <button className="dock-context" onClick={()=>setTimeOpen(v=>!v)} aria-expanded={timeOpen} aria-controls="time-panel">시간</button>
+        <button className="dock-context" onClick={()=>setSunOpen(v=>!v)} aria-expanded={sunOpen} aria-controls="sun-panel">태양</button>
       </>}
-      <button onClick={()=>setSourcesOpen(true)}>출처</button>
     </nav>
-    <button className="focus-toggle" aria-pressed={focusMode} title="지도 집중 모드 · F / Esc" onClick={()=>{setFocusMode(v=>!v);setQuery('');}}>{focusMode?'도구 표시':'지도만 보기'}<kbd>{focusMode?'Esc':'F'}</kbd></button>
+    <button className="focus-toggle" aria-pressed={focusMode} aria-label={focusMode?'도구 표시':'지도만 보기'} title="지도 집중 모드 · F / Esc" onClick={()=>{setFocusMode(v=>!v);setQuery('');setCityToolsOpen(false);}}><svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6"><path d={focusMode?'M3 7h4V3m6 0v4h4M3 13h4v4m6 0v-4h4':'M7 3H3v4m10-4h4v4M3 13v4h4m6 0h4v-4'}/></svg><span>{focusMode?'도구 표시':'지도만 보기'}</span><kbd>{focusMode?'Esc':'F'}</kbd></button>
     <MapInteractionTools map={mapRef} view={mapView} place={place} hidden={focusMode} measurement={measurement} onMeasure={mode=>setMeasurement(measureMap(mode,[]))} onUndo={()=>setMeasurement(previous=>measureMap(previous.mode,previous.points.slice(0,-1)))} onNotice={setNotice} onLocate={goTo}/>
-    {atlas.content&&<Suspense fallback={null}><PropertyExplorer key={atlas.content.property.release_id} atlas={atlas.content} hidden={focusMode||mode!=='map'||menuOpen||!!selection||!propertyOpen} onClose={()=>setPropertyOpen(false)} onLocate={goTo} onViewState={onPropertyView}/></Suspense>}
+    {atlas.content&&<Suspense fallback={null}><PropertyExplorer key={atlas.content.property.release_id} atlas={atlas.content} hidden={!propertyVisible} onClose={()=>setPropertyOpen(false)} onLocate={goTo} onViewState={onPropertyView} requestedRegion={requestedRegion}/></Suspense>}
     <aside id="layers-panel" className="layers-panel panel" aria-label="지도 레이어" hidden={focusMode||!menuOpen}>
       <button className="close" aria-label="레이어 패널 닫기" onClick={()=>setMenuOpen(false)}>×</button>
       <div className="eyebrow">전국 지도 설정</div>
       <h2>레이어</h2><p className="place-subtitle">필요한 정보만 지도에 겹쳐 보세요.</p>
       <div className="section-label">지도에 겹쳐 보기</div>
+      {atlas.content&&mapView==='2d'&&<label className="layer-row"><span className="layer-mark" aria-hidden="true"/><span className="layer-label">행정경계<small>2025년 6월 기준 · 통계 행정구역</small></span><input type="checkbox" aria-label="행정경계" checked={boundaries} onChange={event=>setBoundaries(event.target.checked)}/><span className="switch" aria-hidden="true"/></label>}
       <div className="layer-list">{catalog.layers.map(layer=>{
         const temporal=['bus','satellite','radar'].includes(layer.id);
         const local=localLayers.has(layer.id);

@@ -4,6 +4,7 @@ import osmium
 import shapely
 from shapely.geometry import shape,mapping,LineString
 from .core import LOCAL,PUBLIC,REGIONS,atomic_json,digest,publish_file
+from .rail_lifecycle import rail_lifecycle
 
 def extract_osm(path):
     meta=json.loads(path.with_suffix(path.suffix+'.meta.json').read_text(encoding='utf-8'))
@@ -18,12 +19,13 @@ def extract_osm(path):
             if node.tags.get('railway') not in ('station','halt'):return
             if not node.location.valid():return
             tags=dict(node.tags)
-            if tags.get('disused')=='yes' or tags.get('abandoned')=='yes':return
+            if rail_lifecycle(tags)!='existing':return
             properties=props(f'node/{node.id}',tags,'station')
             properties.update({k:tags.get(k) for k in ('operator','station','ref','railway:ref','wikidata','name:en')})
             stations.append({'type':'Feature','id':f'node/{node.id}','geometry':{'type':'Point','coordinates':[node.location.lon,node.location.lat]},'properties':properties})
         def way(self,way):
             if way.tags.get('railway') not in ('rail','subway','light_rail'):return
+            if rail_lifecycle(way.tags)!='existing':return
             if way.tags.get('service') in ('yard','siding','spur'):return
             try:coords=[(n.lon,n.lat) for n in way.nodes];ids=[n.ref for n in way.nodes]
             except osmium.InvalidLocationError:errors['geometry']+=1;return
