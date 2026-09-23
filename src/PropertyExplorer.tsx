@@ -12,7 +12,7 @@ import {regionNavigationPlace} from './region-navigation';
 import {PLACES} from '../shared/sources';
 
 export type {PropertyViewState} from '../shared/property-view';
-interface Props {atlas:AtlasContent;hidden:boolean;onClose:()=>void;onLocate:(place:Place)=>void;onViewState:(state:PropertyViewState)=>void;requestedRegion?:{code:string;request:number};}
+interface Props {atlas:AtlasContent;hidden:boolean;onClose:()=>void;onLocate:(place:Place)=>void;onViewState:(state:PropertyViewState)=>void;requestedRegion?:{code:string;request:number;complexId?:string;skipLocate?:boolean};}
 const REGION_SHORTCUTS=[['전국',''],['서울','서울특별시'],['경기','경기도'],['인천','인천광역시'],['부산','부산광역시'],['대구','대구광역시'],['제주','제주특별자치도']] as const;
 function VolumeChart({metrics}:{metrics:RegionMetric[]}){
   const data=metrics.slice(-24),maximum=Math.max(1,...data.map(r=>metricCount(r)??0)),w=300,h=105,step=w/Math.max(1,data.length);
@@ -30,6 +30,7 @@ export default function PropertyExplorer({atlas,hidden,onClose,onLocate,onViewSt
   const [compareComplexes,setCompareComplexes]=useState<PropertyComplex[]>([]);
   const [compareIds,setCompareIds]=useState(initial.compareComplexes);
   const [historyRange,setHistoryRange]=useState<HistoryRange>(initial.historyMonths);
+  const [mapPointCandidate,setMapPointCandidate]=useState(false);
   useEffect(()=>{
     setCompareComplexes([]);setCompareError('');if(!compareIds.length)return;const controller=new AbortController();
     void Promise.all([...new Set(compareIds.map(id=>id.split(':')[1]))].map(async code=>{
@@ -52,7 +53,7 @@ export default function PropertyExplorer({atlas,hidden,onClose,onLocate,onViewSt
     url.hash=params.toString();
     if(previous.region!==regionCode||previous.complex!==complexId)history.pushState({property:true},'',url);else history.replaceState({property:true},'',url);
   },[regionCode,trade,month,complexId,area,compare,compareIds,showCancelled,historyRange,onViewState,atlas.property.release_id]);
-  useEffect(()=>{const back=()=>{const next=readPropertyView(location.hash,atlas.property.period);restoring.current=true;setRegionCode(next.region);setTrade(next.trade);setMonth(next.month);setComplexId(next.complex);setArea(next.area);setCompare(next.compare);setCompareIds(next.compareComplexes);setShowCancelled(next.includeReview);setHistoryRange(next.historyMonths);if(next.includeReview)setExpert(true);if(next.region!==regionCode){const row=atlas.regions.regions.find(item=>item.lawd_code===next.region),place=row?regionNavigationPlace(row,atlas.map):!next.region?PLACES[0]:null;if(place)onLocate(place);}};window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[atlas,regionCode,onLocate]);
+  useEffect(()=>{const back=()=>{const next=readPropertyView(location.hash,atlas.property.period);restoring.current=true;setMapPointCandidate(false);setRegionCode(next.region);setTrade(next.trade);setMonth(next.month);setComplexId(next.complex);setArea(next.area);setCompare(next.compare);setCompareIds(next.compareComplexes);setShowCancelled(next.includeReview);setHistoryRange(next.historyMonths);if(next.includeReview)setExpert(true);if(next.region!==regionCode){const row=atlas.regions.regions.find(item=>item.lawd_code===next.region),place=row?regionNavigationPlace(row,atlas.map):!next.region?PLACES[0]:null;if(place)onLocate(place);}};window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[atlas,regionCode,onLocate]);
   useEffect(()=>{
     if(!region)return;const controller=new AbortController();setBusy(true);setError('');setDetail(null);setRows([]);setComplexes([]);
     void(async()=>{const next=parsePropertyRegionDetail(await fetchPinnedJson(region.index,atlas.origin,controller.signal));if(next.release_id!==atlas.property.release_id||next.lawd_code!==region.lawd_code)throw new Error('선택 지역과 자료 버전이 다릅니다.');if(controller.signal.aborted)return;setDetail(next);if(next.complexes){const result=parsePropertyComplexes(await fetchPinnedJson(next.complexes,atlas.origin,controller.signal));if(result.release_id!==next.release_id||result.lawd_code!==next.lawd_code)throw new Error('단지 목록의 지역이 다릅니다.');if(!controller.signal.aborted)setComplexes(result.complexes);}})().catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:'지역 자료 오류');}).finally(()=>{if(!controller.signal.aborted)setBusy(false);});
@@ -73,14 +74,14 @@ export default function PropertyExplorer({atlas,hidden,onClose,onLocate,onViewSt
   const rowsView=propertyRowsView({status:partition?.status,loading:rowBusy,loaded:rowsKey===queryKey,error:activeRowError,count:displayed.length});
   const comparison=compare.flatMap(code=>atlas.regions.regions.find(r=>r.lawd_code===code)??[]);
   const resetScroll=()=>{const body=heading.current?.closest('aside')?.querySelector('.property-body');if(body)body.scrollTop=0;};
-  const chooseRegion=(row:PropertyRegion)=>{setRegionCode(row.lawd_code);setComplexId('');setArea('');setError('');setSheet('half');heading.current?.focus();resetScroll();const place=regionNavigationPlace(row,atlas.map);if(place)onLocate(place);};
+  const chooseRegion=(row:PropertyRegion)=>{setRegionCode(row.lawd_code);setComplexId('');setMapPointCandidate(false);setArea('');setError('');setSheet('half');heading.current?.focus();resetScroll();const place=regionNavigationPlace(row,atlas.map);if(place)onLocate(place);};
   const handledRegion=useRef<number|null>(null);
   useEffect(()=>{
     if(!requestedRegion||handledRegion.current===requestedRegion.request)return;
-    if(!requestedRegion.code){handledRegion.current=requestedRegion.request;setRegionCode('');setComplexId('');setArea('');return;}
+    if(!requestedRegion.code){handledRegion.current=requestedRegion.request;setRegionCode('');setComplexId('');setMapPointCandidate(false);setArea('');return;}
     const row=atlas.regions.regions.find(item=>item.lawd_code===requestedRegion.code);if(!row)return;
-    handledRegion.current=requestedRegion.request;setRegionCode(row.lawd_code);setComplexId('');setArea('');setError('');setSheet('half');
-    const place=regionNavigationPlace(row,atlas.map);if(place)onLocate(place);
+    handledRegion.current=requestedRegion.request;setRegionCode(row.lawd_code);setComplexId(requestedRegion.complexId??'');setMapPointCandidate(!!requestedRegion.complexId);setArea('');setError('');setSheet('half');
+    const place=regionNavigationPlace(row,atlas.map);if(place&&!requestedRegion.skipLocate)onLocate(place);
     const body=heading.current?.closest('aside')?.querySelector('.property-body');if(body)body.scrollTop=0;
     requestAnimationFrame(()=>heading.current?.focus());
   },[requestedRegion,atlas,onLocate]);
@@ -89,8 +90,9 @@ export default function PropertyExplorer({atlas,hidden,onClose,onLocate,onViewSt
   const download=()=>{if(rowsView.state!=='ready'||!displayed.length)return;const url=URL.createObjectURL(new Blob([transactionCsv(displayed)],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=`korea-replay-${regionCode}-${month}-${trade}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
   return <aside className={`property-panel sheet-${sheet} ${complex?'showing-complex':region?'showing-region':'showing-country'}`} hidden={hidden} aria-label="지역·아파트 분석">
     <div className="sheet-handle"><button aria-label={sheet==='peek'?'지역 분석 펼치기':sheet==='half'?'지역 분석 전체 높이':'지역 분석 접기'} onClick={()=>setSheet(sheet==='peek'?'half':sheet==='half'?'full':'peek')}><span/><small>{sheet==='full'?'지도와 함께 보기':sheet==='half'?'분석 화면 펼치기':'지역 분석 열기'}</small></button></div>
-    <header className="property-header"><div>{region?<button className="property-back" onClick={()=>{if(complexId){setComplexId('');setArea('');}else{setRegionCode('');onLocate(PLACES[0]);}resetScroll();}}>{complexId?`← ${region.name}`:'← 전국 지역 목록'}</button>:<span className="eyebrow">전국 아파트 · 공식 실거래</span>}<h2 ref={heading} tabIndex={-1}>{complex?.name??region?.name??'어느 지역을 살펴볼까요?'}</h2></div><button aria-label="지역 분석 닫기" onClick={onClose}>×</button></header>
+    <header className="property-header"><div>{region?<button className="property-back" onClick={()=>{setMapPointCandidate(false);if(complexId){setComplexId('');setArea('');}else{setRegionCode('');onLocate(PLACES[0]);}resetScroll();}}>{complexId?`← ${region.name}`:'← 전국 지역 목록'}</button>:<span className="eyebrow">전국 아파트 · 공식 실거래</span>}<h2 ref={heading} tabIndex={-1}>{complex?.name??region?.name??'어느 지역을 살펴볼까요?'}</h2></div><button aria-label="지역 분석 닫기" onClick={onClose}>×</button></header>
     <div className="property-body">
+    {mapPointCandidate&&complex&&<p className="property-caption property-coordinate-note">서울시 단지 점과 국토부 실거래 ID를 유일한 도로명주소·단지명으로 연결했습니다. 지도 점의 좌표계와 위치 의미는 아직 검증 중이며, 실거래 단지의 확정 좌표로 취급하지 않습니다.</p>}
     <div className="property-querybar"><div className="property-trade" role="group" aria-label="거래 유형"><button aria-pressed={trade==='sale'} onClick={()=>{setTrade('sale');setArea('');}}>매매</button><button aria-pressed={trade==='rent'} onClick={()=>{setTrade('rent');setArea('');}}>전월세</button></div>{region&&selectedDetail?<label className="property-month"><span className="sr-only">계약월</span><select aria-label="계약월" value={month} onChange={e=>setMonth(e.target.value)}>{[...new Set(months)].reverse().map(m=><option value={m} key={m}>{monthLabel(m)}{m===selectedDetail.period.to?' · 잠정':''}</option>)}</select></label>:<span className="property-period">{monthLabel(atlas.property.period.latest_complete_month)} 계약</span>}</div>
     {region&&month===atlas.property.period.to&&<p className="property-caption">당월 잠정 자료 · 추가 신고에 따라 바뀔 수 있습니다.</p>}
     {(error||activeRowError||compareError)&&<p role="alert" className="property-error">{error||activeRowError||compareError}</p>}{regionCode&&!region&&<p role="alert">선택 지역은 이 자료 버전에 없습니다. 최신 지역으로 자동 대체하지 않습니다.</p>}{complexId&&!busy&&selectedDetail&&!complex&&<p role="alert">선택 단지는 이 자료 버전에 없습니다.</p>}
@@ -105,7 +107,7 @@ export default function PropertyExplorer({atlas,hidden,onClose,onLocate,onViewSt
     </>:<>
       {busy?<div className="property-loading" role="status"><p>지역 자료를 확인하고 있습니다…</p><i/><i/><i/></div>:selectedDetail&&<>
         {!complexId&&<div className="property-stat region-inline-stat"><span>{complexId?'선택 단지·면적 신고 거래량':'지역 전체 신고 거래량'}</span><strong>{current&&metricCount(current)!==null?(complexId?(rowsView.state!=='ready'||!complex?'—':transactionRows(rows,{trade,complex:complexId,area,cancelled:false}).length.toLocaleString('ko-KR')):metricCount(current)!.toLocaleString('ko-KR')):'—'}<small>건</small></strong><span>{current?propertyStatus(current.status):'자료 없음'} · {trade==='sale'?'취소·취소 여부 미확인 제외':'원천에서 취소 여부 미제공'}</span></div>}
-        {!complexId&&<PropertyComplexList key={regionCode} complexes={complexes} rows={rowsKey===queryKey?rows:[]} dataReady={rowsView.state==='ready'} trade={trade} onSelect={id=>{setComplexId(id);setArea('');heading.current?.focus();const body=heading.current?.closest('aside')?.querySelector('.property-body');if(body)body.scrollTop=0;}}/>}
+        {!complexId&&<PropertyComplexList key={regionCode} complexes={complexes} rows={rowsKey===queryKey?rows:[]} dataReady={rowsView.state==='ready'} trade={trade} onSelect={id=>{setComplexId(id);setMapPointCandidate(false);setArea('');heading.current?.focus();const body=heading.current?.closest('aside')?.querySelector('.property-body');if(body)body.scrollTop=0;}}/>}
         {!complexId&&<details className="property-region-records"><summary>월별 지역 거래량</summary><VolumeChart metrics={series}/><p className="property-caption">점선은 미수집 기간입니다. 최근 계약월은 추가 신고로 바뀔 수 있습니다.</p></details>}
         {complex&&<div className="complex-facts compact"><p>{[complex.legal_dong_name,complex.lot_number].filter(Boolean).join(' ')} <span>· {complex.build_year===null?'건축연도 미제공':`${complex.build_year}년 건축`}</span></p>{complex.position?<button onClick={()=>onLocate({id:complex.id,name:complex.name,region:region.name,lon:complex.position!.longitude,lat:complex.position!.latitude,range:1300})}>지도에서 보기 ↗</button>:<details><summary>지역 지도 표시 중 · 단지 좌표 미연결</summary><p>공식 좌표가 확인되지 않아 단지 위치를 임의로 표시하지 않습니다.</p></details>}</div>}
         {complex?<PropertyHistory detail={selectedDetail} complex={complex} origin={atlas.origin} month={month} trade={trade} area={area} onArea={setArea} range={historyRange} onRange={setHistoryRange} includeReview={showCancelled}/>:<details className="property-region-records"><summary>지역 전체 거래 분포·원문</summary>
