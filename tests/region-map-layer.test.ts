@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
 import {validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
 import type {PropertyRegion,RegionMetric} from '../shared/property';
-import {pickedPropertyRegion,regionMapBubbleImage,regionMapData,regionMapLayer,REGION_MAP_LAYER,REGION_MAP_SOURCE,type RegionMapInput} from '../src/region-map-layer';
+import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBubbleImage,regionMapData,regionMapLayer,PROVINCE_MAP_LAYER,REGION_MAP_LAYER,REGION_MAP_SOURCE,type RegionMapInput} from '../src/region-map-layer';
 
 const release='property-0123456789abcdef';
 const asset={url:`/data/property/${release}/regions.json`,sha256:'a'.repeat(64),bytes:10};
@@ -23,8 +23,25 @@ describe('region navigation volume labels',()=>{
     expect(feature.geometry).toEqual({type:'Point',coordinates:[127.10596,37.504822]});
     expect(feature.properties).toMatchObject({property_region_code:'11710',region_name:'서울특별시 송파구',display_name:'서울 송파구',count:1234,count_label:'1,234건',contract_month:'202608',trade_type:'sale',month_label:'26.08 매매',anchor_purpose:'region-navigation-only',anchor_reference_date:'2025-06-30',anchor_source_record_id:'sgis:20250630:sigungu:11240'});
     expect(result.caption).toBe('지역별 매매 거래량 · 2026.08 · 지역 탐색 위치');
-    expect(result.notice).toContain('패널의 기간·전월세 필터와 별개');
+    expect(result.notice).toContain('패널의 거래 유형과 연동');
     expect(result.notice).toContain('단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다');
+  });
+  it('uses the same completed-month trade type as the property panel',()=>{
+    const input=fixture();input.trade='rent';
+    const result=regionMapData(input);
+    expect(result.data.features[0].properties).toMatchObject({trade_type:'rent',count:1234,month_label:'26.08 전월세'});
+    expect(result.caption).toContain('전월세 거래량');
+    expect(result.notice).toContain('과거 계약월 선택과는 별개');
+  });
+  it('aggregates published districts by province only when every member has a valid monthly count',()=>{
+    const rows=[region(),region({lawd_code:'11680',name:'서울특별시 강남구'},{eligible_rows:10})];
+    const current=regionMapData(fixture(rows));
+    expect(current.provinces.features).toHaveLength(1);
+    expect(current.provinces.features[0].properties).toMatchObject({property_province_name:'서울특별시',count_label:'1,244건',member_count:2,anchor_purpose:'province-navigation-only'});
+    const hit={source:REGION_MAP_SOURCE,layer:{id:PROVINCE_MAP_LAYER},properties:{property_province_name:'서울특별시',property_release:release}};
+    expect(pickedPropertyProvince([hit],current)).toEqual([126.939166,37.564879]);
+    expect(pickedPropertyProvince([hit],current,'distance')).toBeNull();
+    expect(regionMapData(fixture([rows[0],region({lawd_code:'11680',name:'서울특별시 강남구'},{status:'pending',eligible_rows:null})])).provinces.features).toHaveLength(0);
   });
   it('does not turn missing, failed, partial or unmatched regions into zero',()=>{
     for(const metric of [{status:'pending',eligible_rows:null},{status:'failed',eligible_rows:null},{status:'partial',eligible_rows:null}] as Partial<RegionMetric>[]){
@@ -74,6 +91,7 @@ describe('region volume map integration contracts',()=>{
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).data}},layers:[layer]})).toEqual([]);
     expect(layer.type).toBe('symbol');
     if(layer.type==='symbol')expect(layer.layout).toMatchObject({'text-allow-overlap':false,'icon-allow-overlap':false,'icon-text-fit':'both'});
+    expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).provinces}},layers:[provinceMapLayer()]})).toEqual([]);
   });
   it('provides a bounded shared white bubble sprite with blue outline and transparent corners',()=>{
     const sprite=regionMapBubbleImage();expect(sprite.data.byteLength).toBe(sprite.width*sprite.height*4);expect(sprite.data.byteLength).toBeLessThan(32*1024);

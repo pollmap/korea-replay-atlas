@@ -13,6 +13,7 @@ import {PLACES} from '../shared/sources';
 
 export type {PropertyViewState} from '../shared/property-view';
 interface Props {atlas:AtlasContent;hidden:boolean;onClose:()=>void;onLocate:(place:Place)=>void;onViewState:(state:PropertyViewState)=>void;requestedRegion?:{code:string;request:number};}
+const REGION_SHORTCUTS=[['전국',''],['서울','서울특별시'],['경기','경기도'],['인천','인천광역시'],['부산','부산광역시'],['대구','대구광역시'],['제주','제주특별자치도']] as const;
 function VolumeChart({metrics}:{metrics:RegionMetric[]}){
   const data=metrics.slice(-24),maximum=Math.max(1,...data.map(r=>metricCount(r)??0)),w=300,h=105,step=w/Math.max(1,data.length);
   return <svg className="volume-chart" viewBox={`0 0 ${w} ${h+22}`} role="img" aria-label="월별 신고 거래량. 점선은 수집되지 않은 기간이며 0건과 다릅니다."><title>월별 신고 거래량</title>{data.map((row,i)=>{const count=metricCount(row),height=count===null?0:count/maximum*(h-18);return <g key={row.deal_month}><title>{monthLabel(row.deal_month)} {count===null?propertyStatus(row.status):`${count}건`}</title>{count===null?<line x1={i*step+2} x2={(i+1)*step-2} y1={h-1} y2={h-1} stroke="#a8b5af" strokeDasharray="2 2"/>:<rect x={i*step+2} y={h-height} width={Math.max(1,step-4)} height={Math.max(1,height)} rx="1" fill="#3c7d66"/>}{(i===0||i===data.length-1||i%6===0)&&<text x={i*step+step/2} y={h+16} textAnchor={i===0?'start':i===data.length-1?'end':'middle'}>{row.deal_month.slice(2,4)}.{row.deal_month.slice(4)}</text>}</g>})}</svg>;
@@ -96,7 +97,8 @@ export default function PropertyExplorer({atlas,hidden,onClose,onLocate,onViewSt
     {compareError&&<div className="property-table-tools"><button onClick={()=>setCompareAttempt(value=>value+1)}>비교 다시 불러오기</button><button onClick={()=>setCompareIds([])}>비교 목록 비우기</button></div>}
     {!region?<>
       <div className="property-stat national-stat"><span>{collected===atlas.regions.regions.length?'전국':'수집 완료 지역'} {trade==='sale'?'매매':'전월세'} 거래량</span><strong>{collected?total.toLocaleString('ko-KR'):'—'}<small>건</small></strong><span>{collected} / {atlas.regions.regions.length}개 지역 확인 · 국토교통부</span></div>
-      <label className="property-search region-search"><span>지역 찾기</span><input type="search" value={filter} placeholder="어디가 궁금하세요? 시·군·구 검색" onChange={e=>setFilter(e.target.value)}/></label>
+      <div className="region-shortcuts" role="group" aria-label="권역 빠른 탐색">{REGION_SHORTCUTS.map(([label,value])=><button key={label} aria-pressed={filter===value} onClick={()=>setFilter(value)}>{label}</button>)}</div>
+      <label className="property-search region-search"><span>지역 찾기</span><input type="search" value={filter} placeholder="시·군·구 검색" onChange={e=>setFilter(e.target.value)}/></label>
       <div className="property-list-heading"><span>{filter?'검색한 지역':'거래량 많은 지역'}</span><span>신고 거래 · 건</span></div>
       {!availableRegions.length&&<p className="property-empty">일치하는 지역이 없습니다. 시·군·구 이름을 확인해 주세요.</p>}
       <ol className="region-results">{availableRegions.map(row=><li key={row.lawd_code}><button className="region-open" onClick={()=>chooseRegion(row)}><span>{row.name}</span><strong>{metricCount(row.latest[trade])?.toLocaleString('ko-KR')??propertyStatus(row.latest[trade].status)}</strong></button><button className="compare-add" aria-label={`${row.name} 비교 ${compare.includes(row.lawd_code)?'해제':'추가'}`} aria-pressed={compare.includes(row.lawd_code)} disabled={compare.length>=3&&!compare.includes(row.lawd_code)} onClick={()=>toggleCompare(row.lawd_code)}>{compare.includes(row.lawd_code)?'✓':'+'}</button></li>)}</ol>

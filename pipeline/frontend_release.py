@@ -31,6 +31,8 @@ GENERATED = frozenset(('data/catalog.json', '_headers', '404.html'))
 MUTABLE_ROOT = frozenset(('index.html', 'download-gate.js'))
 ROOT_FILES = MUTABLE_ROOT | {'.assetsignore'}
 CHUNK_NAME = re.compile(r'assets/([A-Za-z0-9_][A-Za-z0-9_.-]*)-[A-Za-z0-9_-]{8}\.(js|css)\Z')
+SEOUL_KAPT_GEOJSON_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c26622debe82'
+SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-8360eb2d88be0ab4-[A-Za-z0-9_-]{8}\.geojson\Z')
 FORBIDDEN_NAME = re.compile(r'(?i)(?:^|[-_.])(?:secrets?|credentials?|tokens?|private|id_rsa)(?:$|[-_.])')
 CREDENTIAL_PATTERNS = (
     re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),
@@ -66,7 +68,7 @@ def _frontend_name(name: str) -> None:
     if (any(part.startswith('.') for part in name.split('/'))
             or FORBIDDEN_NAME.search(Path(name).name)):
         raise ValueError('Private or hidden files are forbidden in the frontend')
-    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name):
+    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name):
         raise ValueError('Unknown frontend file; full staging is required')
 
 
@@ -113,7 +115,7 @@ def _frontend_entries(client: Path, previous: dict):
             if family not in families or family in seen_families:
                 raise ValueError('Changed frontend chunk families; full staging is required')
             seen_families.add(family)
-        elif name not in old:
+        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name):
             raise ValueError('Unknown frontend file; full staging is required')
         size = regular_file(path).st_size
         if not 0 <= size < release.MAX_FILE_BYTES:
@@ -121,11 +123,12 @@ def _frontend_entries(client: Path, previous: dict):
         sha = digest(path)
         prior = old.get(name)
         unchanged = prior and prior['sha256'] == sha and prior['bytes'] == size
-        if name not in MUTABLE_ROOT and not family and not unchanged:
+        approved_geojson = bool(SEOUL_KAPT_GEOJSON.fullmatch(name) and sha == SEOUL_KAPT_GEOJSON_SHA and size <= 1024 * 1024)
+        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_geojson:
             raise ValueError('Copied frontend assets changed; full staging is required')
         if family and prior and not unchanged:
             raise ValueError('An immutable frontend asset URL changed bytes')
-        if name in MUTABLE_ROOT or family:
+        if name in MUTABLE_ROOT or family or approved_geojson:
             # Reads are bounded by the same 24 MiB ceiling as static staging.
             body = path.read_bytes()
             if len(body) != size or hashlib.sha256(body).hexdigest() != sha:
