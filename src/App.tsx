@@ -17,6 +17,7 @@ import CurrentObservations from './CurrentObservations';
 import MapInteractionTools from './MapInteractionTools';
 import {EMPTY_MEASUREMENT,measureMap} from '../shared/map-tools';
 import {readFlatCamera,type FlatCamera} from '../shared/map2d';
+import {isApartmentMapSelection} from '../shared/selection';
 import {assertPinnedDeploymentV2,validateRuntimeV2,versionedShareUrlV2,type RuntimeV2} from '../shared/runtime-v2';
 import {useAtlas} from './useAtlas';
 import {regionNavigationPlace} from './region-navigation';
@@ -199,7 +200,7 @@ export default function App(){
     const region=atlas.content.regions.regions.find(row=>row.lawd_code===params.get('regionCode'));
     const target=region?regionNavigationPlace(region,atlas.content.map):null;if(target)goTo(target);
   },[atlas.content,goTo]);
-  const inspect=useCallback((value:Selection|null)=>{setSelection(value);if(value){setMenuOpen(false);setSunOpen(false);setObservationsOpen(false);}},[]);
+  const inspect=useCallback((value:Selection|null)=>{if(value&&mode==='map'&&!isApartmentMapSelection(value))return;setSelection(value);if(value){setMenuOpen(false);setSunOpen(false);setObservationsOpen(false);}},[mode]);
   const acceptLiveTransit=useCallback((value:LiveTransitSnapshot|null)=>{setLiveTransit(value);setSelection(previous=>previous?.properties?.live?null:previous);},[]);
   const viewInstant=mode==='live'?liveInstant:instant;
   const solar=useMemo(()=>solarPosition(viewInstant,place.lat,place.lon),[viewInstant,place.lat,place.lon]);
@@ -254,7 +255,7 @@ export default function App(){
   const showNational=()=>{selectPropertyRegion('');setPlace(PLACES[0]);setQuery('');mapRef.current?.flyTo(PLACES[0],{overviewPanelVisible:true,focused:false});};
   return <div className={`app-shell map-first atlas-shell is-${mapView} ${propertyVisible?'has-property':propertyRequested&&atlas.state==='loading'?'reserves-property':''} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
     {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전을 확인하는 중…'}</div>:<MapErrorBoundary key={mapView}><Suspense fallback={<div className="map-loading">대한민국의 지도를 펼치는 중…</div>}>
-      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion,onPropertyComplex:selectPropertyComplex,propertyTrade,propertyMapPoint}:{})}/>
+      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{inspectFeatures:mode!=='map',onPropertyRegion:selectPropertyRegion,onPropertyComplex:selectPropertyComplex,propertyTrade,propertyMapPoint}:{})}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
       <a className="brand" href="#" onClick={e=>{e.preventDefault();showNational();}} aria-label="대한민국 전체 보기"><span className="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40" focusable="false"><path d="M12 9v22M27 10 17 20" fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round"/><path d="m17 20 11 11" fill="none" stroke="#72e0c6" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round"/></svg></span><span className="brand-wordmark"><strong>KOREA REPLAY</strong><small>전국 지도 · 아파트 실거래</small></span></a>
