@@ -5,11 +5,14 @@ import {fetchPinnedJson} from './atlas-client';
 export interface HistoryResult {month:string;status:'ready'|'missing'|'error';rows:PropertyTransaction[];reason?:string;}
 /** Two month jobs at a time; the shared network gate still enforces four global slots. */
 export async function loadPropertyHistory({detail,end,count,trade,complex,origin,signal,onMonth,fetchJson=fetchPinnedJson}:{detail:PropertyRegionDetail;end:string;count:HistoryRange;trade:'sale'|'rent';complex:string;origin:string;signal:AbortSignal;onMonth:(result:HistoryResult)=>void;fetchJson?:typeof fetchPinnedJson}){
-  const plan=historyPlan(detail,end,count,trade),total=plan.reduce((sum,p)=>sum+(p.partition?.transactions.reduce((n,a)=>n+a.bytes,0)??0),0);
-  if(total>24*1024*1024)throw new Error('선택 기간의 자료가 24MiB를 넘습니다. 더 짧은 기간을 선택해 주세요.');
+  const plan=historyPlan(detail,end,count,trade).reverse();
+  let remaining=24*1024*1024;
   let next=0;
   const run=async()=>{while(next<plan.length&&!signal.aborted){const {month,partition}=plan[next++];
     if(!partition||!['complete','empty'].includes(partition.status)){onMonth({month,status:'missing',rows:[],reason:partition?.status??'outside_release'});continue;}
+    const bytes=partition.transactions.reduce((sum,ref)=>sum+ref.bytes,0);
+    if(bytes>remaining){onMonth({month,status:'missing',rows:[],reason:'download_budget'});continue;}
+    remaining-=bytes;
     try{
       const kept:PropertyTransaction[]=[];let sourceCount=0;const ids=new Set<string>();
       for(const ref of partition.transactions){

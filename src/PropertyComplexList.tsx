@@ -5,11 +5,11 @@ import {moneyLabel} from '../shared/property-view';
 
 export interface PropertyComplexListProps {
   complexes:PropertyComplex[];rows:PropertyTransaction[];dataReady:boolean;trade:'sale'|'rent';
-  onSelect:(id:string)=>void;selectedId?:string;
+  onSelect:(id:string)=>void;selectedId?:string;watchedIds?:ReadonlySet<string>;onWatch?:(item:PropertyComplex)=>void;
 }
 const PAGE_SIZE=40;
 
-export default function PropertyComplexList({complexes,rows,dataReady,trade,onSelect,selectedId}:PropertyComplexListProps){
+export default function PropertyComplexList({complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch}:PropertyComplexListProps){
   const [filters,setFilters]=useState<PropertyDiscoveryFilters>(EMPTY_PROPERTY_DISCOVERY_FILTERS),[page,setPage]=useState(0);
   const captionId=useId(),errorId=useId();
   const [filterPanel,setFilterPanel]=useState<'price'|'area'|'year'|null>(null);
@@ -70,6 +70,7 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
         </>:<span className="discovery-no-trade">{count===null?'거래 자료 확인 전':'선택 월의 유효 신고 없음'}</span>}
         <span className="discovery-count">{count===null?'신고 건수 미확인':`현재 조건 ${count.toLocaleString('ko-KR')}건`}</span>
       </button>
+      {onWatch&&<button className="discovery-watch" aria-label={`${complex.name} 관심 ${watchedIds?.has(complex.id)?'해제':'저장'}`} aria-pressed={watchedIds?.has(complex.id)??false} onClick={()=>onWatch(complex)}>{watchedIds?.has(complex.id)?'★':'☆'}</button>}
     </li>)}</ol>
     {lastPage>0&&<nav className="discovery-pagination" aria-label="단지 목록 페이지"><button disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}>이전</button><span>{currentPage+1} / {lastPage+1}</span><button disabled={currentPage===lastPage} onClick={()=>setPage(currentPage+1)}>다음</button></nav>}
   </section>;
