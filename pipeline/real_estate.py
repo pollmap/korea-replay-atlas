@@ -39,6 +39,34 @@ RENT_FIELDS = frozenset(('sggCd umdNm aptNm jibun excluUseAr dealYear dealMonth 
     'roadnmbubun roadnmcd roadnmseq roadnmsggcd').split())
 
 
+OFFICETEL_FIELDS = frozenset(('sggCd sggNm umdNm jibun offiNm excluUseAr dealYear '
+    'dealMonth dealDay dealAmount floor buildYear cdealType cdealDay dealingGbn '
+    'estateAgentSggNm slerGbn buyerGbn').split())
+OFFICETEL_RENT_FIELDS = frozenset(('sggCd sggNm umdNm jibun offiNm excluUseAr dealYear '
+    'dealMonth dealDay deposit monthlyRent floor buildYear contractTerm contractType '
+    'useRRRight preDeposit preMonthlyRent').split())
+
+
+def validate_property_type(value):
+    if value not in ('apartment', 'officetel'):
+        raise RealEstateError('unsupported_property_type')
+    return value
+
+
+def report_source(property_type, trade_type):
+    validate_property_type(property_type)
+    if trade_type not in ('sale', 'rent'):
+        raise RealEstateError('invalid_trade_type')
+    rent = trade_type == 'rent'
+    if property_type == 'officetel':
+        dataset = '15126475' if rent else '15126464'
+        return {'id': f'molit-officetel-{trade_type}', 'dataset_id': dataset,
+                'page_url': f'https://www.data.go.kr/data/{dataset}/openapi.do'}
+    return {'id': RENT_SOURCE_ID if rent else SOURCE_ID,
+            'dataset_id': '15126474' if rent else '15126468',
+            'page_url': RENT_SOURCE_URL if rent else SOURCE_URL}
+
+
 class RealEstateError(ValueError):
     """Only fixed codes are exposed; never echo source XML, URLs or credentials."""
     def __init__(self, code: str):
@@ -157,7 +185,9 @@ def _source_date(value, contract_date, retrieved_date):
     return parsed.isoformat()
 
 
-def normalize_record(raw, lawd_code, deal_month, retrieved_at, input_hash, *, trade_type='sale'):
+def normalize_record(raw, lawd_code, deal_month, retrieved_at, input_hash, *, trade_type='sale', property_type='apartment'):
+    validate_property_type(property_type)
+    office = property_type == 'officetel'
     if trade_type not in ('sale', 'rent'):
         raise RealEstateError('invalid_trade_type')
     rent = trade_type == 'rent'
@@ -200,13 +230,13 @@ def normalize_record(raw, lawd_code, deal_month, retrieved_at, input_hash, *, tr
         return result
 
     sgg = field('sggCd', lambda v: pattern(v, r'[0-9]{5}'))
-    umd = field('umdCd', lambda v: pattern(v, r'[0-9]{5}'), optional=rent)
+    umd = field('umdCd', lambda v: pattern(v, r'[0-9]{5}'), optional=rent or office)
     if sgg is not None and sgg != lawd_code:
         issue('sggCd', 'scope_mismatch')
-    name = field('aptNm', lambda v: pattern(v, r'.{1,120}'))
+    name = field('offiNm' if office else 'aptNm', lambda v: pattern(v, r'.{1,120}'))
     umd_name = field('umdNm', lambda v: pattern(v, r'.{1,120}'))
     jibun = field('jibun', lambda v: pattern(v, r'(?:산\s*)?[0-9]{1,5}(?:-[0-9]{1,5})?'))
-    apt_seq = field('aptSeq', lambda v: pattern(v, r'[A-Za-z0-9_-]{1,64}'), optional=rent)
+    apt_seq = None if office else field('aptSeq', lambda v: pattern(v, r'[A-Za-z0-9_-]{1,64}'), optional=rent or office)
     # aptSeq is the provider's opaque identity, not a current legal-code field.
     # Real responses retain older prefixes after administrative changes. Validate
     # the explicit sggCd instead; never rewrite or infer geography from aptSeq.
@@ -252,7 +282,7 @@ def normalize_record(raw, lawd_code, deal_month, retrieved_at, input_hash, *, tr
     issues.sort(key=lambda i: (i['field'], i['code']))
     quality = 'invalid' if any(i['code'] != 'missing' for i in issues) else 'incomplete' if issues else 'valid'
     result = {
-        'kind': 'apartment-rent-report' if rent else 'apartment-sale-report',
+        'kind': f'{property_type}-{trade_type}-report',
         'complex_id': complex_id, 'source_complex_id': apt_seq, 'complex_name': name,
         'lawd_code': sgg, 'legal_dong_code': sgg + umd if sgg and umd else None,
         'legal_dong_name': umd_name, 'lot_number': jibun,
@@ -263,11 +293,11 @@ def normalize_record(raw, lawd_code, deal_month, retrieved_at, input_hash, *, tr
         'cancellation': {'status': cancellation, 'reason_date': cancelled_date, 'source_flag': flag or None},
         'position': None, 'quality': quality, 'issues': issues,
         'source_fields': dict(sorted(raw.items())),
-        'provenance': {'source_id': RENT_SOURCE_ID if rent else SOURCE_ID,
-            'dataset_id': '15126474' if rent else '15126468',
+        'provenance': {'source_id': report_source(property_type, trade_type)['id'],
+            'dataset_id': report_source(property_type, trade_type)['dataset_id'],
             'evidence_type': 'official_report', 'observed_at': None,
             'retrieved_at': retrieved_at, 'input_sha256': input_hash,
-            'transform_version': RENT_TRANSFORM_VERSION if rent else TRANSFORM_VERSION},
+            'transform_version': f'officetel-{trade_type}-report-v1' if office else RENT_TRANSFORM_VERSION if rent else TRANSFORM_VERSION},
     }
     if rent:
         result.update(deposit_krw=deposit, monthly_rent_krw=monthly_rent,
@@ -279,10 +309,11 @@ def normalize_record(raw, lawd_code, deal_month, retrieved_at, input_hash, *, tr
 
 
 def normalize_xml_page(raw_xml: bytes, *, lawd_code: str, deal_month: str, retrieved_at: str,
-                       trade_type='sale'):
+                       trade_type='sale', property_type='apartment'):
+    validate_property_type(property_type)
     if trade_type not in ('sale', 'rent'):
         raise RealEstateError('invalid_trade_type')
-    fields = RENT_FIELDS if trade_type == 'rent' else FIELDS
+    fields = (OFFICETEL_RENT_FIELDS if trade_type == 'rent' else OFFICETEL_FIELDS) if property_type == 'officetel' else (RENT_FIELDS if trade_type == 'rent' else FIELDS)
     validate_scope(lawd_code, deal_month)
     utc_instant(retrieved_at)
     if not isinstance(raw_xml, bytes) or not 0 < len(raw_xml) <= MAX_PAGE_BYTES:
@@ -335,12 +366,13 @@ def normalize_xml_page(raw_xml: bytes, *, lawd_code: str, deal_month: str, retri
     if len(rows) != expected or page_no > max(1, (total + page_size - 1) // page_size):
         raise RealEstateError('page_count_mismatch')
     input_hash = sha256(raw_xml)
-    return {'lawd_code': lawd_code, 'deal_month': deal_month, 'trade_type': trade_type,
+    return {**({'property_type': property_type} if property_type != 'apartment' else {}),
+        'lawd_code': lawd_code, 'deal_month': deal_month, 'trade_type': trade_type,
         'page_no': page_no, 'page_size': page_size, 'total_count': total,
         'input_sha256': input_hash, 'input_bytes': len(raw_xml), 'retrieved_at': retrieved_at,
         'unknown_fields': sorted(unknown),
         'records': [normalize_record(row, lawd_code, deal_month, retrieved_at, input_hash,
-                                    trade_type=trade_type) for row in rows]}
+                                    trade_type=trade_type, property_type=property_type) for row in rows]}
 
 
 def build_partitions(pages):
@@ -349,7 +381,8 @@ def build_partitions(pages):
         raise RealEstateError('batch_size_limit')
     groups = defaultdict(dict)
     for page in pages:
-        scope = (page['lawd_code'], page['deal_month'], page.get('trade_type', 'sale'))
+        property_type = validate_property_type(page.get('property_type', 'apartment'))
+        scope = (page['lawd_code'], page['deal_month'], page.get('trade_type', 'sale'), property_type)
         previous = groups[scope].get(page['page_no'])
         if previous is not None:
             if canonical_bytes(previous) != canonical_bytes(page):
@@ -357,7 +390,7 @@ def build_partitions(pages):
             continue  # Repeating a source page is not an additional reported trade.
         groups[scope][page['page_no']] = page
     partitions = []
-    for (lawd_code, deal_month, trade_type), by_number in sorted(groups.items()):
+    for (lawd_code, deal_month, trade_type, property_type), by_number in sorted(groups.items()):
         rent = trade_type == 'rent'
         ordered = [by_number[n] for n in sorted(by_number)]
         total, size = ordered[0]['total_count'], ordered[0]['page_size']
@@ -372,11 +405,14 @@ def build_partitions(pages):
         occurrences = Counter()
         for page in ordered:
             for source in page['records']:
+                if source.get('kind') != f'{property_type}-{trade_type}-report':
+                    raise RealEstateError('mixed_property_record_type')
                 row = {**source}
                 fingerprint = sha256(canonical_bytes({'lawd_code': lawd_code, 'deal_month': deal_month,
                                                        'source_fields': row['source_fields']}))
                 occurrences[fingerprint] += 1
-                row['id'] = f'molit-{trade_type}:{fingerprint}:{occurrences[fingerprint]}'
+                prefix = 'molit' if property_type == 'apartment' else 'molit-officetel'
+                row['id'] = f'{prefix}-{trade_type}:{fingerprint}:{occurrences[fingerprint]}'
                 records.append(row)
         if len(records) != total:
             raise RealEstateError('snapshot_count_mismatch')
@@ -390,11 +426,9 @@ def build_partitions(pages):
             'issue_counts': [{'field': f, 'code': c, 'count': n} for (f, c), n in sorted(issue_counts.items())],
             'pages': [{key: p[key] for key in ('page_no', 'page_size', 'total_count', 'input_sha256',
                        'input_bytes', 'retrieved_at', 'unknown_fields')} for p in ordered]}
-        partitions.append({'schema_version': 1, 'kind': f'apartment-{trade_type}-report-partition',
+        partitions.append({'schema_version': 1, 'kind': f'{property_type}-{trade_type}-report-partition',
             'lawd_code': lawd_code, 'deal_month': deal_month,
-            'source': {'id': RENT_SOURCE_ID if rent else SOURCE_ID,
-                'dataset_id': '15126474' if rent else '15126468',
-                'page_url': RENT_SOURCE_URL if rent else SOURCE_URL},
+            'source': report_source(property_type, trade_type),
             'retrieved_at': max(p['retrieved_at'] for p in ordered),
             'records': records, 'audit': audit})
     if sum(len(p['records']) for p in partitions) > MAX_RECORDS:
