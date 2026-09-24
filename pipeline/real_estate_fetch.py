@@ -142,7 +142,9 @@ def immutable(root, relative, data):
 
 class Collector:
     def __init__(self, root, registry, *, as_of=None, months=61, transport=fetch_page,
-                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False):
+                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False, advance_window=False):
+        if extend_window and advance_window:
+            raise RealEstateError('conflicting_window_migration')
         self.root = Path(root).absolute(); _reject_links(self.root)
         if any(p.lower() in ('public', 'dist') for p in self.root.parts):
             raise RealEstateError('public_output_forbidden')
@@ -178,13 +180,22 @@ class Collector:
         sequence = month_sequence(as_of or self.clock(), months)
         existing_months={r[0] for r in self.db.execute('SELECT DISTINCT deal_month FROM jobs')}
         extending=False
+        if advance_window and existing_months:
+            # Keep every historical month. Advancing the clock adds new work; it
+            # never deletes the oldest month or resets completed snapshots/calls.
+            if months < 2 or max(sequence) < max(existing_months) or max(existing_months) not in sequence:
+                self.db.close()
+                raise RealEstateError('planning_advance_outside_window')
+            sequence += sorted(existing_months-set(sequence),reverse=True)
         if existing_months and existing_months!=set(sequence):
             previous=self.db.execute("SELECT value FROM meta WHERE key='planning_months'").fetchone()
             try:old_sequence=json.loads(previous['value']) if previous else None
             except (ValueError,TypeError):old_sequence=None
-            if (not extend_window or not isinstance(old_sequence,list)
-                    or len(old_sequence)>=len(sequence) or sequence[:len(old_sequence)]!=old_sequence
-                    or set(old_sequence)!=existing_months or len(old_sequence)!=len(existing_months)):
+            valid_old = (isinstance(old_sequence,list) and set(old_sequence)==existing_months
+                         and len(old_sequence)==len(existing_months))
+            valid_extension = valid_old and extend_window and len(old_sequence)<len(sequence) and sequence[:len(old_sequence)]==old_sequence
+            valid_advance = valid_old and advance_window and existing_months < set(sequence)
+            if not (valid_extension or valid_advance):
                 self.db.close()
                 raise RealEstateError('planning_window_changed_requires_migration')
             # Hold the write lock while checking the collector lease and adding jobs.
@@ -206,6 +217,8 @@ class Collector:
                 self.db.execute("INSERT OR IGNORE INTO meta VALUES ('planning_previous_months',?)",(json.dumps(old_sequence),))
                 self.db.execute("UPDATE meta SET value=? WHERE key='planning_months'",(json.dumps(sequence),))
             for priority, month in enumerate(sequence):
+                if extending and advance_window:
+                    self.db.execute('UPDATE jobs SET priority=? WHERE deal_month=?',(priority,month))
                 for region in registry['regions']:
                     for trade in ENDPOINTS:
                         code = region['lawd_code']; job_id = f'{trade}/{code}/{month}'
@@ -424,6 +437,7 @@ def main():
     parser.add_argument('--as-of')
     parser.add_argument('--months',type=int,default=61)
     parser.add_argument('--extend-window',action='store_true',help='Append older months to this exact checkpoint without resetting jobs or calls')
+    parser.add_argument('--advance-window',action='store_true',help='Add newly reached calendar months and retain all historical jobs and source records')
     parser.add_argument('--max-requests',type=int,default=600)
     parser.add_argument('--max-bytes',type=int,default=64*1024**2)
     parser.add_argument('--daily-budget',type=int,default=8000)
@@ -439,7 +453,7 @@ def main():
     try:
         if args.reprocess and args.execute:raise RealEstateError('conflicting_collection_mode')
         registry=load_registry(args.regions)
-        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window)
+        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window,advance_window=args.advance_window)
         result=collector.reprocess() if args.reprocess else collector.collect(read_key(args.secret_file),max_requests=args.max_requests,max_bytes=args.max_bytes,
             daily_budget=args.daily_budget,min_interval=args.min_interval,timeout=args.timeout,
             retry_failed=args.retry_failed,refresh=args.refresh,collect_months=args.collect_month) if args.execute else {'status':'planned','coverage':collector.summary()}
