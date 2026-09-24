@@ -30,7 +30,7 @@ class CollectionGuard:
             "CREATE TABLE IF NOT EXISTS collection_owner (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT, generation INTEGER NOT NULL, expires INTEGER NOT NULL, base_digest TEXT, base_bytes INTEGER)",
             "INSERT OR IGNORE INTO collection_owner(id,generation,expires) VALUES(1,0,0)",
             "CREATE TABLE IF NOT EXISTS collection_budget (day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), used INTEGER NOT NULL CHECK(used>=0 AND used<=8000), PRIMARY KEY(day,trade))",
-            "CREATE TABLE IF NOT EXISTS collection_reservations (id TEXT PRIMARY KEY, owner TEXT NOT NULL, generation INTEGER NOT NULL, day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), job TEXT NOT NULL, page INTEGER NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('reserved','stored','failed')), raw_digest TEXT, raw_bytes INTEGER, error_code TEXT)",
+            "CREATE TABLE IF NOT EXISTS collection_reservations (id TEXT PRIMARY KEY, owner TEXT NOT NULL, generation INTEGER NOT NULL, day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), job TEXT NOT NULL, page INTEGER NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('reserved','stored','failed')), raw_digest TEXT, raw_bytes INTEGER, error_code TEXT, reserved_at INTEGER NOT NULL DEFAULT 0, finished_at INTEGER)",
             "CREATE INDEX IF NOT EXISTS collection_pending ON collection_reservations(owner,generation,phase)",
             # These triggers and the reservation insert are one SQLite statement:
             # no check-then-increment race and no COUNT scan of the day's calls.
@@ -53,6 +53,11 @@ class CollectionGuard:
               END;""",
         ]
         for sql in statements: self.query(sql)
+        columns={row['name'] for row in self.query('PRAGMA table_info(collection_reservations)')['results']}
+        # Additive migration for the initial guard installation; unknown legacy
+        # timestamps stay zero/NULL instead of being invented from today's clock.
+        if 'reserved_at' not in columns:self.query('ALTER TABLE collection_reservations ADD COLUMN reserved_at INTEGER NOT NULL DEFAULT 0')
+        if 'finished_at' not in columns:self.query('ALTER TABLE collection_reservations ADD COLUMN finished_at INTEGER')
 
     def acquire(self, expected_head):
         if not isinstance(expected_head,dict) or not re.fullmatch('[a-f0-9]{64}',str(expected_head.get('sha256',''))):
@@ -80,7 +85,7 @@ class CollectionGuard:
         reservation_id=reservation_id or uuid.uuid4().hex
         if not re.fullmatch('[a-f0-9]{32}',reservation_id):raise RealEstateError('collection_invalid_reservation')
         result=self.query(f"""INSERT OR IGNORE INTO collection_reservations
-            (id,owner,generation,day,trade,job,page,phase) VALUES(?,?,?,{DAY},?,?,?,'reserved')
+            (id,owner,generation,day,trade,job,page,phase,reserved_at) VALUES(?,?,?,{DAY},?,?,?,'reserved',{NOW})
             RETURNING id,day""",[reservation_id,lease['owner'],lease['generation'],trade,job,page])
         # A repeated ID may be an uncertain prior request: never authorize another
         # upstream call using it, even though the budget insert is idempotent.
@@ -101,7 +106,7 @@ class CollectionGuard:
         else:
             if not isinstance(error,str) or not re.fullmatch('[a-z_]{1,64}',error):raise RealEstateError('collection_error_code')
             descriptor={'sha256':None,'bytes':None}; phase='failed'
-        result=self.query(f"""UPDATE collection_reservations SET phase=?,raw_digest=?,raw_bytes=?,error_code=?
+        result=self.query(f"""UPDATE collection_reservations SET phase=?,raw_digest=?,raw_bytes=?,error_code=?,finished_at={NOW}
             WHERE id=? AND owner=? AND generation=? AND phase='reserved'
             AND EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>{NOW})
             RETURNING id""",[phase,descriptor['sha256'],descriptor['bytes'],error,reservation_id,

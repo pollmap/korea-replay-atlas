@@ -52,6 +52,8 @@ def test_raw_body_persisted_before_finish_and_new_head_required_before_release()
     with pytest.raises(RealEstateError,match='recovery_required'):guard.release(lease,head)
     descriptor=guard.finish(lease,r['id'],raw=b'<fixture/>')
     assert store.get(descriptor['sha256'],descriptor['bytes'])==b'<fixture/>'
+    stamps=store.query(store.control,'SELECT reserved_at,finished_at FROM collection_reservations')['results'][0]
+    assert 0<stamps['reserved_at']<=stamps['finished_at']
     with pytest.raises(RealEstateError,match='recovery_required'):guard.release(lease,head)
     next_head=store.put(b'fixture-new-backup')
     with pytest.raises(RealEstateError,match='head_changed'):store.promote(next_head,head)
