@@ -1,0 +1,72 @@
+/* Product palette: indigo = brand/sale, teal = rent, amber = map selection.
+   Labels, pressed states and chart cancellation labels remain the primary cues. */
+.app-shell.atlas-shell {
+  --atlas-blue: #5145cd;
+  --atlas-ink: #252344;
+  --atlas-line: #e3e0f1;
+  --trade-color: #5145cd;
+  --trade-soft: #f0edff;
+  --trade-line: #d9d2f6;
+}
+.app-shell.atlas-shell .topbar { background: #352b78; border-bottom-color: #514395; }
+.atlas-shell .brand { color: #fff; }
+.app-shell.atlas-shell .brand-symbol { background: #6555d5; }
+.app-shell.atlas-shell .brand small { color: #d1caef; }
+.app-shell.atlas-shell .search-wrap { background: #f4f1ff; border-color: #ddd5fc; color: #635990; }
+.atlas-shell .header-actions > button,
+.atlas-shell .city-tools-toggle { color: #e8e3ff; }
+.atlas-shell .header-actions .explore-button[aria-pressed=true] { color: #fff; background: #514392; }
+.atlas-shell .header-actions > button:hover,
+.atlas-shell .city-tools-toggle:hover,
+.atlas-shell .city-tools-toggle[aria-expanded=true] { background: #514392; color: #fff; }
+.app-shell.atlas-shell .share-button { background: #eee9ff; color: #352b78; }
+.app-shell.atlas-shell .share-button:hover { background: #fff; color: #352b78; }
+.app-shell.atlas-shell .view-switch button[aria-pressed=true] { background: #5145cd; }
+.app-shell.atlas-shell .property-panel { --accent: #5145cd; --ink: #252344; }
+.atlas-shell .property-panel[data-trade=rent] {
+  --trade-color: #087b72;
+  --trade-soft: #e5f5ef;
+  --trade-line: #b6dfd5;
+}
+.atlas-shell .property-header { background: #f1edff; border-bottom-color: #e0d8f5; }
+.atlas-shell .property-header .eyebrow,
+.atlas-shell .property-header .property-back { color: #605388; }
+.atlas-shell .complex-identity { background: #f1edff; }
+.atlas-shell .complex-identity > button { background: #fff; border-color: #cfc5ee; color: #5145cd; }
+.atlas-shell .property-provider-location { background: #fff8e7; border-color: #e9c97c; color: #765018; }
+.atlas-shell .property-provider-location span { color: #795c32; }
+.atlas-shell .complex-identity > button[aria-pressed=true] { background: #5145cd; color: #fff; border-color: #5145cd; }
+.atlas-shell .complex-section-nav > button[aria-pressed=true] { color: var(--trade-color); border-bottom-color: var(--trade-color); }
+.atlas-shell .property-trade { background: #eeebf6; }
+.atlas-shell .property-trade button[aria-pressed=true] { background: var(--trade-color); color: #fff; box-shadow: none; }
+.atlas-shell .history-summary { padding: 14px 12px; margin: 10px 0 14px; border-radius: 10px; background: var(--trade-soft); border: 1px solid var(--trade-line); }
+.atlas-shell .history-summary strong,
+.atlas-shell .discovery-price strong,
+.atlas-shell .history-point strong { color: var(--trade-color); }
+.atlas-shell .history-summary span,
+.atlas-shell .history-summary small { color: #5d647a; }
+.atlas-shell .history-summary .history-total { border-left-color: var(--trade-line); }
+.atlas-shell .history-summary .history-total strong { color: #45536a; }
+.atlas-shell .history-ranges button[aria-pressed=true] { background: var(--trade-color); color: #fff; box-shadow: none; }
+.atlas-shell .history-chart circle:not([fill="#a07963"]) { fill: var(--trade-color); }
+.atlas-shell .history-chart text { fill: #5d6b81; }
+.atlas-shell .history-point,
+.atlas-shell .history-selected { background: var(--trade-soft); }
+.atlas-shell .history-point { color: #546078; border-left: 3px solid var(--trade-color); }
+.atlas-shell .property-comparison-action .compare-region { background: var(--trade-soft); color: var(--trade-color); border-color: var(--trade-line); }
+.atlas-shell .discovery-open[aria-pressed=true] { background: var(--trade-soft); box-shadow: inset 3px 0 var(--trade-color); }
+.atlas-shell .discovery-count { color: #087b72; }
+.atlas-shell .region-shortcuts button[aria-pressed=true] { background: #5145cd; border-color: #5145cd; color: #fff; }
+.atlas-shell .region-results li:hover,
+.atlas-shell .discovery-open:hover { background: #f5f2ff; }
+.atlas-shell .region-open strong,
+.atlas-shell .property-body .region-inline-stat strong { color: var(--trade-color); }
+.atlas-shell .compare-add[aria-pressed=true] { background: #eee9ff; color: #5145cd; }
+.atlas-shell .property-panel th { background: #f2effa; color: #5c5479; }
+.atlas-shell .property-panel :focus-visible { outline-color: var(--trade-color); }
+.atlas-shell .topbar button:focus-visible,
+.atlas-shell .topbar a:focus-visible { outline-color: #f4cd75; }
+@media (max-width:780px) {
+  .atlas-shell .sheet-handle { background: #f1edff; border-radius: 20px 20px 0 0; }
+  .atlas-shell .sheet-handle span { background: #b2a4df; }
+}
