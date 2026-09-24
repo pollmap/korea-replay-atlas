@@ -40,11 +40,14 @@ SEOUL_KAPT_ASSET_HASHES = {
     'b63b62af834062de': SEOUL_KAPT_RECENT_SHA,
 }
 SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
+PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-[A-Za-z0-9_-]{8}\.json\Z')
+PROPERTY_NAVIGATION_SHA = 'b93cbc63ea3e74836f349ed11dc73742ee2095f9ba258a13b9812c726879cf7e'
 
 
-def _approved_seoul_geojson(name: str, sha: str, size: int) -> bool:
+def _approved_point_asset(name: str, sha: str, size: int) -> bool:
     match = SEOUL_KAPT_GEOJSON.fullmatch(name)
-    return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 2 * 1024 * 1024)
+    return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 2 * 1024 * 1024
+                or PROPERTY_NAVIGATION.fullmatch(name) and sha == PROPERTY_NAVIGATION_SHA and size == 55929)
 FORBIDDEN_NAME = re.compile(r'(?i)(?:^|[-_.])(?:secrets?|credentials?|tokens?|private|id_rsa)(?:$|[-_.])')
 CREDENTIAL_PATTERNS = (
     re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),
@@ -80,7 +83,7 @@ def _frontend_name(name: str) -> None:
     if (any(part.startswith('.') for part in name.split('/'))
             or FORBIDDEN_NAME.search(Path(name).name)):
         raise ValueError('Private or hidden files are forbidden in the frontend')
-    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name):
+    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name):
         raise ValueError('Unknown frontend file; full staging is required')
 
 
@@ -127,7 +130,7 @@ def _frontend_entries(client: Path, previous: dict):
             if family not in families or family in seen_families:
                 raise ValueError('Changed frontend chunk families; full staging is required')
             seen_families.add(family)
-        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name):
+        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name):
             raise ValueError('Unknown frontend file; full staging is required')
         size = regular_file(path).st_size
         if not 0 <= size < release.MAX_FILE_BYTES:
@@ -135,12 +138,12 @@ def _frontend_entries(client: Path, previous: dict):
         sha = digest(path)
         prior = old.get(name)
         unchanged = prior and prior['sha256'] == sha and prior['bytes'] == size
-        approved_geojson = _approved_seoul_geojson(name, sha, size)
-        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_geojson:
+        approved_point_asset = _approved_point_asset(name, sha, size)
+        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_point_asset:
             raise ValueError('Copied frontend assets changed; full staging is required')
         if family and prior and not unchanged:
             raise ValueError('An immutable frontend asset URL changed bytes')
-        if name in MUTABLE_ROOT or family or approved_geojson:
+        if name in MUTABLE_ROOT or family or approved_point_asset:
             # Reads are bounded by the same 24 MiB ceiling as static staging.
             body = path.read_bytes()
             if len(body) != size or hashlib.sha256(body).hexdigest() != sha:
@@ -157,7 +160,7 @@ def _frontend_entries(client: Path, previous: dict):
     # Immutable app previews retain their former URL. A replaced, SHA-checked
     # Seoul point version need not be copied into the next app bundle.
     stable_names = set(old) - {name for name, entry in old.items()
-                               if _family(name) or _approved_seoul_geojson(name, entry['sha256'], entry['bytes'])}
+                               if _family(name) or _approved_point_asset(name, entry['sha256'], entry['bytes'])}
     if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != families:
         raise ValueError('Frontend files or chunk families are missing; full staging is required')
     return result

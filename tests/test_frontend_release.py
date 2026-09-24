@@ -60,6 +60,19 @@ def fixture(tmp_path):
                            output=output, bundle=bundle, first=first, before=before)
 
 
+def test_navigation_asset_requires_exact_audited_bytes(fixture):
+    source = Path(__file__).resolve().parents[1] / 'src/data/seoul-property-navigation.json'
+    target = fixture.client / 'assets/seoul-property-navigation-JeSm217J.json'
+    target.write_bytes(source.read_bytes())
+    # Use the same prior metadata contract as the production restager.
+    _, assets = frontend._prior_metadata(fixture.bundle)
+    entries = frontend._frontend_entries(fixture.client, assets)
+    assert any(row['target'] == target.relative_to(fixture.client).as_posix() for row in entries)
+    target.write_bytes(source.read_bytes().replace(b'A10025850', b'A10025851'))
+    with pytest.raises(ValueError, match='Copied frontend assets changed'):
+        frontend._frontend_entries(fixture.client, assets)
+
+
 def restage(fixture, **kwargs):
     return frontend.restage(root=fixture.root, reuse_bundle=fixture.bundle,
                             client_dir=fixture.client, worker_dir=fixture.worker,
