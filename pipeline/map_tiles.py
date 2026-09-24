@@ -93,16 +93,21 @@ def render_geometry(geometry,bounds,polygon=True):
     its projected outline or a representative point. This is an explicit display
     representation; the original geometry hash and all properties are retained.
     """
-    clipped=geometry.intersection(box(*bounds))
-    if clipped.is_empty:return [],'outside'
     unit=(bounds[2]-bounds[0])/EXTENT
+    # Source partitioning can leave a nanometre-long line whose two projected
+    # doubles coincide. GEOS clips that degenerate line to empty before normal
+    # quantization can retain its ID. Preserve it explicitly as a display point.
+    tiny_line=geometry.geom_type in ('LineString','MultiLineString') and geometry.length<=unit/100
+    display=geometry.representative_point() if tiny_line else geometry
+    clipped=display.intersection(box(*bounds))
+    if clipped.is_empty:return [],'outside'
     # Validate the actual integer coordinates that MVT will receive. Validating
     # rounded metre floats first can hide a self-touch that appears on the second
     # integer rounding. This is the only quantization step.
     origin=np.asarray(bounds[:2])
     quantize=lambda g:shapely.transform(g,lambda coordinates:np.rint((coordinates-origin)/unit))
     snapped=quantize(clipped)
-    notice='quantized'
+    notice='subpixel_line_anchor' if tiny_line else 'quantized'
     if polygon and snapped.geom_type in ('Polygon','MultiPolygon') and not snapped.is_valid:
         snapped=quantize(clipped.boundary);notice='quantized_outline'
     parts=[]
@@ -395,8 +400,9 @@ def tile_rows(db,topic,z,bounds):
     return [(n,sid,shapely.from_wkb(geom),json.loads(render)) for n,sid,geom,render in db.execute(query,(topic,z,c,a,d,b))]
 
 
-def build_topic_tiles(db,topic,work):
-    minzoom,maxzoom=TOPICS[topic];audit={};is_admin=topic.startswith('admin-')
+def build_topic_tiles(db,topic,work,zoom_range=None):
+    minzoom,maxzoom=TOPICS[topic] if zoom_range is None else zoom_range;audit={};is_admin=topic.startswith('admin-')
+    require(0<=minzoom<=maxzoom<=16,'Invalid topic zoom range')
     verify_display_ids(db,topic)
     originals=[];identities=[];properties=[];record_ids=[]
     largest_record=db.execute('SELECT COALESCE(MAX(n),0) FROM records').fetchone()[0]
@@ -428,7 +434,7 @@ def build_topic_tiles(db,topic,work):
             if is_admin:rows=[(record_ids[i],identities[i],geoms[i],properties[i]) for i in index.query(box(*bounds),predicate='intersects')]
             else:
                 rows=tile_rows(db,topic,z,bounds)
-                if topic in ('roads','rail'):
+                if topic in ('roads','rail','detail-roads'):
                     tolerance=WORLD/(2**z)/512*.35
                     rows=[(n,sid,g.simplify(tolerance,preserve_topology=True),p) for n,sid,g,p in rows]
             body,tile_notices,ids=encode_tile(topic,[(sid,g,p) for n,sid,g,p in rows],z,x,y)

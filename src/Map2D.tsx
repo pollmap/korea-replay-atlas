@@ -12,7 +12,7 @@ import type {MapHandle} from './MapScene';
 import type {Map2DWorkerRequest,Map2DWorkerResponse} from './map2d-data.worker';
 import {resolveSceneAssets} from './catalog';
 import {EMPTY_MEASUREMENT,measureMap,measurementGeoJSON,type Measurement} from '../shared/map-tools';
-import type {MapCatalog2D} from '../shared/map-tiles';
+import {mapCoverageLabel,type MapCatalog2D} from '../shared/map-tiles';
 import {createMapTilesProtocol} from './map-tiles-protocol';
 import {atlasFetch} from './atlas-client';
 import {vectorLayers} from './vector-style';
@@ -92,7 +92,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const rows=[...resources.values()],network=downloads.stats(),sourcesLoading=rows.filter(row=>!map.isSourceLoaded(row.source)).length;
       if(vectorProtocol){const stat=vectorProtocol.snapshot();Object.assign(node.dataset,{vectorRelease,vectorCachedBytes:String(stat.cachedBytes),vectorActive:String(stat.active),vectorPeak:String(stat.peakActive),vectorArchives:String(stat.cachedArchives)});}
       Object.assign(node.dataset,{mapEngine:'maplibre',mapDimension:'2d',map2dPixelRatio:String(map.getPixelRatio()),map2dAssets:String(rows.length),map2dFeatures:String(rows.reduce((sum,row)=>sum+row.features,0)),map2dVertices:String(rows.reduce((sum,row)=>sum+row.vertices,0)),map2dJobs:String(jobs.size),map2dSourcesLoading:String(sourcesLoading),map2dIndexLoading:String(indexLoading),map2dMoving:String(moving),map2dErrors:String(errors),map2dFetchActive:String(network.active),map2dFetchPeak:String(network.peak),map2dFrames:String(frames),map2dMovingSamples:String(frameSamples.length),map2dMovingP95Ms:frameSamples.length?[...frameSamples].sort((a,b)=>a-b)[Math.floor((frameSamples.length-1)*.95)].toFixed(2):'0',map2dRelease:release});
-      latest.current.onStatus(vectorProtocol?`전국 벡터 지도 · ${vectorSourceIds.length}개 주제${vectorProtocol.snapshot().active?' · 화면 자료 불러오는 중':''}${errors?` · ${errors}개 자료 오류`:''}`:`${rows.length}개 2D 자료 연결${indexLoading||jobs.size||sourcesLoading?' · 지역 자료 불러오는 중':''}${deferred?` · ${deferred}개 상세 자료 표시 대기`:''}${errors?` · ${errors}개 자료 오류`:''}`);
+      latest.current.onStatus(vectorProtocol?`${latest.current.vectorData?mapCoverageLabel(latest.current.vectorData.map):"벡터 지도"}${vectorProtocol.snapshot().active?' · 화면 자료 불러오는 중':''}${errors?` · ${errors}개 자료 오류`:''}`:`${rows.length}개 2D 자료 연결${indexLoading||jobs.size||sourcesLoading?' · 지역 자료 불러오는 중':''}${deferred?` · ${deferred}개 상세 자료 표시 대기`:''}${errors?` · ${errors}개 자료 오류`:''}`);
     };
     const report=()=>{if(commitFrame===undefined&&!disposed)commitFrame=requestAnimationFrame(()=>{commitFrame=undefined;mark();});};
     const waitForView=(signal:AbortSignal):Promise<void>=>{
@@ -196,7 +196,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const input=latest.current.vectorData;if(!ready||!input||vectorRelease===input.map.release_id)return;
       for(const id of vectorLayerIds)if(map.getLayer(id))map.removeLayer(id);for(const id of vectorSourceIds)if(map.getSource(id))map.removeSource(id);vectorLayerIds.length=0;vectorSourceIds.length=0;
       vectorProtocol?.dispose();vectorProtocol=createMapTilesProtocol({catalog:input.map,origin:input.origin,allowedOrigins:[input.origin],mobile:matchMedia('(max-width:780px)').matches,fetcher:atlasFetch});vectorRelease=input.map.release_id;addProtocol('krtile',vectorProtocol.protocol);
-      const order=['land','water','buildings','facilities','roads','rail','admin-dong','admin-sigungu','admin-sido'];
+      const order=['land','water','buildings','facilities','roads','detail-roads','rail','admin-dong','admin-sigungu','admin-sido'];
       const labels:LayerSpecification[]=[];
       for(const topic of [...input.map.topics].sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))){
         const source=`vector-${topic.id}`;map.addSource(source,{type:'vector',tiles:[vectorProtocol.tileUrl(topic.id)],bounds:topic.bounds,minzoom:topic.minzoom,maxzoom:topic.maxzoom,promoteId:'stable_id',attribution:input.map.attribution});vectorSourceIds.push(source);
