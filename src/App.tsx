@@ -1,3 +1,4 @@
+import type {PropertyMapPoint} from '../shared/property-map-point';
 import {lazy,Suspense,useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import type {Catalog,LayerId,Place} from '../shared/contracts';
 import {EVIDENCE_LABEL} from '../shared/contracts';
@@ -65,6 +66,7 @@ export default function App(){
   const [runtimeError,setRuntimeError]=useState('');
   const atlas=useAtlas(runtime&&'schema_version' in runtime?runtime:null,runtimeChecked,runtimeError);
   const [propertyOpen,setPropertyOpen]=useState(true);
+  const [propertyMapPoint,setPropertyMapPoint]=useState<PropertyMapPoint|null>(null);
   const [requestedRegion,setRequestedRegion]=useState<{code:string;request:number;complexId?:string;skipLocate?:boolean}>();
   const selectPropertyRegion=useCallback((code:string)=>{setPropertyOpen(true);setSelection(null);setMenuOpen(false);setCityToolsOpen(false);setFocusMode(false);setMode('map');setPlaying(false);setTimeOpen(false);setSunOpen(false);setLayers(previous=>({...previous,sun:false}));setRequestedRegion(previous=>({code,request:(previous?.request??0)+1}));},[]);
   const selectPropertyComplex=useCallback((code:string,complexId:string)=>{
@@ -252,7 +254,7 @@ export default function App(){
   const showNational=()=>{selectPropertyRegion('');setPlace(PLACES[0]);setQuery('');mapRef.current?.flyTo(PLACES[0],{overviewPanelVisible:true,focused:false});};
   return <div className={`app-shell map-first atlas-shell is-${mapView} ${propertyVisible?'has-property':propertyRequested&&atlas.state==='loading'?'reserves-property':''} ${mode==='map'?'is-exploring':''} ${mode==='live'?'is-live':''} ${focusMode?'is-focused':''} ${menuOpen?'has-layers':''} ${sunOpen?'has-sun':''} ${selection?'has-selection':''} ${mode==='live'&&observationsOpen?'has-observations':''}`}>
     {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전을 확인하는 중…'}</div>:<MapErrorBoundary key={mapView}><Suspense fallback={<div className="map-loading">대한민국의 지도를 펼치는 중…</div>}>
-      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion,onPropertyComplex:selectPropertyComplex,propertyTrade}:{})}/>
+      <ActiveMap ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} instant={viewInstant} mode={mode==='replay'?'replay':'sun'} liveTransit={mode==='live'?liveTransit:null} initialPlace={place} initialCamera={spatialCamera} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={lightweight} onSelect={inspect} onStatus={setMapStatus} onPerformance={setPerformanceInfo} {...(mapView==='2d'?{onPropertyRegion:selectPropertyRegion,onPropertyComplex:selectPropertyComplex,propertyTrade,propertyMapPoint}:{})}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
       <a className="brand" href="#" onClick={e=>{e.preventDefault();showNational();}} aria-label="대한민국 전체 보기"><span className="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40" focusable="false"><path d="M12 9v22M27 10 17 20" fill="none" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round"/><path d="m17 20 11 11" fill="none" stroke="#72e0c6" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round"/></svg></span><span className="brand-wordmark"><strong>KOREA REPLAY</strong><small>전국 지도 · 아파트 실거래</small></span></a>
@@ -276,7 +278,7 @@ export default function App(){
     </nav>
     <button className="focus-toggle" aria-pressed={focusMode} aria-label={focusMode?'도구 표시':'지도만 보기'} title="지도 집중 모드 · F / Esc" onClick={()=>{setFocusMode(v=>!v);setQuery('');setCityToolsOpen(false);}}><svg aria-hidden="true" viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6"><path d={focusMode?'M3 7h4V3m6 0v4h4M3 13h4v4m6 0v-4h4':'M7 3H3v4m10-4h4v4M3 13v4h4m6 0h4v-4'}/></svg><span>{focusMode?'도구 표시':'지도만 보기'}</span><kbd>{focusMode?'Esc':'F'}</kbd></button>
     <MapInteractionTools map={mapRef} view={mapView} place={place} hidden={focusMode} measurement={measurement} onMeasure={mode=>setMeasurement(measureMap(mode,[]))} onUndo={()=>setMeasurement(previous=>measureMap(previous.mode,previous.points.slice(0,-1)))} onNotice={setNotice} onLocate={goTo}/>
-    {atlas.content&&<Suspense fallback={null}><PropertyExplorer key={atlas.content.property.release_id} atlas={atlas.content} hidden={!propertyVisible} onClose={()=>setPropertyOpen(false)} onLocate={goTo} onViewState={onPropertyView} requestedRegion={requestedRegion}/></Suspense>}
+    {atlas.content&&<Suspense fallback={null}><PropertyExplorer key={atlas.content.property.release_id} atlas={atlas.content} hidden={!propertyVisible} onClose={()=>setPropertyOpen(false)} onLocate={goTo} onViewState={onPropertyView} onMapPoint={setPropertyMapPoint} requestedRegion={requestedRegion}/></Suspense>}
     <aside id="layers-panel" className="layers-panel panel" aria-label="지도 레이어" hidden={focusMode||!menuOpen}>
       <button className="close" aria-label="레이어 패널 닫기" onClick={()=>setMenuOpen(false)}>×</button>
       <div className="eyebrow">전국 지도 설정</div>

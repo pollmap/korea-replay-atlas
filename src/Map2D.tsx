@@ -1,3 +1,4 @@
+import type {PropertyMapPoint} from '../shared/property-map-point';
 import {forwardRef,useEffect,useImperativeHandle,useMemo,useRef} from 'react';
 import {Map as LibreMap,NavigationControl,ScaleControl,AttributionControl,setWorkerUrl,addProtocol,removeProtocol,type MapMouseEvent,type LayerSpecification,type GeoJSONSource} from 'maplibre-gl';
 import libreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
@@ -22,7 +23,7 @@ import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBu
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
-interface Props {catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
+interface Props {propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {asset:Asset;source:string;layerIds:string[];url:string;record:number;features:number;vertices:number;}
 type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
@@ -45,6 +46,7 @@ export const map2DSourceLayers=(source:string,asset:Asset):{layer:LayerSpecifica
 const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const element=useRef<HTMLDivElement>(null),mapRef=useRef<LibreMap|null>(null),refreshRef=useRef<(()=>void)|null>(null);
   const latest=useRef(props);latest.current=props;
+  const refreshSelectedPointRef=useRef<(()=>void)|null>(null);
   const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,trade:props.propertyTrade}:null);},[props.vectorData,props.propertyTrade]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
   useImperativeHandle(ref,()=>({
@@ -163,6 +165,14 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       for(const [key,resource] of resources)if(resource.asset.layer!=='terrain'&&!latest.current.layers[resource.asset.layer])remove(key);
       for(const asset of selected.assets)load(asset);prune();report();
     };
+    const refreshSelectedPoint=()=>{
+      if(disposed||!ready)return;
+      const point=latest.current.propertyMapPoint;
+      const valid=point&&point.releaseId===latest.current.vectorData?.property?.release_id;
+      (map.getSource(SEOUL_KAPT_SELECTED) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:valid?[{type:'Feature',geometry:{type:'Point',coordinates:[point.longitude,point.latitude]},properties:{kapt_code:point.kaptCode}}]:[]});
+      node.dataset.selectedPropertyComplex=valid?point.complexId:'';
+    };
+    refreshSelectedPointRef.current=refreshSelectedPoint;
     const loadSeoulKaptPoints=()=>{
       if(disposed||!ready)return;
       const bounds=map.getBounds();
@@ -180,6 +190,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       map.addLayer({id:'seoul-kapt-selected-halo',type:'circle',source:SEOUL_KAPT_SELECTED,minzoom:10,paint:{'circle-color':'#ffb12b','circle-radius':15,'circle-opacity':.28,'circle-stroke-color':'#fff','circle-stroke-width':2}});
       map.addLayer({id:'seoul-kapt-selected-core',type:'circle',source:SEOUL_KAPT_SELECTED,minzoom:10,paint:{'circle-color':'#f28d20','circle-radius':6,'circle-stroke-color':'#fff','circle-stroke-width':2}});
       node.dataset.seoulKaptLayer='provider-points-crs-unconfirmed';
+      refreshSelectedPoint();
     };
     const installVectors=()=>{
       const input=latest.current.vectorData;if(!ready||!input||vectorRelease===input.map.release_id)return;
@@ -305,7 +316,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
-      disposed=true;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
+      disposed=true;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
       canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('wheel',wheel,true);window.removeEventListener('pointerup',pointerUp,true);window.removeEventListener('pointercancel',pointerUp,true);window.removeEventListener('blur',blur);resolution.dispose();
       indexController?.abort();pickController?.abort();for(const job of jobs.values())job.controller.abort();for(const waiter of [...waiters])waiter.reject();downloads.dispose();
       for(const task of pending.values()){task.detach();task.reject(abortError());}pending.clear();worker.terminate();document.removeEventListener('visibilitychange',visibility);
@@ -314,6 +325,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   },[]);
   useEffect(()=>{refreshRef.current?.();},[props.catalog,props.layers,props.boundaries,props.lightweight,props.vectorData,props.vectorPending]);
   useEffect(()=>{refreshRegionsRef.current?.();},[regions,props.measurement]);
+  useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData]);
   useEffect(()=>{const source=mapRef.current?.getSource('live-buses') as GeoJSONSource|undefined;const data=map2DLiveBuses(props.liveTransit);source?.setData(data);if(element.current)element.current.dataset.liveBusCount=String(data.features.length);},[props.liveTransit]);
   useEffect(()=>{const map=mapRef.current;if(!map)return;const source=map.getSource('measure') as GeoJSONSource|undefined;source?.setData(measurementGeoJSON(props.measurement??EMPTY_MEASUREMENT));map.getCanvas().style.cursor=props.measurement&&props.measurement.mode!=='none'?'crosshair':'';},[props.measurement]);
   return <><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">서울시 K-apt 제공 점 · 초록색은 실거래 ID 연결 · 좌표계 검토 중</div>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
