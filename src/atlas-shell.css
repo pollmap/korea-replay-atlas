@@ -2,7 +2,8 @@
 .atlas-shell button:focus-visible,.atlas-shell input:focus-visible,.atlas-shell select:focus-visible,.atlas-shell a:focus-visible,.atlas-shell summary:focus-visible{outline:2px solid var(--atlas-blue);outline-offset:3px}
 .app-shell.atlas-shell .topbar{height:var(--atlas-header-height);padding:0 20px;gap:24px;background:#fff;border-bottom:1px solid var(--atlas-line);box-shadow:0 1px 4px #162c4908;z-index:10}
 .atlas-shell .brand{width:calc(var(--atlas-rail-width) - 44px);min-width:190px;gap:11px;color:#152c4d}
-.app-shell.atlas-shell .brand-symbol{display:grid;place-items:center;flex-shrink:0;width:34px;height:36px;border-radius:9px;font-size:23px;font-weight:800;line-height:1;letter-spacing:-1px;color:#fff;background:var(--atlas-blue)}
+.app-shell.atlas-shell .brand-symbol{display:grid;place-items:center;flex-shrink:0;width:34px;height:36px;border-radius:9px;color:#fff;background:#142e55}
+.app-shell.atlas-shell .brand-symbol svg{display:block;width:29px;height:29px}
 .app-shell.atlas-shell .brand strong{font-size:14px;letter-spacing:1.1px;font-weight:800}
 .app-shell.atlas-shell .brand small{display:block;color:#78859a;font-size:10px;letter-spacing:0;margin-top:4px}
 .app-shell.atlas-shell .search-wrap{height:42px;max-width:480px;min-width:140px;flex:1;margin:0;background:#f3f6fa;border:1px solid #e6ebf2;border-radius:9px;padding:0 13px;gap:9px;color:#71809a}
