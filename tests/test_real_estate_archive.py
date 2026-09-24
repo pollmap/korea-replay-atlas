@@ -22,8 +22,9 @@ class LocalD1(D1Archive):
 
     def query(self,database,sql,params=()):
         db=self.databases[database]; before=db.total_changes
-        with db: cursor=db.execute(sql,params)
-        return {'results':[dict(r) for r in cursor.fetchall()],
+        with db:
+            cursor=db.execute(sql,params); rows=[dict(r) for r in cursor.fetchall()]
+        return {'results':rows,
             'meta':{'changes':db.total_changes-before,'size_after':self.size}}
 
 
