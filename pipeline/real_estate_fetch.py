@@ -22,6 +22,7 @@ import uuid
 from .real_estate import (RealEstateError, canonical_bytes, sha256, normalize_xml_page,
                           build_partitions, utc_instant, _reject_links, MAX_PAGE_BYTES)
 from .real_estate_regions import load_registry
+from .real_estate_priority import priority_map, POLICY_ID
 from .real_estate_storage import encode_snapshot,decode_snapshot,MAX_SNAPSHOT_BYTES
 
 KST = timezone(timedelta(hours=9))
@@ -156,6 +157,9 @@ class Collector:
         _reject_links(self.database)
         self.db = sqlite3.connect(self.database, timeout=5)
         self.db.row_factory = sqlite3.Row
+        region_order = priority_map(registry['regions'])
+        self.db.create_function('collection_region_priority', 1,
+                                lambda code: region_order.get(code, 7), deterministic=True)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.executescript('''
           CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -348,7 +352,7 @@ class Collector:
                 if max_bytes-transferred < MAX_PAGE_BYTES and used:
                     stopped='run_budget'; break
                 job = self.db.execute("SELECT * FROM jobs WHERE status IN ('pending','partial')"+condition+
-                    ' ORDER BY priority,lawd_code,trade_type LIMIT 1',collect_months or []).fetchone()
+                    ' ORDER BY collection_region_priority(lawd_code),priority,lawd_code,trade_type LIMIT 1',collect_months or []).fetchone()
                 if job is None:
                     break
                 self._space(MAX_PAGE_BYTES+MAX_SNAPSHOT_BYTES+1024**2)
@@ -422,6 +426,7 @@ class Collector:
                 'requests':used,'response_bytes':transferred,'stop_reason':stopped,
                 'elapsed_seconds':round(time.monotonic()-start,3),'coverage':self.summary(),
                 'retries':0,'daily_budget_per_source':daily_budget,
+                'region_order':POLICY_ID,
                 'budget_scope':'this_checkpoint_root_all_runs_provider_service; other_consumers_not_counted'}
             payload=canonical_bytes(report); immutable(self.root,f'runs/{sha256(payload)}.json',payload)
             return report
