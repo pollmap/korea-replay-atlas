@@ -134,6 +134,22 @@ def test_joined_seoul_point_asset_is_exact_and_replaces_prior_point_version(fixt
     assert not (Path(result['bundle']) / 'client' / old_target.relative_to(fixture.client)).exists()
 
 
+def test_recent_sale_marker_asset_replaces_joined_point_version(fixture):
+    old_source = Path(__file__).resolve().parents[1] / 'src/data/seoul-kapt-points-33058dae0a1d86c3.geojson'
+    new_source = Path(__file__).resolve().parents[1] / 'src/data/seoul-kapt-points-b63b62af834062de.geojson'
+    old_target = fixture.client / 'assets/seoul-kapt-points-33058dae0a1d86c3-Hh1M2n3P.geojson'
+    new_target = fixture.client / 'assets/seoul-kapt-points-b63b62af834062de-Kk2N3p4Q.geojson'
+    old_target.write_bytes(old_source.read_bytes())
+    previous = restage(fixture)
+    fixture.bundle = Path(previous['bundle'])
+    old_target.unlink()
+    new_target.write_bytes(new_source.read_bytes())
+    result = restage(fixture)
+    staged = Path(result['bundle']) / 'client' / new_target.relative_to(fixture.client)
+    assert digest(staged) == frontend.SEOUL_KAPT_RECENT_SHA
+    assert not (Path(result['bundle']) / 'client' / old_target.relative_to(fixture.client)).exists()
+
+
 def test_seoul_point_asset_name_cannot_hide_different_content(fixture):
     target = fixture.client / 'assets/seoul-kapt-points-8360eb2d88be0ab4-Fbg8DdT6.geojson'
     target.write_bytes(b'{"type":"FeatureCollection","features":[]}')

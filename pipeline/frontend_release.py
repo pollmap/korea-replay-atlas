@@ -33,16 +33,18 @@ ROOT_FILES = MUTABLE_ROOT | {'.assetsignore'}
 CHUNK_NAME = re.compile(r'assets/([A-Za-z0-9_][A-Za-z0-9_.-]*)-[A-Za-z0-9_-]{8}\.(js|css)\Z')
 SEOUL_KAPT_GEOJSON_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c26622debe82'
 SEOUL_KAPT_JOINED_SHA = '33058dae0a1d86c302b2f1c5b0dff9d71241a60031880f4f738c9fe506611792'
+SEOUL_KAPT_RECENT_SHA = 'b63b62af834062de98b142f4caef4f8a2087bd8e713c15ba3351fcf3dc06859c'
 SEOUL_KAPT_ASSET_HASHES = {
     '8360eb2d88be0ab4': SEOUL_KAPT_GEOJSON_SHA,
     '33058dae0a1d86c3': SEOUL_KAPT_JOINED_SHA,
+    'b63b62af834062de': SEOUL_KAPT_RECENT_SHA,
 }
 SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
 
 
 def _approved_seoul_geojson(name: str, sha: str, size: int) -> bool:
     match = SEOUL_KAPT_GEOJSON.fullmatch(name)
-    return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 1024 * 1024)
+    return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 2 * 1024 * 1024)
 FORBIDDEN_NAME = re.compile(r'(?i)(?:^|[-_.])(?:secrets?|credentials?|tokens?|private|id_rsa)(?:$|[-_.])')
 CREDENTIAL_PATTERNS = (
     re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),

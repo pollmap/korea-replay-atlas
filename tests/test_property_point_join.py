@@ -49,3 +49,17 @@ def test_published_point_asset_is_pinned_and_keeps_geometry_quality_separate():
     assert all(row['properties']['coordinate_status'] == 'provider_xy_crs_unconfirmed' for row in linked)
     assert next(row for row in linked if row['id'] == 'A10025850')['properties']['property_complex_id'] == 'molit-apt:11710:11710-8865'
     assert b'TELNO' not in body and b'phone' not in body and b'price_krw' not in body
+
+
+def test_recent_sale_map_labels_are_actual_reports_with_area_and_date():
+    path = Path(__file__).resolve().parents[1] / 'src/data/seoul-kapt-points-b63b62af834062de.geojson'
+    body = path.read_bytes()
+    assert hashlib.sha256(body).hexdigest() == 'b63b62af834062de98b142f4caef4f8a2087bd8e713c15ba3351fcf3dc06859c'
+    points = json.loads(body)['features']
+    priced = [row for row in points if 'recent_sale_label' in row['properties']]
+    assert len(points) == 2780 and len(priced) == 847
+    assert all('property_complex_id' in row['properties'] and row['properties']['coordinate_status'] == 'provider_xy_crs_unconfirmed' for row in priced)
+    helio = next(row for row in priced if row['id'] == 'A10025850')['properties']
+    assert (helio['recent_sale_price_krw'], helio['recent_sale_area_m2'], helio['recent_sale_contract_date']) == (2900000000, '84.99', '2026-08-15')
+    assert helio['recent_sale_label'] == '최근 신고 29억 · 84.99㎡'
+    assert b'TELNO' not in body and b'phone' not in body

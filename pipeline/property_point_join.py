@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
+from datetime import date
 
 from .seoul_apartments import SOURCE, canonical
 
@@ -227,12 +228,73 @@ def _sale_rows(checkpoint: Path, *, start: str, end: str):
     return rows, hashes
 
 
+def _money_label(won: int) -> str:
+    eok, remainder = divmod(won, 100_000_000)
+    man = remainder // 10_000
+    if remainder % 10_000:
+        raise ValueError('non_man_won_sale_price')
+    return f'{eok}억 {man:,}만' if eok and man else f'{eok}억' if eok else f'{man:,}만'
+
+
+def recent_sale_markers(property_root: Path, linked_complexes: set[str]) -> dict[str, dict]:
+    """Read verified release partitions; label a single latest eligible report, never a valuation."""
+    release = property_root.name
+    root = json.loads((property_root / 'regions.json').read_text(encoding='utf-8'))
+    end = '202608'
+    if root['release_id'] != release:
+        raise ValueError('unexpected_property_release_window')
+    best: dict[str, dict] = {}
+    checked = 0
+    for region in root['regions']:
+        code = region['lawd_code']
+        if not re.fullmatch(r'11\d{3}', code):
+            continue
+        descriptor = region['index']
+        body = _read_hash(property_root / 'regions' / f'{code}.json', descriptor['sha256'], 4 * 1024**2)
+        index = json.loads(body)
+        if index['period']['latest_complete_month'] != end:
+            raise ValueError('unexpected_property_release_window')
+        parts = [part for part in index['partitions'] if part['trade_type'] == 'sale' and '202509' <= part['deal_month'] <= end]
+        if len(parts) != 12 or any(part['status'] != 'complete' for part in parts):
+            raise ValueError('incomplete_sale_marker_window')
+        for part in parts:
+            count = 0
+            for page, ref in enumerate(part['transactions']):
+                expected = f'/data/property/{release}/transactions/{code}/{part["deal_month"]}-{page:03}.json'
+                if ref['url'] != expected:
+                    raise ValueError('unexpected_sale_marker_path')
+                data = json.loads(_read_hash(property_root / 'transactions' / code / f'{part["deal_month"]}-{page:03}.json', ref['sha256'], 8 * 1024**2))
+                if data['release_id'] != release or data['lawd_code'] != code or data['deal_month'] != part['deal_month']:
+                    raise ValueError('sale_marker_partition_mismatch')
+                for row in data['transactions']:
+                    if row['trade_type'] != 'sale':
+                        continue
+                    count += 1
+                    identity = row['complex_id']
+                    if identity not in linked_complexes or row['quality'] != 'valid' or row['statistics_eligible'] is not True or row['cancellation'] != 'not_reported':
+                        continue
+                    price = row['price_krw']
+                    contract = row['contract_date']
+                    if not isinstance(price, int) or price <= 0 or not re.fullmatch(r'20\d{2}-\d{2}-\d{2}', contract) or contract[:7].replace('-', '') != part['deal_month']:
+                        raise ValueError('invalid_sale_marker_value')
+                    date.fromisoformat(contract)
+                    if identity not in best or (contract, row['id']) > (best[identity]['contract_date'], best[identity]['source_transaction_id']):
+                        best[identity] = {'contract_date': contract, 'source_transaction_id': row['id'], 'price_krw': price, 'area_m2': row['area_m2']}
+            if count != part['source_rows']:
+                raise ValueError(f'sale_marker_row_count_mismatch:{code}:{part["deal_month"]}:{count}:{part["source_rows"]}')
+            checked += 1
+    if checked != 300:
+        raise ValueError('incomplete_seoul_sale_markers')
+    return best
+
+
 def build(collection: Path, checkpoint: Path, property_root: Path, old_points: Path):
     old = json.loads(_read_hash(old_points, OLD_POINTS_SHA, 1024**2))
     rows, seoul_hashes = _seoul_rows(collection)
     release, codes, complexes = _property_complexes(property_root)
     sales, sale_hashes = _sale_rows(checkpoint, start='202509', end='202608')
     matches, audit = match_identities(rows, sales, codes, complexes)
+    recent = recent_sale_markers(property_root, set(matches.values()))
     seen = set()
     for feature in old['features']:
         code = feature['properties']['kapt_code']
@@ -244,12 +306,19 @@ def build(collection: Path, checkpoint: Path, property_root: Path, old_points: P
             feature['properties']['property_complex_id'] = identity
             feature['properties']['property_aptseq_join'] = 'unique_official_road_address_and_name'
             feature['properties']['property_release_id'] = release
+            sale = recent.get(identity)
+            if sale:
+                feature['properties']['recent_sale_price_krw'] = sale['price_krw']
+                feature['properties']['recent_sale_area_m2'] = sale['area_m2']
+                feature['properties']['recent_sale_contract_date'] = sale['contract_date']
+                feature['properties']['recent_sale_label'] = f'최근 신고 {_money_label(sale["price_krw"])} · {sale["area_m2"]}㎡'
     old['metadata']['property_aptseq_join'] = 'unique_official_road_address_and_name_for_linked_points_only'
     old['metadata']['property_release_id'] = release
     old['metadata']['property_join_source_page_sha256'] = seoul_hashes
     old['metadata']['property_join_molit_page_sha256_digest'] = _sha(canonical(sale_hashes))
     old['metadata']['property_join_audit'] = audit
     audit['published_linked_points'] = sum('property_complex_id' in x['properties'] for x in old['features'])
+    audit['published_recent_sale_markers'] = sum('recent_sale_label' in x['properties'] for x in old['features'])
     if audit['published_linked_points'] > audit['matched'] or audit['published_linked_points'] < 500:
         raise ValueError('unexpected_published_link_count')
     return old, audit
