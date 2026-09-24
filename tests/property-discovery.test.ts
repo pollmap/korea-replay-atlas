@@ -88,6 +88,19 @@ describe('property discovery provenance and filtering',()=>{
     expect(propertyDiscoveryDongs(complexes)).toEqual(['청운','청운동']);
     expect(search(complexes,[],{dong:'청운동'}).items).toHaveLength(2);
   });
+  it('sorts latest matching sale prices in both directions with missing contracts last',()=>{
+    const complexes=[complex('missing'),complex('a'),complex('b')];
+    const rows=[transaction('old','a',{price_krw:990_000_000}),transaction('latest','a',{price_krw:300_000_000,contract_date:'2026-08-30'}),transaction('b','b',{price_krw:500_000_000})];
+    expect(search(complexes,rows,{sort:'price-low'}).items.map(r=>r.complex.source_complex_id)).toEqual(['a','b','missing']);
+    expect(search(complexes,rows,{sort:'price-high'}).items.map(r=>r.complex.source_complex_id)).toEqual(['b','a','missing']);
+  });
+  it('orders zero rental deposits before positive deposits without adding monthly rent',()=>{
+    const complexes=[complex('missing'),complex('zero'),complex('positive')];
+    const rental={trade_type:'rent',cancellation:'not_provided',source_id:'molit-apt-rent',price_krw:null} as const;
+    const rows=[transaction('z','zero',{...rental,deposit_krw:0,monthly_rent_krw:2_000_000}),transaction('p','positive',{...rental,deposit_krw:1_000_000,monthly_rent_krw:0})];
+    expect(search(complexes,rows,{sort:'price-low'},true,'rent').items.map(r=>r.complex.source_complex_id)).toEqual(['zero','positive','missing']);
+    expect(search(complexes,rows,{sort:'price-high'},true,'rent').items.map(r=>r.complex.source_complex_id)).toEqual(['positive','zero','missing']);
+  });
 });
 
 describe('property discovery presentation',()=>{

@@ -1,6 +1,6 @@
 import {propertyStatisticsEligible,type PropertyComplex,type PropertyTransaction} from './property';
 
-export type PropertyDiscoverySort='recent'|'count'|'name';
+export type PropertyDiscoverySort='recent'|'count'|'name'|'price-low'|'price-high';
 export interface PropertyDiscoveryFilters {
   query:string; dong:string; buildYearMin:string; buildYearMax:string;
   priceMinEok:string; priceMaxEok:string; areaMinM2:string; areaMaxM2:string;
@@ -73,6 +73,11 @@ export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],r
     items.push({complex,count:dataReady?records?.count??0:null,latest:records?.latest??null});
   }
   items.sort((a,b)=>{
+    if(filters.sort==='price-low'||filters.sort==='price-high'){
+      const av=trade==='sale'?a.latest?.price_krw:a.latest?.deposit_krw,bv=trade==='sale'?b.latest?.price_krw:b.latest?.deposit_krw;
+      if(av==null&&bv!=null)return 1;if(av!=null&&bv==null)return -1;
+      if(av!=null&&bv!=null&&av!==bv)return filters.sort==='price-low'?av-bv:bv-av;
+    }
     if(filters.sort==='count'){const order=(b.count??-1)-(a.count??-1);if(order)return order;}
     if(filters.sort!=='name'){const order=(b.latest?.contract_date??'').localeCompare(a.latest?.contract_date??'');if(order)return order;}
     return nameOrder.compare(a.complex.name,b.complex.name)||nameOrder.compare(a.complex.legal_dong_name??'',b.complex.legal_dong_name??'')||a.complex.id.localeCompare(b.complex.id);
