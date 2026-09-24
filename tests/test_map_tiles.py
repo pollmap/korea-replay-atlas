@@ -56,6 +56,18 @@ def test_tile_clipping_keeps_source_id_on_both_sides():
         assert body and ids=={sid}
 
 
+def test_projected_road_fragment_collapsing_to_equal_doubles_keeps_its_id():
+    z,x,y=14,13976,6328;b=tile_bounds(z,x,y);cx=(b[0]+b[2])/2;cy=(b[1]+b[3])/2
+    for delta in (0,1e-9):
+        geometry=LineString([(cx,cy),(cx+delta,cy)]);before=geometry.wkb
+        sid=stable_id('osm','tiny-fragment')
+        body,notices,ids=encode_tile('detail-roads',[(sid,geometry,{'highway':'service'})],z,x,y)
+        assert body and ids=={sid} and notices['subpixel_line_anchor']==1
+        decoded=mapbox_vector_tile.decode(gzip.decompress(body))['detail-roads']['features']
+        assert decoded[0]['geometry']['type']=='Point'
+        assert geometry.wkb==before
+
+
 def test_single_oversized_archive_is_rejected_and_pack_is_bounded(tmp_path):
     with pytest.raises(ValueError,match='1 MiB'):
         archive_bytes([(100,b'x'*HARD)],'roads',[126,36,128,38])

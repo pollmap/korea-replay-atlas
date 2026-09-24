@@ -9,7 +9,7 @@ from shapely.ops import transform
 
 from pipeline.admin_boundaries import encoded
 from pipeline.map_tiles import PROJECT, TO_GEO, open_work, build_topic_tiles, sha
-from pipeline.map_tiles_regional import ingest_regional, select_assets, reuse_all_topics, reuse_v1_index, V1_INGEST_TRANSFORM, DETAIL_SOURCES
+from pipeline.map_tiles_regional import ingest_regional, select_assets, reuse_all_topics, reuse_v1_index, V1_INGEST_TRANSFORM, V1_TILE_TRANSFORM, DETAIL_SOURCES
 
 
 def source(tmp_path, identity, layer, features):
@@ -143,3 +143,21 @@ def test_only_pinned_complete_equivalent_donor_can_reuse_records(tmp_path):
 def test_building_and_height_attribution_is_available_when_input_catalog_has_no_sources():
     assert {s['id'] for s in DETAIL_SOURCES} == {'overture', 'ghsl'}
     assert all(s['url'].startswith('https://') and s['license'] and s['description'] for s in DETAIL_SOURCES)
+
+
+def test_known_tile_transform_change_reuses_records_but_not_old_tiles_or_zoom_completion(tmp_path):
+    donor=tmp_path/'donor';donor.mkdir()
+    old={'version':'regional-detail-1','transform_sha256':V1_INGEST_TRANSFORM,
+         'tile_transform_sha256':V1_TILE_TRANSFORM,'source_assets':[]}
+    (donor/'inputs.json').write_bytes(encoded(old))
+    source_db=open_work(donor/'work/index.sqlite',sha(encoded(old)))
+    source_db.execute('INSERT INTO tiles VALUES(?,?,?)',('buildings',1,b'old'))
+    source_db.execute('INSERT INTO stages VALUES(?,?)',('buildings-z14','{}'))
+    source_db.execute('INSERT INTO stages VALUES(?,?)',('source-proof:test','{}'))
+    source_db.commit();source_db.close()
+    target=open_work(tmp_path/'target/index.sqlite','new')
+    reuse_v1_index(target,donor,{**old,'tile_transform_sha256':'changed'})
+    assert target.execute('SELECT COUNT(*) FROM tiles').fetchone()[0]==0
+    assert target.execute("SELECT 1 FROM stages WHERE key='buildings-z14'").fetchone() is None
+    assert target.execute("SELECT 1 FROM stages WHERE key='source-proof:test'").fetchone()
+    target.close()

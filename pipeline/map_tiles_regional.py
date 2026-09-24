@@ -27,6 +27,7 @@ VERSION = 'regional-detail-2'
 ZOOMS = {'buildings': (14, 14), 'detail-roads': (14, 14)}
 DEFAULT_REGIONS = ('서울특별시', '인천광역시')
 V1_INGEST_TRANSFORM = '0a7c2ffd835ca90514afa0673bb49c90602d27949019f4e2f6880643e0e908f9'
+V1_TILE_TRANSFORM = '922cdeb50b62341ca63a6d06286ec177c50da3859d190bc9d42ae3bd42f04be4'
 DETAIL_SOURCES = (
     {'id': 'overture', 'title': 'Overture Maps · Buildings',
      'url': 'https://docs.overturemaps.org/guides/buildings/', 'license': 'ODbL 및 원천별 출처 표시',
@@ -39,18 +40,21 @@ DETAIL_SOURCES = (
 
 
 def reuse_v1_index(db, donor, current):
-    """Copy one pinned v1 transform's complete index for attribution-only repair.
+    """Copy one pinned v1 transform's complete original geometry index.
 
-    No geometry or tile bytes change. Source selection, height transform and MVT
-    transform must all match; arbitrary old work cannot be declared equivalent.
+    Source selection and height transform must match. If the known first MVT
+    transform changes, its tiles/stages are not reused. Original geometry and
+    metadata remain unchanged, including tiny lines needing the new renderer.
     """
     donor = Path(donor).resolve()
     old = json.loads((donor / 'inputs.json').read_bytes())
     require(old.get('version') == 'regional-detail-1' and old.get('transform_sha256') == V1_INGEST_TRANSFORM,
             'Unapproved regional index migration')
     for key in ('baseline_catalog_sha256', 'source_catalog_sha256', 'scope', 'zooms',
-                'source_assets', 'tile_transform_sha256', 'height_transform_sha256'):
+                'source_assets', 'height_transform_sha256'):
         require(encoded(old.get(key)) == encoded(current.get(key)), 'Regional donor input differs: ' + key)
+    same_tiles=old.get('tile_transform_sha256')==current.get('tile_transform_sha256')
+    require(same_tiles or old.get('tile_transform_sha256')==V1_TILE_TRANSFORM,'Unapproved donor tile transform')
     require(db.execute('SELECT COUNT(*) FROM records').fetchone()[0] == 0, 'Migration requires empty destination')
     db.execute('ATTACH DATABASE ? AS donor', (f'file:{(donor / "work/index.sqlite").as_posix()}?mode=ro',))
     try:
@@ -59,10 +63,15 @@ def reuse_v1_index(db, donor, current):
         expected = sorted((a['id'], a['sha256']) for a in current['source_assets'])
         require(db.execute('SELECT id,sha FROM donor.sources ORDER BY id').fetchall() == expected, 'Donor source ingestion is incomplete')
         with db:
-            for table in ('records', 'spatial', 'sources', 'tiles', 'stages'):
+            for table in ('records', 'spatial', 'sources'):
                 db.execute(f'INSERT INTO {table} SELECT * FROM donor.{table}')
+            if same_tiles:
+                for table in ('tiles','stages'):
+                    db.execute(f'INSERT INTO {table} SELECT * FROM donor.{table}')
+            else:
+                db.execute("INSERT INTO stages SELECT * FROM donor.stages WHERE key LIKE 'source-proof:%'")
             db.execute('INSERT INTO stages VALUES(?,?)', ('source-registry-migration', json.dumps({
-                'donor_inputs_sha256': digest(donor / 'inputs.json'), 'original_records_and_tiles_copied_exactly': True})))
+                'donor_inputs_sha256': digest(donor / 'inputs.json'), 'original_records_copied_exactly': True,'tiles_reused':same_tiles})))
     except BaseException:
         db.rollback()
         raise
@@ -240,7 +249,7 @@ def main():
     parser.add_argument('--baseline', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--regions', nargs='+', default=list(DEFAULT_REGIONS))
-    parser.add_argument('--reuse-index', type=Path, help='Complete pinned v1 index; only attribution metadata is repaired')
+    parser.add_argument('--reuse-index', type=Path, help='Complete pinned v1 source index; changed tile transforms rebuild tiles')
     args = parser.parse_args()
     report = build(args.baseline, args.output, tuple(args.regions), args.reuse_index)
     print(json.dumps({k: report[k] for k in ('status', 'file_count', 'bytes', 'map_catalog')}, ensure_ascii=False))

@@ -93,16 +93,21 @@ def render_geometry(geometry,bounds,polygon=True):
     its projected outline or a representative point. This is an explicit display
     representation; the original geometry hash and all properties are retained.
     """
-    clipped=geometry.intersection(box(*bounds))
-    if clipped.is_empty:return [],'outside'
     unit=(bounds[2]-bounds[0])/EXTENT
+    # Source partitioning can leave a nanometre-long line whose two projected
+    # doubles coincide. GEOS clips that degenerate line to empty before normal
+    # quantization can retain its ID. Preserve it explicitly as a display point.
+    tiny_line=geometry.geom_type in ('LineString','MultiLineString') and geometry.length<=unit/100
+    display=geometry.representative_point() if tiny_line else geometry
+    clipped=display.intersection(box(*bounds))
+    if clipped.is_empty:return [],'outside'
     # Validate the actual integer coordinates that MVT will receive. Validating
     # rounded metre floats first can hide a self-touch that appears on the second
     # integer rounding. This is the only quantization step.
     origin=np.asarray(bounds[:2])
     quantize=lambda g:shapely.transform(g,lambda coordinates:np.rint((coordinates-origin)/unit))
     snapped=quantize(clipped)
-    notice='quantized'
+    notice='subpixel_line_anchor' if tiny_line else 'quantized'
     if polygon and snapped.geom_type in ('Polygon','MultiPolygon') and not snapped.is_valid:
         snapped=quantize(clipped.boundary);notice='quantized_outline'
     parts=[]
