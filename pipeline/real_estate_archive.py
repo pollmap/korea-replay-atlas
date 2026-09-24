@@ -138,6 +138,14 @@ class D1Archive:
                          body, {'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json'})
             response = conn.getresponse(); raw = response.read(16 * 1024**2 + 1)
             if response.status != 200:
+                if response.status==400:
+                    try:
+                        for error in json.loads(raw).get('errors',[]):
+                            code=str(error.get('message','')).split(':',1)[0]
+                            if code in ('collection_ownership_lost','collection_daily_budget','collection_invalid_reservation'):
+                                raise RealEstateError(code)
+                    except (json.JSONDecodeError,AttributeError,TypeError):
+                        pass
                 raise RealEstateError('archive_remote_http_'+str(response.status))
             if len(raw) > 16 * 1024**2:
                 raise RealEstateError('archive_remote_response_limit')
@@ -152,6 +160,8 @@ class D1Archive:
 
     def initialize(self):
         self.query(self.control, 'CREATE TABLE IF NOT EXISTS backup_heads (name TEXT PRIMARY KEY, digest TEXT NOT NULL, bytes INTEGER NOT NULL)')
+        self.query(self.control, 'CREATE TABLE IF NOT EXISTS collection_owner (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT, generation INTEGER NOT NULL, expires INTEGER NOT NULL, base_digest TEXT, base_bytes INTEGER)')
+        self.query(self.control, 'INSERT OR IGNORE INTO collection_owner(id,generation,expires) VALUES(1,0,0)')
         for database in self.shards:
             self.query(database, 'CREATE TABLE IF NOT EXISTS archive_chunks (digest TEXT NOT NULL, part INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(digest,part))')
 
@@ -200,16 +210,23 @@ class D1Archive:
         rows = self.query(self.control, "SELECT digest,bytes FROM backup_heads WHERE name='collector'")['results']
         return {'sha256': rows[0]['digest'], 'bytes': rows[0]['bytes']} if rows else None
 
-    def promote(self, descriptor, expected):
+    def promote(self, descriptor, expected, *, lease=None):
+        # A background collector fences every backup-head writer, including
+        # manual backups. A prior or expired owner cannot publish new state.
+        condition = 'NOT EXISTS(SELECT 1 FROM collection_owner WHERE owner IS NOT NULL)'
+        ownership = []
+        if lease is not None:
+            condition = "EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER))"
+            ownership = [lease['owner'],lease['generation']]
         if expected is None:
-            result = self.query(self.control, "INSERT OR IGNORE INTO backup_heads(name,digest,bytes) VALUES('collector',?,?)", [descriptor['sha256'],descriptor['bytes']])
+            result = self.query(self.control, "INSERT OR IGNORE INTO backup_heads(name,digest,bytes) SELECT 'collector',?,? WHERE "+condition, [descriptor['sha256'],descriptor['bytes'],*ownership])
         else:
-            result = self.query(self.control, "UPDATE backup_heads SET digest=?,bytes=? WHERE name='collector' AND digest=? AND bytes=?", [descriptor['sha256'],descriptor['bytes'],expected['sha256'],expected['bytes']])
+            result = self.query(self.control, "UPDATE backup_heads SET digest=?,bytes=? WHERE name='collector' AND digest=? AND bytes=? AND "+condition, [descriptor['sha256'],descriptor['bytes'],expected['sha256'],expected['bytes'],*ownership])
         if result['meta']['changes'] != 1:
             raise RealEstateError('archive_head_changed')
 
 
-def backup(root, store, progress=None):
+def backup(root, store, progress=None, *, lease=None):
     root = Path(root).absolute(); _reject_links(root)
     _reject_links(root/'checkpoint.sqlite')
     expected = store.head()
@@ -264,11 +281,11 @@ def backup(root, store, progress=None):
         flush()
         manifest = validate_manifest({'schema_version':1,'kind':'private-collector-backup','files':rows,'audit':audit,'parent':expected})
         descriptor = store.put(canonical_bytes(manifest))
-        store.promote(descriptor, expected)
+        store.promote(descriptor, expected, lease=lease)
     return {'backup':descriptor,'files':len(rows),'source_bytes':total,'audit':audit,'public_release':False}
 
 
-def restore(target, store, descriptor=None):
+def restore(target, store, descriptor=None, progress=None):
     target = Path(target).absolute(); _reject_links(target)
     if target.exists(): raise RealEstateError('archive_restore_requires_new_directory')
     descriptor = descriptor or store.head()
@@ -279,6 +296,7 @@ def restore(target, store, descriptor=None):
     groups = {}
     for row in manifest['files']:
         obj = row['object']; groups.setdefault((obj['sha256'],obj['bytes']),[]).append(row)
+    restored=0
     for (digest,size),rows in groups.items():
         pack = store.get(digest,size)
         for row in rows:
@@ -287,6 +305,9 @@ def restore(target, store, descriptor=None):
             destination = target/row['path']; _reject_links(destination)
             destination.parent.mkdir(parents=True,exist_ok=True)
             with destination.open('xb') as stream: stream.write(body)
+        restored+=len(rows)
+        if progress:progress({'phase':'restore','verified_files':restored,'total_files':len(manifest['files'])})
+    if progress:progress({'phase':'audit-restored-checkpoint'})
     audit = audit_checkpoint(target)
     if audit != manifest['audit']: raise RealEstateError('archive_restored_audit_changed')
     return {'restored':descriptor,'files':len(manifest['files']),'audit':audit,'source_calls':0}
@@ -305,7 +326,7 @@ def main():
         elif args.command=='status': result={'head':store.head()}
         elif args.root is None: raise RealEstateError('archive_root_required')
         elif args.command=='backup': result=backup(args.root,store,lambda p:print(json.dumps(p),flush=True))
-        else: result=restore(args.root,store)
+        else: result=restore(args.root,store,progress=lambda p:print(json.dumps(p),flush=True))
         print(json.dumps(result,ensure_ascii=False))
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
         parser.exit(1,'real_estate_archive: '+(error.code if isinstance(error,RealEstateError) else 'invalid_input')+'\n')

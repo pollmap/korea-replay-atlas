@@ -412,7 +412,7 @@ class Collector:
                             self._assert_owner(owner)
                             self.db.execute("UPDATE jobs SET status='failed',error_code=?,updated_at=? WHERE id=?", (code,self.clock(),job['id']))
                     if code in ('upstream_auth','upstream_quota','secret_reflection','credential_field_reflection',
-                                'disk_reserve','response_size_limit','checkpoint_error','collector_lease_lost'):
+                                'disk_reserve','response_size_limit','checkpoint_error','collector_lease_lost','remote_checkpoint_error'):
                         stopped=code; break
                     if failures >= 3:
                         stopped='consecutive_failures'; break
