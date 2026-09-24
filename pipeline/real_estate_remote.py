@@ -13,12 +13,13 @@ import sqlite3
 import tempfile
 import time
 
-from .real_estate import RealEstateError, canonical_bytes, sha256, _reject_links
-from .real_estate_archive import (D1Archive, validate_manifest, checked_path,
+from .real_estate import RealEstateError, sha256, _reject_links
+from .real_estate_archive import (D1Archive, checked_path,
     audit_checkpoint, MAX_FILE, PREFIXES)
 from .real_estate_fetch import Collector, read_key, fetch_page
 from .real_estate_regions import load_registry
 from .real_estate_run_guard import CollectionGuard, guarded_transport
+from .real_estate_manifest import load_manifest, save_manifest, checkpoint_row, read_file
 
 
 class RemoteWorkspace:
@@ -27,11 +28,12 @@ class RemoteWorkspace:
         if self.root.exists():raise RealEstateError('remote_workspace_requires_new_directory')
         self.store=store;self.head=store.head()
         if not self.head:raise RealEstateError('archive_no_backup')
-        self.manifest=validate_manifest(json.loads(store.get(self.head['sha256'],self.head['bytes'])))
+        self.manifest=load_manifest(store,self.head)
         self.files={r['path']:r for r in self.manifest['files']}
         self.cached_key=None;self.cached_body=None;self.hydrated_bytes=0;self.hydrated_files=0;self.downloaded_object_bytes=0
         self.root.mkdir(parents=True)
         self.hydrate(['checkpoint.sqlite'])
+        self.base_checkpoint=(self.root/'checkpoint.sqlite').read_bytes()
         with closing(sqlite3.connect(self.root/'checkpoint.sqlite')) as db:
             if db.execute('PRAGMA integrity_check').fetchall()!=[('ok',)]:raise RealEstateError('archive_sqlite_integrity')
             if db.execute('SELECT 1 FROM lease WHERE expires>?',(time.time(),)).fetchone():raise RealEstateError('archive_collector_active')
@@ -50,11 +52,13 @@ class RemoteWorkspace:
                 raw=path.read_bytes()
                 if len(raw)!=row['bytes'] or sha256(raw)!=row['sha256']:raise RealEstateError('remote_local_file_changed')
                 continue
-            obj=row['object'];key=(obj['sha256'],obj['bytes'])
-            if key!=self.cached_key:
-                self.cached_body=self.store.get(*key);self.cached_key=key
-                self.downloaded_object_bytes+=len(self.cached_body)
-            raw=self.cached_body[row['offset']:row['offset']+row['bytes']]
+            def getter(digest,size):
+                key=(digest,size)
+                if key!=self.cached_key:
+                    self.cached_body=self.store.get(*key);self.cached_key=key
+                    self.downloaded_object_bytes+=len(self.cached_body)
+                return self.cached_body
+            raw=read_file(row,getter)
             if len(raw)!=row['bytes'] or sha256(raw)!=row['sha256']:raise RealEstateError('archive_file_hash')
             path.parent.mkdir(parents=True,exist_ok=True)
             with path.open('xb') as stream:stream.write(raw)
@@ -63,7 +67,7 @@ class RemoteWorkspace:
     def publish(self, lease, *, heartbeat=lambda: None):
         """Audit all references; verify new bytes without rereading all old packs."""
         self.cached_key=None;self.cached_body=None
-        rows=dict(self.files);new_files=0;new_bytes=0
+        rows=dict(self.files);new_files=0;new_bytes=0;checkpoint_changed_bytes=0
         with tempfile.TemporaryDirectory(prefix='korea-replay-remote-checkpoint-') as temporary:
             copy=Path(temporary)/'checkpoint.sqlite'
             _reject_links(self.root/'checkpoint.sqlite')
@@ -84,17 +88,20 @@ class RemoteWorkspace:
                 if before and before['sha256']==digest and before['bytes']==len(raw):continue
                 if name!='checkpoint.sqlite' and (before or not Path(name).name.startswith(digest+'.')):
                     raise RealEstateError('archive_immutable_conflict')
-                obj=self.store.put(raw)
-                rows[name]={'path':name,'sha256':digest,'bytes':len(raw),'object':obj,'offset':0}
+                if name=='checkpoint.sqlite':
+                    rows[name],checkpoint_changed_bytes=checkpoint_row(raw,self.base_checkpoint,before,self.store)
+                else:
+                    obj=self.store.put(raw)
+                    rows[name]={'path':name,'sha256':digest,'bytes':len(raw),'object':obj,'offset':0}
                 new_files+=1;new_bytes+=len(raw)
             audit=audit_checkpoint(self.root,copy,descriptors=rows)
-            manifest=validate_manifest({'schema_version':1,'kind':'private-collector-backup',
-                'files':[rows[name] for name in sorted(rows)],'audit':audit,'parent':self.head})
-            descriptor=self.store.put(canonical_bytes(manifest))
+            descriptor,rewritten_buckets=save_manifest(self.store,list(rows.values()),audit,self.head,
+                previous=self.manifest,heartbeat=heartbeat)
             heartbeat()
             self.store.promote(descriptor,self.head,lease=lease)
         return {'backup':descriptor,'audit':audit,'retained_parent_files':len(self.files),
             'new_or_changed_files':new_files,'new_or_changed_bytes':new_bytes,
+            'checkpoint_changed_slice_bytes':checkpoint_changed_bytes,'rewritten_manifest_buckets':rewritten_buckets,
             'hydrated_files':self.hydrated_files,'hydrated_bytes':self.hydrated_bytes,
             'downloaded_object_decoded_bytes':self.downloaded_object_bytes,
             'verification_scope':'new-bytes-and-immutable-parent-reference-closure','public_release':False}
