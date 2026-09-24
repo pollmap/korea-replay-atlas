@@ -15,6 +15,7 @@ import shutil
 import tempfile
 
 from .real_estate import RealEstateError, _reject_links, canonical_bytes, sha256, utc_instant
+from .real_estate_priority import priority_map, POLICY_ID
 
 DEFAULT_REGISTRY = 'config/molit-legal-region-registry.json'
 REGISTRY_KIND = 'molit-legal-region-plan-registry'
@@ -175,6 +176,10 @@ def build_plan(registry, *, registry_sha256, as_of, months=61):
     sequence = [sequence[1], sequence[0], *sequence[2:]] if months > 1 else sequence
     jobs = [{'trade_type': trade, 'lawd_code': row['lawd_code'], 'deal_month': month}
             for month in sequence for row in registry['regions'] for trade in ('sale', 'rent')]
+    region_order = priority_map(registry['regions'])
+    month_order = {month: index for index, month in enumerate(sequence)}
+    jobs.sort(key=lambda row: (region_order[row['lawd_code']], month_order[row['deal_month']],
+                              row['lawd_code'], row['trade_type']))
     return {
         'schema_version': 1, 'kind': 'real-estate-offline-job-plan', 'as_of': as_of,
         'timezone': 'Asia/Seoul', 'registry_sha256': registry_sha256,
@@ -182,6 +187,7 @@ def build_plan(registry, *, registry_sha256, as_of, months=61):
         'regions_sha256': registry['audit']['regions_sha256'],
         'historical_coverage': HISTORY_SCOPE,
         'month_order': 'latest_completed_then_current_then_older', 'months': sequence,
+        'region_order': POLICY_ID,
         'region_count': len(registry['regions']), 'job_count': len(jobs),
         'job_status': 'planned_not_requested', 'source_calls': 0, 'reserved_calls': 0,
         'is_collection_checkpoint': False, 'data_acquired': False,
