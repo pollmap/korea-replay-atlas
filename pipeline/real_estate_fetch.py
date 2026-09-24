@@ -6,6 +6,7 @@ It never publishes into public/dist, retries automatically, or prints request UR
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from datetime import datetime, timezone, timedelta
 import http.client
 import json
@@ -20,7 +21,7 @@ from urllib.parse import urlencode, unquote, quote, quote_plus
 import uuid
 
 from .real_estate import (RealEstateError, canonical_bytes, sha256, normalize_xml_page,
-                          build_partitions, utc_instant, _reject_links, MAX_PAGE_BYTES)
+                          build_partitions, utc_instant, _reject_links, MAX_PAGE_BYTES, validate_property_type)
 from .real_estate_regions import load_registry
 from .real_estate_priority import priority_map, POLICY_ID
 from .real_estate_storage import encode_snapshot,decode_snapshot,MAX_SNAPSHOT_BYTES
@@ -29,6 +30,10 @@ KST = timezone(timedelta(hours=9))
 ENDPOINTS = {
     'sale': '/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev',
     'rent': '/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent',
+}
+OFFICETEL_ENDPOINTS = {
+    'sale': '/1613000/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade',
+    'rent': '/1613000/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent',
 }
 RESERVE_BYTES = 30 * 1024**3
 
@@ -70,8 +75,9 @@ def read_key(secret_file=None):
     return value
 
 
-def fetch_page(key, trade_type, lawd_code, deal_month, page_no, page_size, *, timeout, max_bytes):
+def fetch_page(key, trade_type, lawd_code, deal_month, page_no, page_size, *, timeout, max_bytes, property_type='apartment'):
     """One HTTPS request; no redirects/proxies, strict deadline, bounded identity body."""
+    validate_property_type(property_type)
     if trade_type not in ENDPOINTS:
         raise RealEstateError('invalid_trade_type')
     connection = http.client.HTTPSConnection('apis.data.go.kr', timeout=timeout)
@@ -79,7 +85,8 @@ def fetch_page(key, trade_type, lawd_code, deal_month, page_no, page_size, *, ti
     try:
         query = urlencode({'serviceKey': key, 'LAWD_CD': lawd_code, 'DEAL_YMD': deal_month,
                            'pageNo': str(page_no), 'numOfRows': str(page_size)})
-        connection.request('GET', ENDPOINTS[trade_type] + '?' + query,
+        endpoints = OFFICETEL_ENDPOINTS if property_type == 'officetel' else ENDPOINTS
+        connection.request('GET', endpoints[trade_type] + '?' + query,
             headers={'Accept': 'application/xml', 'Accept-Encoding': 'identity',
                      'User-Agent': 'KoreaReplay-official-reports/1.0'})
         response = connection.getresponse()
@@ -143,14 +150,16 @@ def immutable(root, relative, data):
 
 class Collector:
     def __init__(self, root, registry, *, as_of=None, months=61, transport=fetch_page,
-                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False, advance_window=False):
+                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False, advance_window=False, property_type='apartment'):
+        self.property_type = validate_property_type(property_type)
         if extend_window and advance_window:
             raise RealEstateError('conflicting_window_migration')
         self.root = Path(root).absolute(); _reject_links(self.root)
         if any(p.lower() in ('public', 'dist') for p in self.root.parts):
             raise RealEstateError('public_output_forbidden')
         self.root.mkdir(parents=True, exist_ok=True)
-        self.registry = registry; self.clock = clock; self.transport = transport
+        self.registry = registry; self.clock = clock
+        self.transport = partial(fetch_page, property_type=property_type) if transport is fetch_page else transport
         self.reserve_bytes = reserve_bytes
         self._space()
         self.database = self.root / 'checkpoint.sqlite'
@@ -175,6 +184,14 @@ class Collector:
             descriptor TEXT NOT NULL, retrieved_at TEXT NOT NULL, PRIMARY KEY(job_id, sha256));
           CREATE TABLE IF NOT EXISTS lease (id INTEGER PRIMARY KEY, owner TEXT, expires REAL);
         ''')
+        saved_type = self.db.execute("SELECT value FROM meta WHERE key='property_type'").fetchone()
+        existing_jobs = self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0]
+        inferred_type = saved_type['value'] if saved_type else 'apartment' if existing_jobs else property_type
+        if inferred_type != property_type:
+            self.db.close()
+            raise RealEstateError('property_type_changed_use_new_checkpoint')
+        with self.db:
+            self.db.execute("INSERT OR IGNORE INTO meta VALUES ('property_type',?)", (property_type,))
         registry_payload = canonical_bytes(registry)
         digest = sha256(registry_payload)
         previous = self.db.execute("SELECT value FROM meta WHERE key='registry_sha256'").fetchone()
@@ -283,7 +300,7 @@ class Collector:
             body=source_path.read_bytes()
             if len(body)!=source['bytes'] or sha256(body)!=source['sha256']:
                 raise RealEstateError('checkpoint_hash_mismatch')
-            parsed.append(normalize_xml_page(body,lawd_code=job['lawd_code'],deal_month=job['deal_month'],
+            parsed.append(normalize_xml_page(body,property_type=self.property_type,lawd_code=job['lawd_code'],deal_month=job['deal_month'],
                 retrieved_at=source['retrieved_at'],trade_type=job['trade_type']))
         partition=build_partitions(parsed)[0]
         payload=canonical_bytes(partition);stored,encoding=encode_snapshot(payload);part_hash=sha256(stored)
@@ -383,7 +400,7 @@ class Collector:
                     transferred += len(raw); assert_no_secret(raw, key)
                     stamp = self.clock(); digest = sha256(raw)
                     raw_ref = immutable(self.root, f"raw/{job['trade_type']}/{job['lawd_code']}/{job['deal_month']}/{digest}.xml", raw)
-                    page = normalize_xml_page(raw, lawd_code=job['lawd_code'], deal_month=job['deal_month'],
+                    page = normalize_xml_page(raw, property_type=self.property_type, lawd_code=job['lawd_code'], deal_month=job['deal_month'],
                                               retrieved_at=stamp, trade_type=job['trade_type'])
                     if page['page_no'] != page_no or page['page_size'] != page_size:
                         raise RealEstateError('unexpected_page_metadata')
@@ -440,6 +457,7 @@ def main():
     parser.add_argument('--root',required=True,type=Path)
     parser.add_argument('--regions',required=True,type=Path)
     parser.add_argument('--as-of')
+    parser.add_argument('--property-type', choices=('apartment','officetel'), default='apartment')
     parser.add_argument('--months',type=int,default=61)
     parser.add_argument('--extend-window',action='store_true',help='Append older months to this exact checkpoint without resetting jobs or calls')
     parser.add_argument('--advance-window',action='store_true',help='Add newly reached calendar months and retain all historical jobs and source records')
@@ -458,7 +476,7 @@ def main():
     try:
         if args.reprocess and args.execute:raise RealEstateError('conflicting_collection_mode')
         registry=load_registry(args.regions)
-        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window,advance_window=args.advance_window)
+        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window,advance_window=args.advance_window,property_type=args.property_type)
         result=collector.reprocess() if args.reprocess else collector.collect(read_key(args.secret_file),max_requests=args.max_requests,max_bytes=args.max_bytes,
             daily_budget=args.daily_budget,min_interval=args.min_interval,timeout=args.timeout,
             retry_failed=args.retry_failed,refresh=args.refresh,collect_months=args.collect_month) if args.execute else {'status':'planned','coverage':collector.summary()}

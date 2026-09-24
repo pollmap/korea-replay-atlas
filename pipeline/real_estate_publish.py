@@ -156,6 +156,8 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
     try:
         connection.execute('BEGIN')
         meta=dict(connection.execute('SELECT key,value FROM meta'))
+        if meta.get('property_type', 'apartment') != 'apartment':
+            raise RealEstateError('unsupported_publication_property_type')
         jobs=[dict(r) for r in connection.execute('SELECT * FROM jobs ORDER BY lawd_code,deal_month,trade_type')]
     finally:connection.close()
     registry_hash=sha256(canonical_bytes(registry))
