@@ -166,6 +166,9 @@ class D1Archive:
                 if response.status==400:
                     try:
                         for error in json.loads(raw).get('errors',[]):
+                            message=str(error.get('message',''))
+                            if error.get('code')==7500 and "exceeded D1's free tier daily row write limit" in message:
+                                raise RealEstateError('archive_daily_write_limit')
                             code=str(error.get('message','')).split(':',1)[0]
                             if code in ('collection_ownership_lost','collection_daily_budget','collection_invalid_reservation','collection_baseline_required','collection_baseline_conflict'):
                                 raise RealEstateError(code)

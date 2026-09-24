@@ -5,6 +5,11 @@ export interface MapSelection {
   sourceId?:string;properties?:Record<string,unknown>;rawHeight?:number|null;
   qualityState?:string;qualityFlags?:string[];heightSemantics?:string;
 }
+/** Only an apartment-source record may interrupt the apartment exploration panel.
+ * A building name or OSM apartment tag does not establish a complex identity. */
+export function isApartmentMapSelection(value:MapSelection):boolean {
+  return value.provenance?.source_id==='seoul-openaptinfo'&&!!value.sourceId;
+}
 const EVIDENCE=new Set<Evidence>(['observation','official_record','source_attribute','schedule','calculation','estimate','unverified']);
 const firstText=(...values:unknown[])=>values.find((value):value is string=>typeof value==='string'&&value.trim().length>0);
 export function finiteProperty(value:unknown):number|undefined {

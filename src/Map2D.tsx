@@ -23,7 +23,7 @@ import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBu
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
-interface Props {propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
+interface Props {inspectFeatures?:boolean;propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {asset:Asset;source:string;layerIds:string[];url:string;record:number;features:number;vertices:number;}
 type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
@@ -278,6 +278,8 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(regionCode&&latest.current.onPropertyRegion){pickController?.abort();latest.current.onPropertyRegion(regionCode);return;}
       const provinceCenter=pickedPropertyProvince(hits,regionDataRef.current);
       if(provinceCenter){map.easeTo({center:provinceCenter,zoom:7,duration:450});return;}
+      // Apartment exploration keeps its panel when background geometry is clicked.
+      if(latest.current.inspectFeatures===false)return;
       const vectorHit=vectorProtocol&&hits.find(feature=>typeof feature.properties?.stable_id==='string'&&feature.source.startsWith('vector-'));
       if(vectorHit&&vectorProtocol){pickController?.abort();const controller=new AbortController();pickController=controller;void vectorProtocol.pick(vectorHit.source.slice(7),vectorHit.properties.stable_id,controller.signal).then(value=>{if(value&&!disposed&&!controller.signal.aborted)latest.current.onSelect(value);}).catch(()=>undefined);return;}
       const hit=hits.find(feature=>Number.isSafeInteger(feature.properties?.map2d_index));if(!hit)return;
