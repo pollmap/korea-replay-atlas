@@ -165,7 +165,7 @@ def build_plan(registry, *, registry_sha256, as_of, months=61):
     validate_plan_registry(registry)
     if not _hash(registry_sha256):
         raise RealEstateError('invalid_plan_registry_reference')
-    if type(months) is not int or not 1 <= months <= 61:
+    if type(months) is not int or not 1 <= months <= 121:
         raise RealEstateError('invalid_month_count')
     stamp = utc_instant(as_of).astimezone(KST)
     current = stamp.year * 12 + stamp.month - 1

@@ -2,6 +2,7 @@ from copy import deepcopy
 import io
 import json
 from pathlib import Path
+import time
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -54,6 +55,14 @@ def test_month_ledger_sixty_completed_plus_current_latest_completed_first():
     assert len(months)==61 and len(set(months))==61
     assert months[:3]==['202608','202609','202607'] and months[-1]=='202109'
     assert month_sequence('2025-12-31T16:00:00Z',2)==['202512','202601']
+
+
+def test_ten_year_window_covers_120_completed_months_plus_current():
+    months=month_sequence(STAMP,121)
+    assert len(months)==len(set(months))==121
+    assert months[:3]==['202608','202609','202607'] and months[-1]=='201609'
+    with pytest.raises(RealEstateError,match='invalid_month_count'):
+        month_sequence(STAMP,122)
 
 
 def test_registry_official_header_abolished_and_no_gps_name_guess():
@@ -198,6 +207,34 @@ def test_month_window_cannot_silently_accumulate_or_reset_quota(tmp_path):
     c=collector(tmp_path,lambda *a,**k:xml())
     assert c.db.execute('SELECT COUNT(*) FROM calls').fetchone()[0]==1
     assert c.summary()['expected']==2;c.close()
+
+
+def test_explicit_older_month_extension_preserves_jobs_calls_and_priorities(tmp_path):
+    c=Collector(tmp_path,registry(),months=2,clock=lambda:STAMP,transport=lambda *a,**k:xml(),reserve_bytes=0)
+    c.collect(KEY,max_requests=1,min_interval=0)
+    before=[tuple(row) for row in c.db.execute('SELECT id,priority,status,pages FROM jobs ORDER BY id')]
+    assert c.db.execute('SELECT COUNT(*) FROM calls').fetchone()[0]==1
+    c.close()
+    with pytest.raises(RealEstateError,match='planning_window_changed_requires_migration'):
+        Collector(tmp_path,registry(),months=3,clock=lambda:STAMP,reserve_bytes=0)
+    c=Collector(tmp_path,registry(),months=3,clock=lambda:STAMP,reserve_bytes=0,extend_window=True)
+    after=[tuple(row) for row in c.db.execute('SELECT id,priority,status,pages FROM jobs WHERE deal_month IN ("202608","202609") ORDER BY id')]
+    assert after==before
+    assert c.summary()['expected']==6 and c.db.execute('SELECT COUNT(*) FROM calls').fetchone()[0]==1
+    assert c.db.execute('SELECT COUNT(*) FROM jobs WHERE deal_month="202607" AND status="pending"').fetchone()[0]==2
+    c.close()
+
+
+def test_older_month_extension_refuses_an_active_collector_lease(tmp_path):
+    c=Collector(tmp_path,registry(),months=2,clock=lambda:STAMP,reserve_bytes=0)
+    with c.db:c.db.execute('INSERT INTO lease VALUES(1,?,?)',('other-run',time.time()+120))
+    c.close()
+    with pytest.raises(RealEstateError,match='planning_window_changed_requires_migration'):
+        Collector(tmp_path,registry(),months=3,clock=lambda:STAMP,reserve_bytes=0,extend_window=True)
+    c=Collector(tmp_path,registry(),months=2,clock=lambda:STAMP,reserve_bytes=0)
+    assert c.summary()['expected']==4
+    assert c.db.execute("SELECT value FROM meta WHERE key='planning_previous_months'").fetchone() is None
+    c.close()
 
 
 def test_atomic_content_file_is_absent_after_promotion_failure(tmp_path,monkeypatch):

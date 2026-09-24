@@ -83,10 +83,16 @@ def test_kst_month_boundary_matches_actual_collection_contract(stamp, count):
     assert plan['job_count'] == 2 * count
 
 
-@pytest.mark.parametrize('count', [0, 62, -1, True, 1.5, '61'])
+@pytest.mark.parametrize('count', [0, 122, -1, True, 1.5, '61'])
 def test_invalid_count_is_not_a_collectable_plan(count):
     with pytest.raises(RealEstateError, match='invalid_month_count'):
         build_plan(one_region(), registry_sha256=REGISTRY_SHA, as_of=STAMP, months=count)
+
+
+def test_ten_year_offline_plan_is_a_plan_not_collected_data():
+    plan=build_plan(one_region(),registry_sha256=REGISTRY_SHA,as_of=STAMP,months=121)
+    assert plan['months'][-1]=='201609' and plan['job_count']==242
+    assert plan['source_calls']==0 and plan['data_acquired'] is False
 
 
 @pytest.mark.parametrize('damage,code', [
