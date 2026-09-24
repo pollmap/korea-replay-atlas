@@ -57,11 +57,14 @@ it('keeps confirmed empty separate and abort prevents late state publication',as
   await loadPropertyHistory({detail:detail([partition()]),end:'202608',count:1,trade:'sale',complex,origin:'https://example.com',signal:controller.signal,onMonth:r=>results.push(r),fetchJson:async()=>{controller.abort();return packet([row()]);}});
   expect(results).toEqual([]);
 });
-it('limits concurrent month jobs and rejects the byte budget before downloading',async()=>{
+it('limits concurrent month jobs and preserves recent results when older files exceed the budget',async()=>{
   let active=0,peak=0,calls=0;
   const make=()=>({detail:detail(['202606','202607','202608'].map(m=>partition(m))),end:'202608',count:3 as const,trade:'sale' as const,complex,origin:'https://example.com',signal:new AbortController().signal,onMonth:()=>undefined});
   await loadPropertyHistory({...make(),fetchJson:async ref=>{calls++;peak=Math.max(peak,++active);await new Promise(resolve=>setTimeout(resolve,1));active--;const month=ref.url!.split('/').pop()!.slice(0,6);return packet([row({contract_date:`${month.slice(0,4)}-${month.slice(4)}-01`})],month);}});
   expect(calls).toBe(3);expect(peak).toBe(2);
   const input=make();input.detail.partitions[0].transactions[0].bytes=25*1024*1024;
-  await expect(loadPropertyHistory({...input,fetchJson:async()=>{throw new Error('must_not_download');}})).rejects.toThrow('24MiB');
+  const results:HistoryResult[]=[];
+  await loadPropertyHistory({...input,onMonth:r=>results.push(r),fetchJson:async ref=>{const month=ref.url!.split('/').pop()!.slice(0,6);expect(month).not.toBe('202606');return packet([row()],month);}});
+  expect(results.filter(r=>r.status==='ready')).toHaveLength(2);
+  expect(results.find(r=>r.month==='202606')).toMatchObject({status:'missing',reason:'download_budget',rows:[]});
 });

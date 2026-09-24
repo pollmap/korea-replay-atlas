@@ -1,6 +1,6 @@
 import type {PropertyStatus,PropertyTransaction,RegionMetric} from './property';
 import {eligiblePropertyTransactions} from './property';
-import type {HistoryRange} from './property-history';
+import {HISTORY_RANGES,type HistoryRange} from './property-history';
 export type PropertyType='apartment'|'officetel';
 export interface PropertyViewState {propertyType?:PropertyType;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
 export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
@@ -12,7 +12,7 @@ export function readPropertyView(hash:string,period:{from:string;to:string;lates
     area:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
     compare:propertyType==='apartment'?[...new Set((p.get('compareRegions')??'').split(',').filter(v=>/^\d{5}$/.test(v)))].slice(0,3):[],
     compareComplexes:propertyType==='apartment'?[...new Set((p.get('compareComplexes')??'').split(',').filter(v=>/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(v)))].slice(0,3):[],
-    includeReview:p.get('review')==='include',historyMonths:([1,3,6,12].includes(Number(p.get('historyMonths')))?Number(p.get('historyMonths')):3) as HistoryRange};
+    includeReview:p.get('review')==='include',historyMonths:(HISTORY_RANGES.includes(Number(p.get('historyMonths')) as HistoryRange)?Number(p.get('historyMonths')):3) as HistoryRange};
 }
 
 export const monthLabel=(month:string)=>`${month.slice(0,4)}.${month.slice(4,6)}`;

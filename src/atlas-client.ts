@@ -4,7 +4,11 @@ import {safeDataPath,validateAtlasManifest,type AtlasReleaseManifest,type Runtim
 const requests=new AssetLoadQueue<Response>(4);
 let sequence=0,active=0,peak=0,bytes=0;
 const jsonCache=new Map<string,{data:unknown;bytes:number}>();let jsonBytes=0;
-export const atlasNetworkStats=()=>({active,peak,bytes,jsonCacheBytes:jsonBytes,jsonCacheEntries:jsonCache.size});
+interface JsonResult {data:unknown;bytes:number;}
+interface JsonRequest {controller:AbortController;promise:Promise<JsonResult>;subscribers:number;}
+const jsonRequests=new Map<string,JsonRequest>();
+let sharedJsonHits=0;
+export const atlasNetworkStats=()=>({active,peak,bytes,jsonCacheBytes:jsonBytes,jsonCacheEntries:jsonCache.size,pendingJsonRequests:jsonRequests.size,sharedJsonHits});
 /** A shared, body-lifetime queue for map archives, property data and their manifests. */
 export const atlasFetch:typeof fetch=async(input,init)=>{
   const controller=new AbortController(),external=init?.signal,abort=()=>controller.abort();
@@ -37,12 +41,33 @@ export async function fetchPinnedJson(reference:PinnedJson,origin:string,signal:
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const key=new URL(path,origin).href+':'+reference.sha256,expected=reference.byte_length??reference.bytes,cached=jsonCache.get(key);
   if(cached){if(expected!==undefined&&cached.bytes!==expected)throw new Error('자료의 크기가 검증된 목록과 다릅니다.');jsonCache.delete(key);jsonCache.set(key,cached);return cached.data;}
-  const response=await atlasFetch(new URL(path,origin).href,{signal});
+  let request=jsonRequests.get(key);
+  if(request?.controller.signal.aborted){jsonRequests.delete(key);request=undefined;}
+  if(!request){
+    if(jsonRequests.size>=128)throw new Error('자료 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
+    const controller=new AbortController();
+    request={controller,promise:loadPinnedJson(new URL(path,origin).href,reference.sha256,key,controller.signal),subscribers:0};
+    jsonRequests.set(key,request);
+    const current=request;
+    const settled=()=>{if(jsonRequests.get(key)===current)jsonRequests.delete(key);};
+    void request.promise.then(settled,settled);
+  }else sharedJsonHits++;
+  const current=request;current.subscribers++;
+  return new Promise((resolve,reject)=>{
+    let finished=false;
+    const finish=()=>{if(finished)return false;finished=true;signal.removeEventListener('abort',abort);current.subscribers--;if(current.subscribers===0)current.controller.abort();return true;};
+    const abort=()=>{if(finish())reject(new DOMException('Aborted','AbortError'));};
+    signal.addEventListener('abort',abort,{once:true});
+    if(signal.aborted){abort();return;}
+    void current.promise.then(result=>{if(!finish())return;if(expected!==undefined&&result.bytes!==expected)reject(new Error('자료의 크기가 검증된 목록과 다릅니다.'));else resolve(result.data);},error=>{if(finish())reject(error);});
+  });
+}
+async function loadPinnedJson(url:string,expectedHash:string,key:string,signal:AbortSignal):Promise<JsonResult>{
+  const response=await atlasFetch(url,{signal});
   if(!response.ok)throw new Error(`자료를 불러오지 못했습니다. (${response.status})`);
   const body=await response.arrayBuffer();
-  if(expected!==undefined&&body.byteLength!==expected)throw new Error('자료의 크기가 검증된 목록과 다릅니다.');
   const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',body))].map(v=>v.toString(16).padStart(2,'0')).join('');
-  if(sha!==reference.sha256)throw new Error('자료의 내용이 검증된 버전과 다릅니다.');
+  if(sha!==expectedHash)throw new Error('자료의 내용이 검증된 버전과 다릅니다.');
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body));
   // Bounded by source bytes, not an assertion about measured JS heap size.
@@ -52,7 +77,7 @@ export async function fetchPinnedJson(reference:PinnedJson,origin:string,signal:
     const concurrent=jsonCache.get(key);if(concurrent)jsonBytes-=concurrent.bytes;
     jsonCache.set(key,{data,bytes:body.byteLength});jsonBytes+=body.byteLength;
   }
-  return data;
+  return {data,bytes:body.byteLength};
 }
 export interface AtlasDescriptor {origin:string;manifest:AtlasReleaseManifest;}
 export async function fetchAtlas(runtime:RuntimeV2|null,signal:AbortSignal):Promise<AtlasDescriptor|null>{
