@@ -395,8 +395,9 @@ def tile_rows(db,topic,z,bounds):
     return [(n,sid,shapely.from_wkb(geom),json.loads(render)) for n,sid,geom,render in db.execute(query,(topic,z,c,a,d,b))]
 
 
-def build_topic_tiles(db,topic,work):
-    minzoom,maxzoom=TOPICS[topic];audit={};is_admin=topic.startswith('admin-')
+def build_topic_tiles(db,topic,work,zoom_range=None):
+    minzoom,maxzoom=TOPICS[topic] if zoom_range is None else zoom_range;audit={};is_admin=topic.startswith('admin-')
+    require(0<=minzoom<=maxzoom<=16,'Invalid topic zoom range')
     verify_display_ids(db,topic)
     originals=[];identities=[];properties=[];record_ids=[]
     largest_record=db.execute('SELECT COALESCE(MAX(n),0) FROM records').fetchone()[0]
@@ -428,7 +429,7 @@ def build_topic_tiles(db,topic,work):
             if is_admin:rows=[(record_ids[i],identities[i],geoms[i],properties[i]) for i in index.query(box(*bounds),predicate='intersects')]
             else:
                 rows=tile_rows(db,topic,z,bounds)
-                if topic in ('roads','rail'):
+                if topic in ('roads','rail','detail-roads'):
                     tolerance=WORLD/(2**z)/512*.35
                     rows=[(n,sid,g.simplify(tolerance,preserve_topology=True),p) for n,sid,g,p in rows]
             body,tile_notices,ids=encode_tile(topic,[(sid,g,p) for n,sid,g,p in rows],z,x,y)

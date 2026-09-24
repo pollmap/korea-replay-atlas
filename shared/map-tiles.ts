@@ -13,6 +13,7 @@ export interface MapTileTopic {
 export interface MapCatalog2D {
   schema_version:1;release_id:string;bounds:BBox;topics:MapTileTopic[];sources:Source[];
   source_release_id:string;reference_dates:Record<string,string>;attribution:string;
+  regional_detail?:{regions:{name:string;sgis_code:string;native_geometry_sha256:string}[];reference_date:string;topics:string[];source_assets_complete:boolean;selection_rule:string;coverage_claim:string};
 }
 export interface MapTileRecord {stable_id:string;source_record_id:string;source_id:string;version:string;properties:Record<string,unknown>;geometry_sha256:string;source_asset_id:string;}
 export const MAP_TILE_LIMIT=1024*1024;
@@ -41,7 +42,16 @@ export function validateMapCatalog2D(value:unknown):MapCatalog2D {
     let lastId='';let count=0;for(const f of t.details){file(f,'.json.gz');requireValue(hex.test(f.first_id)&&hex.test(f.last_id)&&f.first_id>lastId&&f.last_id>=f.first_id&&Number.isSafeInteger(f.record_count)&&f.record_count>0,'Overlapping or invalid detail ranges');lastId=f.last_id;count+=f.record_count;}
     requireValue(count===t.feature_count,'2D detail records do not cover every source feature');
   }
+  if(c.regional_detail!==undefined){
+    const detail=c.regional_detail;
+    requireValue(detail&&Array.isArray(detail.regions)&&detail.regions.length>0&&detail.regions.length<=17,'Invalid regional detail scope');
+    const codes=new Set<string>();for(const region of detail.regions){requireValue(region&&typeof region.name==='string'&&region.name.length>0&&region.name.length<=50&&/^\d{2}$/.test(region.sgis_code)&&!codes.has(region.sgis_code)&&hex.test(region.native_geometry_sha256),'Invalid regional detail region');codes.add(region.sgis_code);}
+    requireValue(/^\d{4}-\d{2}-\d{2}$/.test(detail.reference_date)&&Array.isArray(detail.topics)&&detail.topics.length>0&&new Set(detail.topics).size===detail.topics.length&&detail.topics.every(t=>topics.has(t))&&detail.source_assets_complete===true&&typeof detail.selection_rule==='string'&&typeof detail.coverage_claim==='string','Invalid regional detail provenance');
+  }
   requireValue(files<=18000,'2D file budget exceeded');return c;
+}
+export function mapCoverageLabel(catalog:MapCatalog2D):string {
+  return catalog.regional_detail?`전국 기본 지도 · ${catalog.regional_detail.regions.map(r=>r.name).join('·')} 상세`:`전국 벡터 지도 · ${catalog.topics.length}개 주제`;
 }
 export function findTileChunk(topic:MapTileTopic,id:number):MapTileChunk|undefined {
   let lo=0,hi=topic.chunks.length-1;while(lo<=hi){const mid=(lo+hi)>>>1,c=topic.chunks[mid];if(id<c.first_tile_id)hi=mid-1;else if(id>c.last_tile_id)lo=mid+1;else return c;}return undefined;
