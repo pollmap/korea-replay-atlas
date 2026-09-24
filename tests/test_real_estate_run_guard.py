@@ -12,6 +12,7 @@ from test_real_estate_fetch import collector, xml
 def fixture():
     store=LocalD1();head=store.put(b'fixture-initial-backup');store.promote(head,None)
     guard=CollectionGuard(store);guard.initialize()
+    lease=guard.acquire(head);guard.seed_budget(lease,head,[]);guard.release(lease,head)
     return store,guard,head
 
 
@@ -94,6 +95,7 @@ def test_invalid_request_never_reserves(trade,job,page):
 def test_collector_uses_remote_reservation_and_persists_raw_before_local_success(tmp_path):
     root=tmp_path/'source';c=collector(root,lambda *a,**kw:xml());c.close()
     store=LocalD1();backup(root,store);guard=CollectionGuard(store);guard.initialize();lease=guard.acquire(store.head())
+    guard.seed_budget(lease,store.head(),[])
     calls=[]
     def transport(*args,**kw):
         assert guard.status()['today'][0]['used']==1

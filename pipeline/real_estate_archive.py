@@ -83,8 +83,12 @@ def validate_manifest(value):
     return value
 
 
-def audit_checkpoint(root, database=None):
-    """Prove SQLite and all current/historical source references are recoverable."""
+def audit_checkpoint(root, database=None, *, descriptors=None):
+    """Audit SQLite and references against bytes or a verified manifest's descriptors.
+
+    Descriptor mode checks reference closure, not the availability of every old
+    remote object; the parent backup's independent byte verification is retained.
+    """
     root = Path(root).absolute(); _reject_links(root)
     database = Path(database) if database else root / 'checkpoint.sqlite'; _reject_links(database)
     with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as db:
@@ -110,10 +114,15 @@ def audit_checkpoint(root, database=None):
         name = checked_path(ref['path'])
         identity = (name, ref['sha256'], ref['bytes'])
         if identity in checked: continue
-        path = root / name; _reject_links(path)
-        raw = path.read_bytes()
-        if len(raw) != ref['bytes'] or sha256(raw) != ref['sha256']:
-            raise RealEstateError('archive_reference_hash')
+        if descriptors is None:
+            path = root / name; _reject_links(path)
+            raw = path.read_bytes()
+            if len(raw) != ref['bytes'] or sha256(raw) != ref['sha256']:
+                raise RealEstateError('archive_reference_hash')
+        else:
+            row=descriptors.get(name)
+            if row is None or row['sha256']!=ref['sha256'] or row['bytes']!=ref['bytes']:
+                raise RealEstateError('archive_reference_hash')
         checked.add(identity)
     return {'jobs': counts, 'calls': calls, 'snapshots': snapshots, 'verified_references': len(checked)}
 
@@ -142,7 +151,7 @@ class D1Archive:
                     try:
                         for error in json.loads(raw).get('errors',[]):
                             code=str(error.get('message','')).split(':',1)[0]
-                            if code in ('collection_ownership_lost','collection_daily_budget','collection_invalid_reservation'):
+                            if code in ('collection_ownership_lost','collection_daily_budget','collection_invalid_reservation','collection_baseline_required','collection_baseline_conflict'):
                                 raise RealEstateError(code)
                     except (json.JSONDecodeError,AttributeError,TypeError):
                         pass

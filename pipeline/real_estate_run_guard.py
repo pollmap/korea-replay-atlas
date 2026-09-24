@@ -8,8 +8,9 @@ from __future__ import annotations
 import re
 import sqlite3
 import uuid
+from datetime import date
 
-from .real_estate import RealEstateError
+from .real_estate import RealEstateError, canonical_bytes, sha256
 from .real_estate_fetch import fetch_page, assert_no_secret
 
 LEASE_SECONDS = 900
@@ -32,6 +33,23 @@ class CollectionGuard:
             "CREATE TABLE IF NOT EXISTS collection_budget (day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), used INTEGER NOT NULL CHECK(used>=0 AND used<=8000), PRIMARY KEY(day,trade))",
             "CREATE TABLE IF NOT EXISTS collection_reservations (id TEXT PRIMARY KEY, owner TEXT NOT NULL, generation INTEGER NOT NULL, day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), job TEXT NOT NULL, page INTEGER NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('reserved','stored','failed')), raw_digest TEXT, raw_bytes INTEGER, error_code TEXT, reserved_at INTEGER NOT NULL DEFAULT 0, finished_at INTEGER)",
             "CREATE INDEX IF NOT EXISTS collection_pending ON collection_reservations(owner,generation,phase)",
+            "CREATE TABLE IF NOT EXISTS collection_baseline (id INTEGER PRIMARY KEY CHECK(id=1), head_digest TEXT NOT NULL, payload_digest TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS collection_baseline_items (day TEXT NOT NULL,trade TEXT NOT NULL,used INTEGER NOT NULL,head_digest TEXT NOT NULL,owner TEXT NOT NULL,generation INTEGER NOT NULL,PRIMARY KEY(day,trade))",
+            f"""CREATE TRIGGER IF NOT EXISTS collection_baseline_item_check BEFORE INSERT ON collection_baseline_items
+              WHEN NOT EXISTS(SELECT 1 FROM collection_baseline_items WHERE day=NEW.day AND trade=NEW.trade)
+              BEGIN
+                SELECT (CASE WHEN EXISTS(SELECT 1 FROM collection_baseline) OR EXISTS(SELECT 1 FROM collection_reservations)
+                  OR NOT EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=NEW.owner AND generation=NEW.generation AND base_digest=NEW.head_digest AND expires>{NOW})
+                  THEN RAISE(ABORT,'collection_baseline_conflict') END);
+              END;""",
+            """CREATE TRIGGER IF NOT EXISTS collection_baseline_item_charge AFTER INSERT ON collection_baseline_items
+              BEGIN
+                INSERT INTO collection_budget(day,trade,used) VALUES(NEW.day,NEW.trade,NEW.used)
+                  ON CONFLICT(day,trade) DO UPDATE SET used=MAX(used,NEW.used);
+              END;""",
+            """CREATE TRIGGER IF NOT EXISTS collection_baseline_required BEFORE INSERT ON collection_reservations
+              WHEN NOT EXISTS(SELECT 1 FROM collection_baseline WHERE id=1)
+              BEGIN SELECT RAISE(ABORT,'collection_baseline_required'); END;""",
             # These triggers and the reservation insert are one SQLite statement:
             # no check-then-increment race and no COUNT scan of the day's calls.
             # Parenthesized CASE avoids D1 REST statement splitter issue #4727.
@@ -58,6 +76,41 @@ class CollectionGuard:
         # timestamps stay zero/NULL instead of being invented from today's clock.
         if 'reserved_at' not in columns:self.query('ALTER TABLE collection_reservations ADD COLUMN reserved_at INTEGER NOT NULL DEFAULT 0')
         if 'finished_at' not in columns:self.query('ALTER TABLE collection_reservations ADD COLUMN finished_at INTEGER')
+
+    def seed_budget(self, lease, expected_head, counts):
+        """One-time import of call counts from the verified base checkpoint.
+
+        The runner reads counts before changing the restored checkpoint. Partial
+        imports are repeatable; once complete they never add the counts twice.
+        """
+        if self.query('SELECT 1 FROM collection_baseline WHERE id=1')['results']:
+            return {'already_imported':True}
+        normalized=[];seen=set()
+        for row in counts:
+            day,trade,used=row['day'],row['trade'],row['used']
+            if (not isinstance(day,str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}',day)
+                    or trade not in ('sale','rent') or type(used) is not int or not 0<=used<=DAILY_LIMIT
+                    or (day,trade) in seen):raise RealEstateError('collection_invalid_baseline')
+            try:date.fromisoformat(day)
+            except ValueError:raise RealEstateError('collection_invalid_baseline') from None
+            seen.add((day,trade));normalized.append({'day':day,'trade':trade,'used':used})
+        normalized.sort(key=lambda r:(r['day'],r['trade']))
+        if len(normalized)>10000:raise RealEstateError('collection_invalid_baseline')
+        head=expected_head['sha256'];digest=sha256(canonical_bytes(normalized))
+        active=self.query(f'SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND base_digest=? AND expires>{NOW}',[lease['owner'],lease['generation'],head])['results']
+        if not active or self.query('SELECT 1 FROM collection_reservations LIMIT 1')['results']:
+            raise RealEstateError('collection_baseline_conflict')
+        for row in normalized:
+            self.query('INSERT OR IGNORE INTO collection_baseline_items(day,trade,used,head_digest,owner,generation) VALUES(?,?,?,?,?,?)',
+                [row['day'],row['trade'],row['used'],head,lease['owner'],lease['generation']])
+        stored=self.query('SELECT day,trade,used,head_digest FROM collection_baseline_items ORDER BY day,trade')['results']
+        if stored != [{**row,'head_digest':head} for row in normalized]:
+            raise RealEstateError('collection_baseline_conflict')
+        result=self.query(f"""INSERT OR IGNORE INTO collection_baseline(id,head_digest,payload_digest)
+            SELECT 1,?,? WHERE EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>{NOW})
+            AND NOT EXISTS(SELECT 1 FROM collection_reservations) RETURNING id""",[head,digest,lease['owner'],lease['generation']])
+        if not result['results']:raise RealEstateError('collection_baseline_conflict')
+        return {'already_imported':False,'days_and_services':len(normalized),'imported_calls':sum(r['used'] for r in normalized)}
 
     def acquire(self, expected_head):
         if not isinstance(expected_head,dict) or not re.fullmatch('[a-f0-9]{64}',str(expected_head.get('sha256',''))):
