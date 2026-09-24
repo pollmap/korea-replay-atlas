@@ -1,6 +1,6 @@
 """Budgeted official MOLIT collection with immutable raw data and durable checkpoints.
 
-Without --execute this creates the 60 completed months + current-month work ledger.
+Without --execute this creates a bounded completed-months + current-month work ledger.
 It never publishes into public/dist, retries automatically, or prints request URLs.
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ def instant():
 
 def month_sequence(as_of, count=61):
     stamp = utc_instant(as_of).astimezone(KST)
-    if not isinstance(count, int) or not 1 <= count <= 61:
+    if type(count) is not int or not 1 <= count <= 121:
         raise RealEstateError('invalid_month_count')
     current = stamp.year * 12 + stamp.month - 1
     months = [f'{(current-i)//12:04d}{(current-i)%12+1:02d}' for i in range(count)]
@@ -142,7 +142,7 @@ def immutable(root, relative, data):
 
 class Collector:
     def __init__(self, root, registry, *, as_of=None, months=61, transport=fetch_page,
-                 clock=instant, reserve_bytes=RESERVE_BYTES):
+                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False):
         self.root = Path(root).absolute(); _reject_links(self.root)
         if any(p.lower() in ('public', 'dist') for p in self.root.parts):
             raise RealEstateError('public_output_forbidden')
@@ -177,14 +177,34 @@ class Collector:
         immutable(self.root, f'registry/{digest}.json', registry_payload)
         sequence = month_sequence(as_of or self.clock(), months)
         existing_months={r[0] for r in self.db.execute('SELECT DISTINCT deal_month FROM jobs')}
+        extending=False
         if existing_months and existing_months!=set(sequence):
-            self.db.close()
-            raise RealEstateError('planning_window_changed_requires_migration')
+            previous=self.db.execute("SELECT value FROM meta WHERE key='planning_months'").fetchone()
+            try:old_sequence=json.loads(previous['value']) if previous else None
+            except (ValueError,TypeError):old_sequence=None
+            if (not extend_window or not isinstance(old_sequence,list)
+                    or len(old_sequence)>=len(sequence) or sequence[:len(old_sequence)]!=old_sequence
+                    or set(old_sequence)!=existing_months or len(old_sequence)!=len(existing_months)):
+                self.db.close()
+                raise RealEstateError('planning_window_changed_requires_migration')
+            # Hold the write lock while checking the collector lease and adding jobs.
+            self.db.execute('BEGIN IMMEDIATE')
+            lease=self.db.execute('SELECT expires FROM lease WHERE id=1').fetchone()
+            locked_months={r[0] for r in self.db.execute('SELECT DISTINCT deal_month FROM jobs')}
+            if ((lease and lease['expires']>time.time()) or locked_months!=existing_months
+                    or self.db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0]!=len(old_sequence)*len(registry['regions'])*len(ENDPOINTS)):
+                self.db.rollback()
+                self.db.close()
+                raise RealEstateError('planning_window_changed_requires_migration')
+            extending=True
         with self.db:
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('registry_sha256',?)", (digest,))
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('historical_coverage',?)",
                             (registry['historical_coverage'],))
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('planning_months',?)",(json.dumps(sequence),))
+            if extending:
+                self.db.execute("INSERT OR IGNORE INTO meta VALUES ('planning_previous_months',?)",(json.dumps(old_sequence),))
+                self.db.execute("UPDATE meta SET value=? WHERE key='planning_months'",(json.dumps(sequence),))
             for priority, month in enumerate(sequence):
                 for region in registry['regions']:
                     for trade in ENDPOINTS:
@@ -403,6 +423,7 @@ def main():
     parser.add_argument('--regions',required=True,type=Path)
     parser.add_argument('--as-of')
     parser.add_argument('--months',type=int,default=61)
+    parser.add_argument('--extend-window',action='store_true',help='Append older months to this exact checkpoint without resetting jobs or calls')
     parser.add_argument('--max-requests',type=int,default=600)
     parser.add_argument('--max-bytes',type=int,default=64*1024**2)
     parser.add_argument('--daily-budget',type=int,default=8000)
@@ -418,7 +439,7 @@ def main():
     try:
         if args.reprocess and args.execute:raise RealEstateError('conflicting_collection_mode')
         registry=load_registry(args.regions)
-        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months)
+        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window)
         result=collector.reprocess() if args.reprocess else collector.collect(read_key(args.secret_file),max_requests=args.max_requests,max_bytes=args.max_bytes,
             daily_budget=args.daily_budget,min_interval=args.min_interval,timeout=args.timeout,
             retry_failed=args.retry_failed,refresh=args.refresh,collect_months=args.collect_month) if args.execute else {'status':'planned','coverage':collector.summary()}
