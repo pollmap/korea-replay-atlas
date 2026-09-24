@@ -62,6 +62,7 @@
 @media(max-width:780px){
   .app-shell.atlas-shell .map-dock .dock-context{display:none}.app-shell.atlas-shell.reserves-property .map-dock{left:12px}
   .app-shell.atlas-shell:has(.property-panel.sheet-peek:not([hidden])){--atlas-sheet-height:112px}
+  .app-shell.atlas-shell:has(.property-panel.showing-complex.sheet-half:not([hidden])){--atlas-sheet-height:52dvh}
   .app-shell.atlas-shell .interaction-tools,.atlas-shell .interaction-buttons{width:50px}.atlas-shell .interaction-buttons button{min-height:44px}
   .atlas-shell .map-scene-2d .maplibregl-ctrl-attrib{position:fixed;right:12px;bottom:12px;margin:0}.atlas-shell.has-property .map-scene-2d .maplibregl-ctrl-attrib{bottom:calc(var(--atlas-sheet-height) + 12px)}
 }
