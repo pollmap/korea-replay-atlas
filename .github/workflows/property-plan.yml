@@ -8,8 +8,8 @@ on:
         default: 'config/molit-legal-region-registry.json'
         type: string
       months:
-        description: Total months including current month, maximum 61
-        default: '61'
+        description: Total months including current month, maximum 121
+        default: '121'
         type: string
 permissions:
   contents: read
