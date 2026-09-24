@@ -56,27 +56,43 @@ def decode_object(encoded, digest, size):
 
 
 def validate_manifest(value):
-    if not isinstance(value, dict) or value.get('schema_version') != 1 or value.get('kind') != 'private-collector-backup':
+    if not isinstance(value, dict) or value.get('schema_version') not in (1, 2) or value.get('kind') != 'private-collector-backup':
         raise RealEstateError('archive_manifest')
     rows = value.get('files')
     if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_FILES:
         raise RealEstateError('archive_manifest')
     seen = set(); total = 0
     for row in rows:
-        if not isinstance(row, dict) or set(row) != {'path', 'sha256', 'bytes', 'object', 'offset'}:
+        if not isinstance(row, dict):
+            raise RealEstateError('archive_descriptor')
+        segmented = value['schema_version'] == 2 and 'segments' in row
+        if set(row) != ({'path', 'sha256', 'bytes', 'segments'} if segmented else {'path', 'sha256', 'bytes', 'object', 'offset'}):
             raise RealEstateError('archive_descriptor')
         name = checked_path(row['path'])
         if name in seen or not isinstance(row['sha256'], str) or not HASH.fullmatch(row['sha256']):
             raise RealEstateError('archive_descriptor')
         if type(row['bytes']) is not int or not 0 < row['bytes'] <= MAX_FILE:
             raise RealEstateError('archive_descriptor')
-        obj = row['object']
-        if (not isinstance(obj,dict) or set(obj) != {'sha256','bytes'}
+        if segmented:
+            segments = row['segments']
+            if (name != 'checkpoint.sqlite' or not isinstance(segments, list)
+                    or len(segments) != (row['bytes'] + 65535) // 65536):
+                raise RealEstateError('archive_segments')
+        else:
+            segments = [row]
+        for index, segment in enumerate(segments):
+            if segmented and (not isinstance(segment, dict) or set(segment) != {'sha256','bytes','object','offset'}
+                    or type(segment['bytes']) is not int
+                    or segment['bytes'] != min(65536, row['bytes'] - index * 65536)
+                    or not isinstance(segment['sha256'], str) or not HASH.fullmatch(segment['sha256'])):
+                raise RealEstateError('archive_segments')
+            obj = segment['object']
+            if (not isinstance(obj,dict) or set(obj) != {'sha256','bytes'}
                 or not isinstance(obj['sha256'],str) or not HASH.fullmatch(obj['sha256'])
                 or type(obj['bytes']) is not int or not 0 < obj['bytes'] <= MAX_FILE
-                or type(row['offset']) is not int or row['offset'] < 0
-                or row['offset']+row['bytes'] > obj['bytes']):
-            raise RealEstateError('archive_descriptor')
+                or type(segment['offset']) is not int or segment['offset'] < 0
+                or segment['offset']+segment['bytes'] > obj['bytes']):
+                raise RealEstateError('archive_descriptor')
         seen.add(name); total += row['bytes']
     if 'checkpoint.sqlite' not in seen or total > MAX_TOTAL:
         raise RealEstateError('archive_total_limit')
@@ -236,16 +252,17 @@ class D1Archive:
 
 
 def backup(root, store, progress=None, *, lease=None):
+    from .real_estate_manifest import load_manifest, parts
     root = Path(root).absolute(); _reject_links(root)
     _reject_links(root/'checkpoint.sqlite')
     expected = store.head()
     previous = {}
     if expected:
-        old = validate_manifest(json.loads(store.get(expected['sha256'],expected['bytes'])))
+        old = load_manifest(store, expected)
         previous = {r['path']:r for r in old['files']}
         # Verify inherited packs once each, retaining the original pack addresses.
         # Inserting a new source file must not repack a decade of existing bytes.
-        for digest,size in sorted({(r['object']['sha256'],r['object']['bytes']) for r in old['files']}):
+        for digest,size in sorted({(p['object']['sha256'],p['object']['bytes']) for r in old['files'] for p in parts(r)}):
             store.get(digest,size)
     rows = []
     with tempfile.TemporaryDirectory(prefix='korea-replay-checkpoint-') as temporary:
@@ -280,7 +297,7 @@ def backup(root, store, progress=None, *, lease=None):
             if name != 'checkpoint.sqlite' and not Path(name).name.startswith(sha256(raw)+'.'):
                 raise RealEstateError('archive_content_address')
             old = previous.get(name)
-            if old and old['sha256']==sha256(raw) and old['bytes']==len(raw):
+            if old and 'segments' not in old and old['sha256']==sha256(raw) and old['bytes']==len(raw):
                 rows.append(old)
                 continue
             if len(pack)+len(raw)>PACK_BYTES: flush()
@@ -295,17 +312,22 @@ def backup(root, store, progress=None, *, lease=None):
 
 
 def restore(target, store, descriptor=None, progress=None):
+    from .real_estate_manifest import load_manifest, read_file
     target = Path(target).absolute(); _reject_links(target)
     if target.exists(): raise RealEstateError('archive_restore_requires_new_directory')
     descriptor = descriptor or store.head()
     if descriptor is None: raise RealEstateError('archive_no_backup')
-    manifest = validate_manifest(json.loads(store.get(descriptor['sha256'],descriptor['bytes'])))
+    manifest = load_manifest(store, descriptor)
     target.mkdir(parents=True)
     # Interrupted restores stay isolated and inspectable; never delete user files.
     groups = {}
     for row in manifest['files']:
+        if 'segments' in row:
+            destination = target/row['path']; _reject_links(destination)
+            with destination.open('xb') as stream: stream.write(read_file(row, store.get))
+            continue
         obj = row['object']; groups.setdefault((obj['sha256'],obj['bytes']),[]).append(row)
-    restored=0
+    restored=sum('segments' in row for row in manifest['files'])
     for (digest,size),rows in groups.items():
         pack = store.get(digest,size)
         for row in rows:
