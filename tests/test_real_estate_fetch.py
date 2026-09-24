@@ -65,6 +65,37 @@ def test_ten_year_window_covers_120_completed_months_plus_current():
         month_sequence(STAMP,122)
 
 
+def test_calendar_advance_keeps_more_than_ten_years_and_all_old_records(tmp_path):
+    c=Collector(tmp_path,registry(),months=121,clock=lambda:STAMP,reserve_bytes=0,
+        transport=lambda *a,**kw:xml())
+    c.collect(KEY,max_requests=1,min_interval=0)
+    before=[tuple(r) for r in c.db.execute('SELECT id,status,pages,snapshot,updated_at FROM jobs ORDER BY id')]
+    calls=[tuple(r) for r in c.db.execute('SELECT * FROM calls')]
+    c.close()
+    kwargs=dict(months=121,clock=lambda:'2026-10-01T00:00:00Z',reserve_bytes=0,advance_window=True)
+    c=Collector(tmp_path,registry(),**kwargs)
+    assert c.summary()['expected']==244
+    assert c.db.execute('SELECT COUNT(DISTINCT deal_month) FROM jobs').fetchone()[0]==122
+    for row in before:
+        assert tuple(c.db.execute('SELECT id,status,pages,snapshot,updated_at FROM jobs WHERE id=?',(row[0],)).fetchone())==row
+    assert [tuple(r) for r in c.db.execute('SELECT * FROM calls')]==calls
+    assert json.loads(c.db.execute("SELECT value FROM meta WHERE key='planning_months'").fetchone()[0])[:3]==['202609','202610','202608']
+    assert c.db.execute("SELECT priority FROM jobs WHERE deal_month='202609' LIMIT 1").fetchone()[0]==0
+    c.close()
+    c=Collector(tmp_path,registry(),**kwargs)
+    assert c.summary()['expected']==244
+    c.close()
+    with pytest.raises(RealEstateError,match='planning_advance_outside_window'):
+        Collector(tmp_path,registry(),months=121,clock=lambda:STAMP,reserve_bytes=0,advance_window=True)
+
+
+def test_calendar_advance_refuses_live_collector_lease(tmp_path):
+    c=Collector(tmp_path,registry(),months=2,clock=lambda:STAMP,reserve_bytes=0)
+    c._acquire();c.close()
+    with pytest.raises(RealEstateError,match='planning_window_changed_requires_migration'):
+        Collector(tmp_path,registry(),months=2,clock=lambda:'2026-10-01T00:00:00Z',reserve_bytes=0,advance_window=True)
+
+
 def test_registry_official_header_abolished_and_no_gps_name_guess():
     r=registry()
     assert r['audit']['active_regions']==1 and r['retired_region_prefixes']==['11999']

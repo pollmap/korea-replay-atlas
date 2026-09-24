@@ -33,3 +33,5 @@
 4. 서버 자동 수집은 원본·호출 예약·SQLite 상태의 **내구성 있는 외부 저장과 단일 수집 소유권**, 무료 사용량 제한, 실패 후 복구를 먼저 요구합니다. 현재 공개 GitHub 계획 workflow는 API 수집을 하지 않으며, Cloudflare 정적 호스팅은 새 거래를 스스로 가져오지 않습니다. Actions 임시 artifact를 장기 유일 사본으로 사용하지 않습니다.
 
 관련 계약과 과거 후보는 [PROPERTY_PIPELINE.md](PROPERTY_PIPELINE.md), [REAL_ESTATE_DATA_CONTRACT.md](REAL_ESTATE_DATA_CONTRACT.md)에 있습니다.
+
+원본·SQLite 장부의 비공개 D1 백업/복구 및 새 달 추가 옵션은 [원격 보존 계약](PROPERTY_REMOTE_RECOVERY.md)에 있습니다. 저장 모듈 구현, 실제 전체 복원 검증, 자동 수집 가동은 각각 별도 단계입니다.
