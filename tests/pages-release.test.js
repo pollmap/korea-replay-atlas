@@ -66,7 +66,9 @@ describe('independent Pages release stages',()=>{
     expect(production.receipt.artifact_sha256).toBe(candidate.receipt.artifact_sha256);
     await expect(stagePagesApp({...f,data:{...data,manifest_sha256:'b'.repeat(64)},snapshotOrigin:'https://abcd1234.korea-replay.pages.dev',candidateReceiptPath:candidate.receiptPath})).rejects.toThrow('differ');
     await expect(stagePagesApp({...f,data,snapshotOrigin:'https://main.korea-replay.pages.dev',candidateReceiptPath:candidate.receiptPath})).rejects.toThrow('immutable');
-  });
+  // Real esbuild + filesystem stages run several times here. Allow bounded I/O
+  // latency so fixture cleanup cannot race still-running stages on slow disks.
+  },30_000);
   it('rejects source mutation before linking and rejects later output additions',async()=>{
     const f=await fixture();await put(path.join(f.client,'data/sample.geojson'),'changed');await expect(stagePagesApp({...f,data})).rejects.toThrow();
     const g=await fixture(),staged=await stagePagesApp({...g,data});await put(path.join(staged.directory,'client','unexpected.json'),'{}');
