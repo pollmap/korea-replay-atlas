@@ -145,6 +145,8 @@ def audit_checkpoint(root, database=None, *, descriptors=None):
 
 class D1Archive:
     """Four private object shards and one control database; no public Worker route."""
+    WRITE_BATCH = 8
+    READ_BATCH = 30
     def __init__(self, config, token=None):
         self.account = config['account_id']; self.control = config['control_database']
         self.shards = config['object_databases']; self.token = token or os.environ.get('CLOUDFLARE_API_TOKEN')
@@ -212,8 +214,8 @@ class D1Archive:
         if type(size) is not int or size + sum(len(v) + 512 for i,v in enumerate(chunks) if i not in have) > SHARD_CAP:
             raise RealEstateError('archive_free_storage_limit')
         missing = [(digest,i,chunk) for i,chunk in enumerate(chunks) if i not in have]
-        for start in range(0,len(missing),8):
-            group = missing[start:start+8]
+        for start in range(0,len(missing),self.WRITE_BATCH):
+            group = missing[start:start+self.WRITE_BATCH]
             self.query(database,'INSERT OR IGNORE INTO archive_chunks(digest,part,payload) VALUES '+','.join('(?,?,?)' for _ in group),[v for row in group for v in row])
         # Every newly uploaded object is read back; interrupted puts never become heads.
         if self.get(digest, len(raw)) != raw: raise RealEstateError('archive_readback')
@@ -222,12 +224,12 @@ class D1Archive:
     def get(self, digest, size):
         database = self.database(digest); rows = []
         while True:
-            batch = self.query(database, 'SELECT part,payload FROM archive_chunks WHERE digest=? AND part>=? ORDER BY part LIMIT 30', [digest,len(rows)])['results']
+            batch = self.query(database, f'SELECT part,payload FROM archive_chunks WHERE digest=? AND part>=? ORDER BY part LIMIT {self.READ_BATCH}', [digest,len(rows)])['results']
             if [r['part'] for r in batch] != list(range(len(rows),len(rows)+len(batch))):
                 raise RealEstateError('archive_missing_chunk')
             rows.extend(batch)
             if len(rows) > MAX_FILE//CHUNK+100: raise RealEstateError('archive_chunk_limit')
-            if len(batch)<30: break
+            if len(batch)<self.READ_BATCH: break
         if not rows or [r['part'] for r in rows] != list(range(len(rows))):
             raise RealEstateError('archive_missing_chunk')
         try: encoded = b''.join(base64.b64decode(r['payload'], validate=True) for r in rows)
@@ -252,6 +254,63 @@ class D1Archive:
             result = self.query(self.control, "UPDATE backup_heads SET digest=?,bytes=? WHERE name='collector' AND digest=? AND bytes=? AND "+condition, [descriptor['sha256'],descriptor['bytes'],expected['sha256'],expected['bytes'],*ownership])
         if result['meta']['changes'] != 1:
             raise RealEstateError('archive_head_changed')
+
+
+class BrokerArchive(D1Archive):
+    """D1Archive semantics through one pinned, authenticated Worker endpoint.
+
+    A failed write is ambiguous and is never retried here. Ownership/reservation
+    recovery remains the responsibility of the existing remote collector.
+    """
+    WRITE_BATCH = 2
+    READ_BATCH = 4
+
+    def __init__(self, config, token=None, endpoint=None):
+        from .real_estate_archive_broker import validate_endpoint, validate_token
+        token = validate_token(token if token is not None else os.environ.get('PROPERTY_ARCHIVE_BROKER_TOKEN'))
+        endpoint = endpoint if endpoint is not None else os.environ.get('PROPERTY_ARCHIVE_BROKER_URL')
+        self.broker_host = validate_endpoint(endpoint)
+        super().__init__(config, token=token)
+        self.aliases = {self.control: 'control', **{db: f'object{i}' for i, db in enumerate(self.shards)}}
+
+    def query(self, database, sql, params=()):
+        from .real_estate_archive_broker import operation, REQUEST_LIMIT, RESPONSE_LIMIT, REMOTE_ERRORS
+        if database not in self.aliases:
+            raise RealEstateError('archive_broker_database')
+        params = list(params)
+        op = operation(sql, params, object_database=database != self.control)
+        body = canonical_bytes({'version': 1, 'operation': op, 'database': self.aliases[database], 'params': params})
+        if len(body) > REQUEST_LIMIT:
+            raise RealEstateError('archive_broker_request_limit')
+        conn = http.client.HTTPSConnection(self.broker_host, timeout=60)
+        try:
+            conn.request('POST', '/v1/query', body,
+                         {'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json'})
+            response = conn.getresponse()
+            raw = response.read(RESPONSE_LIMIT + 1)
+            if len(raw) > RESPONSE_LIMIT:
+                raise RealEstateError('archive_remote_response_limit')
+            # http.client does not follow redirects. Do not interpret redirect
+            # bodies, transfer authorization, or retry even an idempotent write.
+            if 300 <= response.status < 400:
+                raise RealEstateError('archive_broker_redirect')
+            parsed = json.loads(raw)
+            if response.status != 200:
+                code = parsed.get('error') if isinstance(parsed, dict) else None
+                if isinstance(code, str) and code in REMOTE_ERRORS:
+                    raise RealEstateError(code)
+                raise RealEstateError('archive_broker_http_' + str(response.status))
+            result = parsed.get('result') if isinstance(parsed, dict) else None
+            if (not isinstance(parsed, dict) or parsed.get('success') is not True or not isinstance(result, dict)
+                    or result.get('success') is not True or not isinstance(result.get('results'), list)
+                    or not all(isinstance(row, dict) for row in result['results'])
+                    or not isinstance(result.get('meta'), dict)):
+                raise RealEstateError('archive_remote_query')
+            return result
+        except (OSError, http.client.HTTPException, json.JSONDecodeError, UnicodeDecodeError):
+            raise RealEstateError('archive_remote_unavailable') from None
+        finally:
+            conn.close()
 
 
 def backup(root, store, progress=None, *, lease=None):

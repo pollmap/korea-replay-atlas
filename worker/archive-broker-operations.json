@@ -1,0 +1,225 @@
+{
+  "version": 1,
+  "operations": {
+    "op_0a09c84eda8d8cf055f0": {
+      "database": "control",
+      "sql": "CREATE TRIGGER IF NOT EXISTS collection_reserve_charge AFTER INSERT ON collection_reservations BEGIN INSERT INTO collection_budget(day,trade,used) VALUES(NEW.day,NEW.trade,1) ON CONFLICT(day,trade) DO UPDATE SET used=used+1; END;",
+      "parameters": 0
+    },
+    "op_0ae34c1c8dedcba03695": {
+      "database": "control",
+      "sql": "ALTER TABLE collection_reservations ADD COLUMN reserved_at INTEGER NOT NULL DEFAULT 0",
+      "parameters": 0
+    },
+    "op_0b3bce5733d272035f74": {
+      "database": "control",
+      "sql": "CREATE TRIGGER IF NOT EXISTS collection_baseline_item_charge AFTER INSERT ON collection_baseline_items BEGIN INSERT INTO collection_budget(day,trade,used) VALUES(NEW.day,NEW.trade,NEW.used) ON CONFLICT(day,trade) DO UPDATE SET used=MAX(used,NEW.used); END;",
+      "parameters": 0
+    },
+    "op_10c6add26f9313eefbbb": {
+      "database": "control",
+      "sql": "CREATE TABLE IF NOT EXISTS collection_reservations (id TEXT PRIMARY KEY, owner TEXT NOT NULL, generation INTEGER NOT NULL, day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), job TEXT NOT NULL, page INTEGER NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('reserved','stored','failed')), raw_digest TEXT, raw_bytes INTEGER, error_code TEXT, reserved_at INTEGER NOT NULL DEFAULT 0, finished_at INTEGER)",
+      "parameters": 0
+    },
+    "op_130e16ba4ce856c827cf": {
+      "database": "object",
+      "sql": "INSERT OR IGNORE INTO archive_chunks(digest,part,payload) VALUES (?,?,?)",
+      "parameters": 3
+    },
+    "op_1d165805c0a9661c106f": {
+      "database": "control",
+      "sql": "UPDATE collection_owner SET expires=CAST(strftime('%s','now') AS INTEGER)+? WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER) RETURNING expires",
+      "parameters": 3
+    },
+    "op_2265b16f90cfd42e8c1d": {
+      "database": "control",
+      "sql": "CREATE TABLE IF NOT EXISTS collection_budget (day TEXT NOT NULL, trade TEXT NOT NULL CHECK(trade IN ('sale','rent')), used INTEGER NOT NULL CHECK(used>=0 AND used<=8000), PRIMARY KEY(day,trade))",
+      "parameters": 0
+    },
+    "op_2d5fccebfe78018eb0a7": {
+      "database": "control",
+      "sql": "SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? AND phase='reserved' LIMIT 1",
+      "parameters": 2
+    },
+    "op_30dddc99d7bf59e9d582": {
+      "database": "control",
+      "sql": "SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? LIMIT 1",
+      "parameters": 2
+    },
+    "op_335c489ea4d53f68a0ba": {
+      "database": "control",
+      "sql": "SELECT 1 FROM collection_reservations WHERE day=strftime('%Y-%m-%d','now','+9 hours') AND error_code='upstream_quota' LIMIT 1",
+      "parameters": 0
+    },
+    "op_368c7ee2098ad76498e4": {
+      "database": "control",
+      "sql": "CREATE TRIGGER IF NOT EXISTS collection_reserve_check BEFORE INSERT ON collection_reservations WHEN NOT EXISTS(SELECT 1 FROM collection_reservations WHERE id=NEW.id) BEGIN SELECT (CASE WHEN NEW.day!=strftime('%Y-%m-%d','now','+9 hours') OR NEW.phase!='reserved' OR NEW.page<1 OR NEW.page>1000 THEN RAISE(ABORT,'collection_invalid_reservation') END); SELECT (CASE WHEN NOT EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=NEW.owner AND generation=NEW.generation AND expires>CAST(strftime('%s','now') AS INTEGER)) THEN RAISE(ABORT,'collection_ownership_lost') END); SELECT (CASE WHEN COALESCE((SELECT used FROM collection_budget WHERE day=NEW.day AND trade=NEW.trade),0)>=8000 THEN RAISE(ABORT,'collection_daily_budget') END); END;",
+      "parameters": 0
+    },
+    "op_3a1076c9ae9624ceec14": {
+      "database": "control",
+      "sql": "SELECT generation,owner IS NOT NULL AS occupied,expires,expires<=CAST(strftime('%s','now') AS INTEGER) AS expired FROM collection_owner WHERE id=1",
+      "parameters": 0
+    },
+    "op_3a2d153827274734da90": {
+      "database": "control",
+      "sql": "ALTER TABLE collection_reservations ADD COLUMN finished_at INTEGER",
+      "parameters": 0
+    },
+    "op_4613088902ca25d916e4": {
+      "database": "control",
+      "sql": "UPDATE collection_owner SET owner=NULL,expires=0 WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER) AND EXISTS(SELECT 1 FROM backup_heads WHERE name='collector' AND digest=? AND bytes=?) AND NOT EXISTS(SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? AND phase='reserved') AND (base_digest!=? OR NOT EXISTS(SELECT 1 FROM collection_reservations WHERE owner=? AND generation=?)) RETURNING generation",
+      "parameters": 9
+    },
+    "op_4d7cf9f19fe00c9b3e60": {
+      "database": "control",
+      "sql": "CREATE TRIGGER IF NOT EXISTS collection_baseline_item_check BEFORE INSERT ON collection_baseline_items WHEN NOT EXISTS(SELECT 1 FROM collection_baseline_items WHERE day=NEW.day AND trade=NEW.trade) BEGIN SELECT (CASE WHEN EXISTS(SELECT 1 FROM collection_baseline) OR EXISTS(SELECT 1 FROM collection_reservations) OR NOT EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=NEW.owner AND generation=NEW.generation AND base_digest=NEW.head_digest AND expires>CAST(strftime('%s','now') AS INTEGER)) THEN RAISE(ABORT,'collection_baseline_conflict') END); END;",
+      "parameters": 0
+    },
+    "op_51076d1a4921d64a8456": {
+      "database": "control",
+      "sql": "INSERT OR IGNORE INTO collection_baseline_items(day,trade,used,head_digest,owner,generation) VALUES(?,?,?,?,?,?)",
+      "parameters": 6
+    },
+    "op_58e02e28cedf00ff26a5": {
+      "database": "control",
+      "sql": "INSERT OR IGNORE INTO backup_heads(name,digest,bytes) SELECT 'collector',?,? WHERE EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER))",
+      "parameters": 4
+    },
+    "op_5bcf26df38791c0b2751": {
+      "database": "control",
+      "sql": "CREATE TABLE IF NOT EXISTS backup_heads (name TEXT PRIMARY KEY, digest TEXT NOT NULL, bytes INTEGER NOT NULL)",
+      "parameters": 0
+    },
+    "op_5cf821f58da1db08f096": {
+      "database": "control",
+      "sql": "SELECT strftime('%Y-%m-%d','now','+9 hours') AS day",
+      "parameters": 0
+    },
+    "op_5f21e87561f87f6c1d74": {
+      "database": "control",
+      "sql": "SELECT digest,bytes FROM backup_heads WHERE name='collector'",
+      "parameters": 0
+    },
+    "op_68aa67cd4dd024422392": {
+      "database": "control",
+      "sql": "SELECT day,trade,used,head_digest FROM collection_baseline_items ORDER BY day,trade",
+      "parameters": 0
+    },
+    "op_694abbb4b9eadc317800": {
+      "database": "control",
+      "sql": "INSERT OR IGNORE INTO collection_owner(id,generation,expires) VALUES(1,0,0)",
+      "parameters": 0
+    },
+    "op_6b4ad781edd2685a7bf5": {
+      "database": "control",
+      "sql": "SELECT 1 FROM collection_reservations LIMIT 1",
+      "parameters": 0
+    },
+    "op_6cda3ecab95c16c4b18c": {
+      "database": "control",
+      "sql": "UPDATE collection_owner SET owner=?,generation=generation+1, expires=CAST(strftime('%s','now') AS INTEGER)+?,base_digest=?,base_bytes=? WHERE id=1 AND owner IS NULL AND EXISTS(SELECT 1 FROM backup_heads WHERE name='collector' AND digest=? AND bytes=?) RETURNING owner,generation,expires",
+      "parameters": 6
+    },
+    "op_6e31044ed5ab77f89ddc": {
+      "database": "control",
+      "sql": "INSERT OR IGNORE INTO collection_baseline(id,head_digest,payload_digest) SELECT 1,?,? WHERE EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER)) AND NOT EXISTS(SELECT 1 FROM collection_reservations) RETURNING id",
+      "parameters": 4
+    },
+    "op_77b1c267c69175d7594c": {
+      "database": "control",
+      "sql": "SELECT 1 FROM collection_baseline WHERE id=1",
+      "parameters": 0
+    },
+    "op_7b115b3ffe83131226f3": {
+      "database": "control",
+      "sql": "CREATE TABLE IF NOT EXISTS collection_baseline_items (day TEXT NOT NULL,trade TEXT NOT NULL,used INTEGER NOT NULL,head_digest TEXT NOT NULL,owner TEXT NOT NULL,generation INTEGER NOT NULL,PRIMARY KEY(day,trade))",
+      "parameters": 0
+    },
+    "op_7b58730172880444bd5b": {
+      "database": "object",
+      "sql": "SELECT part,payload FROM archive_chunks WHERE digest=? AND part>=? ORDER BY part LIMIT 4",
+      "parameters": 2
+    },
+    "op_7b76cfa679de6c0ffca7": {
+      "database": "control",
+      "sql": "UPDATE backup_heads SET digest=?,bytes=? WHERE name='collector' AND digest=? AND bytes=? AND NOT EXISTS(SELECT 1 FROM collection_owner WHERE owner IS NOT NULL)",
+      "parameters": 4
+    },
+    "op_891d4676430f43700313": {
+      "database": "control",
+      "sql": "SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND base_digest=? AND expires>CAST(strftime('%s','now') AS INTEGER)",
+      "parameters": 3
+    },
+    "op_966f4a91c21c79d4a73b": {
+      "database": "control",
+      "sql": "CREATE TRIGGER IF NOT EXISTS collection_baseline_required BEFORE INSERT ON collection_reservations WHEN NOT EXISTS(SELECT 1 FROM collection_baseline WHERE id=1) BEGIN SELECT RAISE(ABORT,'collection_baseline_required'); END;",
+      "parameters": 0
+    },
+    "op_97633495ed1729302817": {
+      "database": "control",
+      "sql": "UPDATE collection_reservations SET phase=?,raw_digest=?,raw_bytes=?,error_code=?,finished_at=CAST(strftime('%s','now') AS INTEGER) WHERE id=? AND owner=? AND generation=? AND phase='reserved' AND EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER)) RETURNING id",
+      "parameters": 9
+    },
+    "op_9ffeeb6b74791370fb1e": {
+      "database": "control",
+      "sql": "SELECT trade,used FROM collection_budget WHERE day=strftime('%Y-%m-%d','now','+9 hours') ORDER BY trade",
+      "parameters": 0
+    },
+    "op_a40792aa4cf873157db2": {
+      "database": "control",
+      "sql": "CREATE TABLE IF NOT EXISTS collection_baseline (id INTEGER PRIMARY KEY CHECK(id=1), head_digest TEXT NOT NULL, payload_digest TEXT NOT NULL)",
+      "parameters": 0
+    },
+    "op_a654c91ed8906562897d": {
+      "database": "object",
+      "sql": "SELECT part FROM archive_chunks WHERE digest=? ORDER BY part",
+      "parameters": 1
+    },
+    "op_b5cfe9ed2d0a8b1ca34f": {
+      "database": "control",
+      "sql": "SELECT id FROM collection_reservations WHERE id=? AND owner=? AND generation=? AND phase='reserved' AND EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER))",
+      "parameters": 5
+    },
+    "op_b6fbabd749f357cb05a6": {
+      "database": "control",
+      "sql": "PRAGMA table_info(collection_reservations)",
+      "parameters": 0
+    },
+    "op_b704807aae37f25f9d54": {
+      "database": "control",
+      "sql": "UPDATE backup_heads SET digest=?,bytes=? WHERE name='collector' AND digest=? AND bytes=? AND EXISTS(SELECT 1 FROM collection_owner WHERE id=1 AND owner=? AND generation=? AND expires>CAST(strftime('%s','now') AS INTEGER))",
+      "parameters": 6
+    },
+    "op_b945a993da553770dde1": {
+      "database": "control",
+      "sql": "CREATE TABLE IF NOT EXISTS collection_owner (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT, generation INTEGER NOT NULL, expires INTEGER NOT NULL, base_digest TEXT, base_bytes INTEGER)",
+      "parameters": 0
+    },
+    "op_c36e003aa21859dfe3b0": {
+      "database": "control",
+      "sql": "CREATE INDEX IF NOT EXISTS collection_pending ON collection_reservations(owner,generation,phase)",
+      "parameters": 0
+    },
+    "op_c90a10aa06722740a663": {
+      "database": "object",
+      "sql": "CREATE TABLE IF NOT EXISTS archive_chunks (digest TEXT NOT NULL, part INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(digest,part))",
+      "parameters": 0
+    },
+    "op_f9430ab58d662f880f89": {
+      "database": "control",
+      "sql": "INSERT OR IGNORE INTO collection_reservations (id,owner,generation,day,trade,job,page,phase,reserved_at) VALUES(?,?,?,strftime('%Y-%m-%d','now','+9 hours'),?,?,?,'reserved',CAST(strftime('%s','now') AS INTEGER)) RETURNING id,day",
+      "parameters": 6
+    },
+    "op_fc18333d660067d36bd2": {
+      "database": "object",
+      "sql": "INSERT OR IGNORE INTO archive_chunks(digest,part,payload) VALUES (?,?,?),(?,?,?)",
+      "parameters": 6
+    },
+    "op_fea7792175ca77407113": {
+      "database": "control",
+      "sql": "INSERT OR IGNORE INTO backup_heads(name,digest,bytes) SELECT 'collector',?,? WHERE NOT EXISTS(SELECT 1 FROM collection_owner WHERE owner IS NOT NULL)",
+      "parameters": 2
+    }
+  }
+}

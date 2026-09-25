@@ -6,7 +6,7 @@ import {pathToFileURL} from 'node:url';
 const rules=[
   ['private-key',/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g],
   ['provider-token',/\b(?:github_pat_[a-zA-Z0-9_]{30,}|gh[pousr]_[a-zA-Z0-9]{30,}|AKIA[A-Z0-9]{16})\b/g],
-  ['credential-literal',/(?:DATA_GO_KR_SERVICE_KEY|SEOUL_SUBWAY_API_KEY|CLOUDFLARE_API_TOKEN|oauth_token|service[Kk]ey|auth[Kk]ey)\s*[=:]\s*["']?([a-zA-Z0-9+/%=_-]{24,})/g],
+  ['credential-literal',/(?:DATA_GO_KR_SERVICE_KEY|SEOUL_SUBWAY_API_KEY|CLOUDFLARE_API_TOKEN|PROPERTY_ARCHIVE_BROKER_TOKEN|oauth_token|service[Kk]ey|auth[Kk]ey)\s*[=:]\s*["']?([a-zA-Z0-9+/%=_-]{24,})/g],
   ['personal-service-url',/https?:\/\/[a-z0-9-]+\.[a-z0-9-]+-workers\.workers\.dev[^\s"'<>]*/g],
   ['local-user-path',/[A-Z]:(?:\\{1,2}|\/)Users(?:\\{1,2}|\/)[^\s"'<>/\\]+/g],
   ['personal-salutation',/[\p{Script=Hangul}]{2,4}님/gu],
