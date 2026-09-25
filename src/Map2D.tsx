@@ -1,5 +1,8 @@
+import {selectedRegionBoundary,regionAdministrativeDongs,clearRegionBoundaryCache} from './region-selection';
+import {regionSelectionLayers,SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED_DONG_SOURCE,DONG_HIT_LAYER} from './region-selection-layers';
+import {MAP2D_RAIL_NEUTRAL} from '../shared/map2d-rail-style';
 import type {PropertyMapPoint} from '../shared/property-map-point';
-import {forwardRef,useEffect,useImperativeHandle,useMemo,useRef} from 'react';
+import {forwardRef,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {Map as LibreMap,NavigationControl,ScaleControl,AttributionControl,setWorkerUrl,addProtocol,removeProtocol,type MapMouseEvent,type LayerSpecification,type GeoJSONSource} from 'maplibre-gl';
 import libreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -25,7 +28,7 @@ import {apartmentMapLayer,APARTMENT_MAP_LAYER,APARTMENT_SELECTED_LAYER} from './
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
-interface Props {inspectFeatures?:boolean;propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
+interface Props {propertyRegionName?:string;onPropertyProvince?:(name:string)=>void;propertyRegion?:string;inspectFeatures?:boolean;propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {asset:Asset;source:string;layerIds:string[];url:string;record:number;features:number;vertices:number;}
 type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
@@ -40,14 +43,20 @@ export const map2DSourceLayers=(source:string,asset:Asset):{layer:LayerSpecifica
   const fillAnchor=asset.source_id==='natural-earth'?'land':asset.layer==='terrain'?'water':'area';
   return [
     {before:`map2d-anchor-${fillAnchor}`,layer:{id:`${source}-fill`,type:'fill',source,filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':['match',['get','map2d_category'],'land','#f5f1e8','water','#9fd5e8','building','#e0ddd4','#d3e9da'],'fill-opacity':.94}}},
-    {before:'map2d-anchor-road',layer:{id:`${source}-line`,type:'line',source,filter:['==',['geometry-type'],'LineString'],layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':['match',['get','map2d_category'],'rail','#87645e','water','#8ccddd',['match',['get','map2d_road'],'motorway','#db8773','trunk','#e2ab72','primary','#e6c47b','secondary','#e8d59e','#fffdf6']],'line-width':['interpolate',['linear'],['zoom'],3,.45,9,['match',['get','map2d_road'],'motorway',2,'trunk',1.8,'primary',1.5,1],15,['match',['get','map2d_road'],'motorway',6,'trunk',5,'primary',4,'secondary',3,2],19,8],'line-opacity':.96}}},
-    {before:'map2d-anchor-point',layer:{id:`${source}-point`,type:'circle',source,filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],3,1.5,12,3,17,5],'circle-color':['match',['get','map2d_category'],'rail','#835e58','building','#a2b1c1','#91a7b6'],'circle-stroke-width':1,'circle-stroke-color':'#ffffff'}}},
+    {before:'map2d-anchor-road',layer:{id:`${source}-line`,type:'line',source,filter:['==',['geometry-type'],'LineString'],layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':['match',['get','map2d_category'],'rail',['coalesce',['get','map2d_rail_color'],MAP2D_RAIL_NEUTRAL],'water','#8ccddd',['match',['get','map2d_road'],'motorway','#db8773','trunk','#e2ab72','primary','#e6c47b','secondary','#e8d59e','#fffdf6']],'line-width':['interpolate',['linear'],['zoom'],3,.45,9,['match',['get','map2d_road'],'motorway',2,'trunk',1.8,'primary',1.5,1],15,['match',['get','map2d_road'],'motorway',6,'trunk',5,'primary',4,'secondary',3,2],19,8],'line-opacity':.96}}},
+    {before:'map2d-anchor-point',layer:{id:`${source}-point`,type:'circle',source,filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],3,1.5,12,3,17,5],'circle-color':['match',['get','map2d_category'],'rail',['coalesce',['get','map2d_rail_color'],MAP2D_RAIL_NEUTRAL],'building','#a2b1c1','#91a7b6'],'circle-stroke-width':1,'circle-stroke-color':'#ffffff'}}},
   ];
 };
 
 const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const element=useRef<HTMLDivElement>(null),mapRef=useRef<LibreMap|null>(null),refreshRef=useRef<(()=>void)|null>(null);
   const latest=useRef(props);latest.current=props;
+  const [selectedDong,setSelectedDong]=useState('');
+  const [dongOptions,setDongOptions]=useState<{id:string;name:string}[]>([]);
+  const selectDongRef=useRef<((id:string,locate?:boolean)=>void)|null>(null);
+  const [boundaryView,setBoundaryView]=useState({name:'',date:'',loading:false});
+  const regionName=props.propertyRegionName||(props.vectorData?.regions?.regions.find(row=>row.lawd_code===props.propertyRegion)?.name??'');
+  const refreshBoundaryRef=useRef<(()=>void)|null>(null);
   const refreshSelectedPointRef=useRef<(()=>void)|null>(null);
   const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,trade:props.propertyTrade}:null);},[props.vectorData,props.propertyTrade]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
@@ -84,6 +93,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     let resolved:Asset[]=[],wanted=new Set<string>();
     let vectorProtocol:ReturnType<typeof createMapTilesProtocol>|undefined,vectorRelease='',firstReadyRelease='';
     let installedRegions:typeof regions|undefined;
+    let overviewHeld=false;
     const vectorSourceIds:string[]=[],vectorLayerIds:string[]=[];
     const resources=new Map<string,Resource>(),jobs=new Map<string,{controller:AbortController}>(),frameSamples:number[]=[];
     const pending=new Map<number,{resolve:(value:Map2DWorkerResponse)=>void;reject:(error:unknown)=>void;detach:()=>void}>();
@@ -91,6 +101,11 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     const budget=()=>QUALITY[latest.current.lightweight?'low':'balanced'];
     const mark=()=>{
       if(disposed)return;
+      if(map.getSource('vector-buildings')){
+        const hold=map.getZoom()>=14&&!map.isSourceLoaded('vector-buildings');
+        if(hold!==overviewHeld){overviewHeld=hold;for(const id of vectorLayerIds)if(id.startsWith('vector-buildings-overview-'))map.setLayerZoomRange(id,12,hold?24:14);}
+        node.dataset.buildingOverviewHeld=String(hold);
+      }
       const rows=[...resources.values()],network=downloads.stats(),sourcesLoading=rows.filter(row=>!map.isSourceLoaded(row.source)).length;
       if(vectorProtocol){const stat=vectorProtocol.snapshot();Object.assign(node.dataset,{vectorRelease,vectorCachedBytes:String(stat.cachedBytes),vectorActive:String(stat.active),vectorPeak:String(stat.peakActive),vectorArchives:String(stat.cachedArchives)});}
       Object.assign(node.dataset,{mapEngine:'maplibre',mapDimension:'2d',map2dPixelRatio:String(map.getPixelRatio()),map2dAssets:String(rows.length),map2dFeatures:String(rows.reduce((sum,row)=>sum+row.features,0)),map2dVertices:String(rows.reduce((sum,row)=>sum+row.vertices,0)),map2dJobs:String(jobs.size),map2dSourcesLoading:String(sourcesLoading),map2dIndexLoading:String(indexLoading),map2dMoving:String(moving),map2dErrors:String(errors),map2dFetchActive:String(network.active),map2dFetchPeak:String(network.peak),map2dFrames:String(frames),map2dMovingSamples:String(frameSamples.length),map2dMovingP95Ms:frameSamples.length?[...frameSamples].sort((a,b)=>a-b)[Math.floor((frameSamples.length-1)*.95)].toFixed(2):'0',map2dRelease:release});
@@ -167,6 +182,39 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       for(const [key,resource] of resources)if(resource.asset.layer!=='terrain'&&!latest.current.layers[resource.asset.layer])remove(key);
       for(const asset of selected.assets)load(asset);prune();report();
     };
+    let selectedBoundaryKey='';
+    let boundaryController:AbortController|undefined;
+    let dongFeatures:Awaited<ReturnType<typeof regionAdministrativeDongs>>={type:'FeatureCollection',features:[]};
+    const selectDong=(id:string,locate=false)=>{
+      if(disposed||!ready)return;
+      const feature=dongFeatures.features.find(row=>String(row.id)===id);
+      (map.getSource(SELECTED_DONG_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:feature?[feature]:[]});
+      setSelectedDong(feature?.properties.name??'');node.dataset.selectedAdministrativeDong=feature?String(feature.id):'';
+      if(locate&&feature){
+        const positions=feature.geometry.coordinates.flat(2),bounds=positions.reduce((box,p)=>[Math.min(box[0],p[0]),Math.min(box[1],p[1]),Math.max(box[2],p[0]),Math.max(box[3],p[1])],[Infinity,Infinity,-Infinity,-Infinity]);
+        map.fitBounds([[bounds[0],bounds[1]],[bounds[2],bounds[3]]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),maxZoom:14,duration:450});
+      }
+    };
+    selectDongRef.current=selectDong;
+    const refreshBoundary=()=>{
+      if(disposed||!ready)return;
+      const input=latest.current.vectorData,date=input?.map.reference_dates.sgis??'';
+      const name=latest.current.propertyRegionName||(input?.regions?.regions.find(row=>row.lawd_code===latest.current.propertyRegion)?.name??'');
+      const key=`${date}:${name}`;if(selectedBoundaryKey===key)return;selectedBoundaryKey=key;
+      boundaryController?.abort();const controller=new AbortController();boundaryController=controller;
+      setBoundaryView(current=>({...current,loading:!!name}));
+      void Promise.all([selectedRegionBoundary(name,date,controller.signal),regionAdministrativeDongs(name,date,controller.signal)]).then(([feature,dongs])=>{
+        if(disposed||controller.signal.aborted||selectedBoundaryKey!==key)return;
+        (map.getSource(SELECTED_REGION_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:feature?[feature]:[]});
+        dongFeatures=dongs;setDongOptions(dongs.features.map(row=>({id:String(row.id),name:row.properties.name})));
+        (map.getSource(REGION_DONG_SOURCE) as GeoJSONSource|undefined)?.setData(dongFeatures);
+        (map.getSource(SELECTED_DONG_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:[]});
+        setSelectedDong('');setBoundaryView({name:feature?name:'',date:feature?date:'',loading:false});node.dataset.selectedAdministrativeDong='';node.dataset.selectedRegionName=feature?name:'';node.dataset.selectedRegionBoundaryDate=feature?date:'';
+        node.dataset.selectedRegionDongs=String(dongFeatures.features.length);
+      }).catch(()=>{if(!disposed&&!controller.signal.aborted){setBoundaryView(current=>({...current,loading:false}));node.dataset.regionBoundaryError='true';}});
+      if(map.getLayer(REGION_MAP_LAYER))map.setPaintProperty(REGION_MAP_LAYER,'text-color',['case',['==',['get','property_region_code'],latest.current.propertyRegion??''],'#713fc7','#102b46']);
+    };
+    refreshBoundaryRef.current=refreshBoundary;
     const refreshSelectedPoint=()=>{
       if(disposed||!ready)return;
       const point=latest.current.propertyMapPoint;
@@ -202,18 +250,19 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const input=latest.current.vectorData;if(!ready||!input||vectorRelease===input.map.release_id)return;
       for(const id of vectorLayerIds)if(map.getLayer(id))map.removeLayer(id);for(const id of vectorSourceIds)if(map.getSource(id))map.removeSource(id);vectorLayerIds.length=0;vectorSourceIds.length=0;
       vectorProtocol?.dispose();vectorProtocol=createMapTilesProtocol({catalog:input.map,origin:input.origin,allowedOrigins:[input.origin],mobile:matchMedia('(max-width:780px)').matches,fetcher:atlasFetch});vectorRelease=input.map.release_id;addProtocol('krtile',vectorProtocol.protocol);
-      const order=['land','water','buildings','facilities','roads','detail-roads','rail','admin-dong','admin-sigungu','admin-sido'];
+      const order=['land','water','buildings-overview-0','buildings-overview-1','buildings-overview-2','buildings-overview-3','buildings','facilities','roads','detail-roads','rail','admin-dong','admin-sigungu','admin-sido'];
       const labels:LayerSpecification[]=[];
       for(const topic of [...input.map.topics].sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))){
         const source=`vector-${topic.id}`;map.addSource(source,{type:'vector',tiles:[vectorProtocol.tileUrl(topic.id)],bounds:topic.bounds,minzoom:topic.minzoom,maxzoom:topic.maxzoom,promoteId:'stable_id',attribution:input.map.attribution});vectorSourceIds.push(source);
         for(const layer of vectorLayers(topic,source)){if(layer.type==='symbol')labels.push(layer);else{map.addLayer(layer,'measure-fill');vectorLayerIds.push(layer.id);}}
       }
       for(const layer of labels){map.addLayer(layer,'measure-fill');vectorLayerIds.push(layer.id);}
+      for(const layer of regionSelectionLayers())if(map.getLayer(layer.id))map.moveLayer(layer.id,'measure-fill');
       if(map.getLayer('live-bus-points'))map.moveLayer('live-bus-points');
     };
     const refresh=()=>{
       if(disposed||!ready||document.hidden)return;
-      installVectors();
+      installVectors();refreshBoundary();
       for(const id of vectorLayerIds){const layer=id.includes('buildings')?'buildings':id.includes('rail')?'rail':id.includes('roads')||id.includes('facilities')?'infrastructure':null;map.setLayoutProperty(id,'visibility',(layer&&!latest.current.layers[layer])||(id.startsWith('vector-admin-')&&latest.current.boundaries===false)?'none':'visible');}
       if(latest.current.vectorData||latest.current.vectorPending){
         release=latest.current.catalog.release_id;indexController?.abort();indexLoading=false;
@@ -281,7 +330,12 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const regionCode=pickedPropertyRegion(hits,regionDataRef.current);
       if(regionCode&&latest.current.onPropertyRegion){pickController?.abort();latest.current.onPropertyRegion(regionCode);return;}
       const provinceCenter=pickedPropertyProvince(hits,regionDataRef.current);
-      if(provinceCenter){map.easeTo({center:provinceCenter,zoom:7,duration:450});return;}
+      if(provinceCenter){const hit=hits.find(row=>row.source===REGION_MAP_SOURCE&&row.layer.id===PROVINCE_MAP_LAYER);const name=hit?.properties?.property_province_name;if(typeof name==='string')latest.current.onPropertyProvince?.(name);map.easeTo({center:provinceCenter,zoom:7,duration:450});return;}
+      const dongHit=hits.find(feature=>feature.layer.id===DONG_HIT_LAYER);
+      if(dongHit){
+        selectDong(String(dongHit.id));
+        return;
+      }
       // Apartment exploration keeps its panel when background geometry is clicked.
       if(latest.current.inspectFeatures===false)return;
       const vectorHit=vectorProtocol&&hits.find(feature=>typeof feature.properties?.stable_id==='string'&&feature.source.startsWith('vector-'));
@@ -291,6 +345,14 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       pickController?.abort();const controller=new AbortController();pickController=controller;
       void post({type:'pick',id:++sequence,record:resource.record,index:Number(hit.properties.map2d_index)},controller.signal).then(result=>{if(result.type==='picked'&&result.selection&&!disposed&&!controller.signal.aborted&&resources.get(map2DKey(resource.asset))===resource)latest.current.onSelect(result.selection);}).catch(()=>undefined);
     };
+    let hoveredDong:string|number|undefined;
+    map.on('mousemove',DONG_HIT_LAYER,event=>{
+      if(hoveredDong!==undefined)map.setFeatureState({source:REGION_DONG_SOURCE,id:hoveredDong},{hover:false});
+      hoveredDong=event.features?.[0]?.id;
+      if(hoveredDong!==undefined)map.setFeatureState({source:REGION_DONG_SOURCE,id:hoveredDong},{hover:true});
+      if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';
+    });
+    map.on('mouseleave',DONG_HIT_LAYER,()=>{if(hoveredDong!==undefined)map.setFeatureState({source:REGION_DONG_SOURCE,id:hoveredDong},{hover:false});hoveredDong=undefined;map.getCanvas().style.cursor='';});
     const failure=()=>{errors++;report();};
     const refreshRegions=()=>{
       if(disposed||!ready)return;
@@ -308,10 +370,10 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       map.addLayer({id:'live-bus-points',type:'circle',source:'live-buses',paint:{'circle-color':'#12846e','circle-radius':6,'circle-stroke-width':2,'circle-stroke-color':'#ffffff'}});
       liveTimer=setInterval(refreshLive,5000);
     });
-    map.on('load',()=>{ready=true;map.addSource('measure',{type:'geojson',data:measurementGeoJSON(latest.current.measurement??EMPTY_MEASUREMENT)});map.addLayer({id:'measure-fill',type:'fill',source:'measure',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#317a63','fill-opacity':.15}});map.addLayer({id:'measure-line',type:'line',source:'measure',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#246b55','line-width':3}});map.addLayer({id:'measure-point',type:'circle',source:'measure',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':5,'circle-color':'#246b55','circle-stroke-color':'#ffffff','circle-stroke-width':2}});refresh();loadSeoulKaptPoints();});map.on('movestart',start);map.on('moveend',settle);map.on('resize',settle);map.on('render',onRender);map.on('click',click);map.on('error',failure);map.on('sourcedata',report);
+    map.on('load',()=>{ready=true;for(const source of [SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED_DONG_SOURCE])map.addSource(source,{type:'geojson',data:{type:'FeatureCollection',features:[]},tolerance:0});map.addSource('measure',{type:'geojson',data:measurementGeoJSON(latest.current.measurement??EMPTY_MEASUREMENT)});map.addLayer({id:'measure-fill',type:'fill',source:'measure',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':'#317a63','fill-opacity':.15}});map.addLayer({id:'measure-line',type:'line',source:'measure',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#246b55','line-width':3}});map.addLayer({id:'measure-point',type:'circle',source:'measure',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':5,'circle-color':'#246b55','circle-stroke-color':'#ffffff','circle-stroke-width':2}});for(const layer of regionSelectionLayers())map.addLayer(layer,'measure-fill');refresh();loadSeoulKaptPoints();});map.on('movestart',start);map.on('moveend',settle);map.on('resize',settle);map.on('render',onRender);map.on('click',click);map.on('error',failure);map.on('sourcedata',report);
     map.on('load',()=>{
       map.addImage(REGION_MAP_IMAGE,regionMapBubbleImage(),{pixelRatio:2,stretchX:[[12,68]],stretchY:[[12,52]],content:[12,10,68,54]});
-      installedRegions=regionDataRef.current;map.addSource(REGION_MAP_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[...installedRegions.data.features,...installedRegions.provinces.features]}});map.addLayer(provinceMapLayer());map.addLayer(regionMapLayer());refreshRegions();
+      installedRegions=regionDataRef.current;map.addSource(REGION_MAP_SOURCE,{type:'geojson',data:{type:'FeatureCollection',features:[...installedRegions.data.features,...installedRegions.provinces.features]}});map.addLayer(provinceMapLayer());map.addLayer(regionMapLayer());refreshRegions();if(latest.current.propertyRegion)map.setPaintProperty(REGION_MAP_LAYER,'text-color',['case',['==',['get','property_region_code'],latest.current.propertyRegion],'#713fc7','#102b46']);
       if(map.getLayer('live-bus-points'))map.moveLayer('live-bus-points');
     });
     map.on('mouseenter',REGION_MAP_LAYER,()=>{if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';});
@@ -322,7 +384,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
-      disposed=true;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
+      disposed=true;selectDongRef.current=null;boundaryController?.abort();clearRegionBoundaryCache();refreshBoundaryRef.current=null;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
       canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('wheel',wheel,true);window.removeEventListener('pointerup',pointerUp,true);window.removeEventListener('pointercancel',pointerUp,true);window.removeEventListener('blur',blur);resolution.dispose();
       indexController?.abort();pickController?.abort();for(const job of jobs.values())job.controller.abort();for(const waiter of [...waiters])waiter.reject();downloads.dispose();
       for(const task of pending.values()){task.detach();task.reject(abortError());}pending.clear();worker.terminate();document.removeEventListener('visibilitychange',visibility);
@@ -330,10 +392,11 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     };
   },[]);
   useEffect(()=>{refreshRef.current?.();},[props.catalog,props.layers,props.boundaries,props.lightweight,props.vectorData,props.vectorPending]);
+  useEffect(()=>{refreshBoundaryRef.current?.();},[props.propertyRegion,props.propertyRegionName,props.vectorData]);
   useEffect(()=>{refreshRegionsRef.current?.();},[regions,props.measurement]);
   useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData,props.propertyTrade]);
   useEffect(()=>{const source=mapRef.current?.getSource('live-buses') as GeoJSONSource|undefined;const data=map2DLiveBuses(props.liveTransit);source?.setData(data);if(element.current)element.current.dataset.liveBusCount=String(data.features.length);},[props.liveTransit]);
   useEffect(()=>{const map=mapRef.current;if(!map)return;const source=map.getSource('measure') as GeoJSONSource|undefined;source?.setData(measurementGeoJSON(props.measurement??EMPTY_MEASUREMENT));map.getCanvas().style.cursor=props.measurement&&props.measurement.mode!=='none'?'crosshair':'';},[props.measurement]);
-  return <><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
+  return <>{regionName&&<div className="selected-region-caption" role="status"><strong>{boundaryView.loading?regionName:boundaryView.name||regionName}{!boundaryView.loading&&selectedDong?` › ${selectedDong}`:''}</strong><small>{boundaryView.loading?'경계 불러오는 중':boundaryView.name?`${selectedDong?'행정동 경계':'행정구역 경계'} · ${boundaryView.date}`:'경계 자료 미연결'}</small>{dongOptions.length>0&&!boundaryView.loading&&<select aria-label="행정동 범위 선택" value={dongOptions.find(row=>row.name===selectedDong)?.id??''} onChange={event=>selectDongRef.current?.(event.target.value,true)}><option value="">행정동 전체</option>{dongOptions.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select>}</div>}<div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
 });
 export default Map2D;

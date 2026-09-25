@@ -33,6 +33,16 @@ function heldDownloads(){
 }
 afterEach(()=>vi.useRealTimers());
 describe('the real same-origin map download service worker',()=>{
+  it('shares the same four slots with selected region boundary and dong assets',async()=>{
+    const transport=heldDownloads(),gate=harness(transport.fetcher);
+    const paths=['/data/map/tile.pmtiles','/assets/boundary-11130-Abcd1234.json','/assets/dongs-11130-Efgh5678.json','/data/property/rows.json','/assets/boundary-11-Ijkl9012.json'];
+    const responses=paths.map(path=>gate.request(path));
+    await flush();expect(gate.status()).toMatchObject({active:4,queued:1,peak:4});
+    expect(gate.request('/assets/unrelated-Abcd1234.json')).toBeUndefined();
+    expect(gate.request('/assets/boundary-private-Abcd1234.json')).toBeUndefined();
+    for(let i=0;i<paths.length;i++){transport.finish(transport.records[i]);await flush();}
+    await Promise.all(responses);expect(gate.status()).toMatchObject({active:0,completed:5,peak:4});
+  });
   it('holds the four shared slots through full bodies, including worker, image and tile paths',async()=>{
     const transport=heldDownloads(),gate=harness(transport.fetcher);
     const paths=['/data/terrain/0.terrain','/data/buildings/1.glb','/data/geometry/roads.geojson','/data/weather/frame.png','/data/index/city.json','/data/rail/2.geojson','/data/buildings/3.glb','/data/buildings/4.glb','/data/weather/5.png'];

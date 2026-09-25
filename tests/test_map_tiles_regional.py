@@ -161,3 +161,54 @@ def test_known_tile_transform_change_reuses_records_but_not_old_tiles_or_zoom_co
     assert target.execute("SELECT 1 FROM stages WHERE key='buildings-z14'").fetchone() is None
     assert target.execute("SELECT 1 FROM stages WHERE key='source-proof:test'").fetchone()
     target.close()
+
+
+def test_broader_display_preserves_donor_and_every_source_identity(tmp_path):
+    from pathlib import Path
+    import sqlite3
+    from pipeline.core import digest
+    from pipeline.map_tiles import pack_archives
+    from pipeline.map_tiles_regional import extend_display_zooms, V2_INGEST_TRANSFORM
+    base = tmp_path / 'base'; base.mkdir()
+    mask = box(127, 37.5, 127.01, 37.51)
+    assets = [source(tmp_path, 'building', 'buildings', [feature('tiny', box(127.001, 37.501, 127.00101, 37.50101)), feature('large', mask)]),
+              source(tmp_path, 'road', 'infrastructure', [feature('way/1', LineString([(127, 37.505), (127.01, 37.505)]), {'highway': 'residential'})])]
+    old = {'version': 'regional-detail-2', 'transform_sha256': V2_INGEST_TRANSFORM,
+           'tile_transform_sha256': digest(Path('pipeline/map_tiles.py')),
+           'zooms': {'buildings': [14, 14], 'detail-roads': [14, 14]}}
+    (base / 'inputs.json').write_bytes(encoded(old))
+    db = open_work(base / 'work/index.sqlite', sha(encoded(old)))
+    ingest_regional(db, assets, mask, transform(PROJECT.transform, mask), tmp_path)
+    before = db.execute('SELECT * FROM records ORDER BY n').fetchall()
+    topics = []; audits = {}; prefix = '/data/map-tiles/map2d-test'
+    for name in ('buildings', 'detail-roads'):
+        audits[name] = build_topic_tiles(db, name, tmp_path, (14, 14))
+        chunks = pack_archives(db.execute('SELECT tileid,body FROM tiles WHERE topic=? ORDER BY tileid', (name,)),
+                              name, list(mask.bounds), base / prefix.lstrip('/') / name, prefix + '/' + name)
+        topics.append({'id': name, 'minzoom': 14, 'maxzoom': 14, 'chunks': chunks, 'details': [],
+                       'bounds': list(mask.bounds), 'feature_count': 2 if name == 'buildings' else 1})
+    db.close()
+    catalog = base / prefix.lstrip('/') / 'catalog.json'
+    catalog.write_bytes(encoded({'release_id': 'map2d-test', 'topics': topics}))
+    files = [{'path': p.relative_to(base).as_posix(), 'sha256': digest(p), 'byte_length': p.stat().st_size}
+             for p in sorted((base / 'data').rglob('*')) if p.is_file()]
+    (base / 'publication.json').write_bytes(encoded({'status': 'validated', 'map_catalog': {
+        'path': catalog.relative_to(base).as_posix(), 'sha256': digest(catalog), 'release_id': 'map2d-test'},
+        'files': files, 'file_count': len(files), 'topics': audits}))
+    result = extend_display_zooms(base, tmp_path / 'new')
+    overviews = [name for name in result['topics'] if name.startswith('buildings-overview-')]
+    for zoom in ('12', '13'):
+        assert sum(result['topics'][name][zoom]['represented_feature_count'] for name in overviews) == 2
+        assert all(result['topics'][name][zoom]['every_source_id_represented'] for name in overviews)
+    for zoom in ('13',):
+        assert result['topics']['detail-roads'][zoom]['every_source_id_represented']
+    after = sqlite3.connect(base / 'work/index.sqlite')
+    assert after.execute('SELECT * FROM records ORDER BY n').fetchall() == before
+    assert after.execute('SELECT COUNT(*) FROM stages').fetchone()[0] == 4
+    after.close()
+    updated = json.loads((tmp_path / 'new' / result['map_catalog']['path']).read_bytes())
+    for topic, original in zip(updated['topics'], topics):
+        old_hashes = {r['sha256'] for r in original['chunks']}
+        assert old_hashes.issubset({r['sha256'] for r in topic['chunks']})
+    # Resuming only consumes committed new zooms and leaves the donor unchanged.
+    assert extend_display_zooms(base, tmp_path / 'new')['map_catalog'] == result['map_catalog']

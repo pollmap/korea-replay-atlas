@@ -204,7 +204,7 @@ const gate = new MapDownloadGate();
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin || !url.pathname.startsWith('/data/')) return;
+  if (url.origin !== self.location.origin || !(url.pathname.startsWith('/data/')||/^\/assets\/(?:boundary-\d{2,8}|dongs-\d{5})-[A-Za-z0-9_-]{8}\.json$/.test(url.pathname))) return;
   event.respondWith(gate.enqueue(event.request));
 });
 self.addEventListener('message', event => {

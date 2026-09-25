@@ -38,6 +38,100 @@ DETAIL_SOURCES = (
      'description': '상세 속성에 보존된 2018년 100m 격자 평균 추정 높이. 개별 건물 실측 높이가 아닙니다.'},
 )
 
+# Fixed, deterministic partitions bound individual low-zoom building tiles.
+# All source geometry and IDs remain available, without a raised decode budget.
+OVERVIEW_PARTITIONS = 4
+DISPLAY_ZOOMS = {**{f'buildings-overview-{i}': 12 for i in range(OVERVIEW_PARTITIONS)}, 'detail-roads': 13}
+V2_INGEST_TRANSFORM = '485e7253cb56cbff20e84b99c54f4b97fc46992fdba1b78729b40e0513024549'
+
+
+def extend_display_zooms(baseline, output):
+    """Add broader detail tiles using a read-only, pinned geometry index.
+
+    Existing z14 tiles, source geometry, details and unrelated map themes are
+    reused byte-for-byte. Temporary SQLite views change only display minzoom;
+    neither the donor index nor its minzoom values are mutated.
+    """
+    baseline = Path(baseline).resolve(); output = Path(output).resolve()
+    require(output != baseline and not output.is_relative_to(baseline), 'Output must be separate from baseline')
+    publication, catalog = load_baseline(baseline)
+    old = json.loads((baseline / 'inputs.json').read_bytes())
+    require(old.get('version') == 'regional-detail-2' and old.get('transform_sha256') == V2_INGEST_TRANSFORM,
+            'Unapproved regional geometry donor')
+    require(old.get('tile_transform_sha256') == digest(Path(__file__).with_name('map_tiles.py')), 'Tile renderer differs from donor')
+    require(old.get('zooms') == {t: [14, 14] for t in ZOOMS}, 'Unexpected donor zooms')
+    identity = {'version': 'regional-display-zoom-1', 'baseline_catalog_sha256': publication['map_catalog']['sha256'],
+        'donor_inputs_sha256': digest(baseline / 'inputs.json'), 'display_minzooms': DISPLAY_ZOOMS,
+        'transform_sha256': digest(Path(__file__)), 'tile_transform_sha256': old['tile_transform_sha256']}
+    fingerprint = sha(encoded(identity)); release = 'map2d-' + fingerprint[:20]
+    output.mkdir(parents=True, exist_ok=True); immutable(output / 'inputs.json', identity)
+    work = output / 'work'; db = open_work(work / 'index.sqlite', fingerprint)
+    db.execute('ATTACH DATABASE ? AS donor', (f'file:{(baseline / "work/index.sqlite").as_posix()}?mode=ro',))
+    require(db.execute("SELECT value FROM donor.meta WHERE key='fingerprint'").fetchone() == (sha(encoded(old)),), 'Donor fingerprint differs')
+    db.execute('CREATE TEMP VIEW spatial AS SELECT * FROM donor.spatial')
+    db.execute("""CREATE TEMP VIEW records AS SELECT n,
+        CASE WHEN topic='buildings' THEN 'buildings-overview-' || ((instr('0123456789abcdef',substr(stable,1,1))-1)%4) ELSE topic END AS topic,
+        stable,geom,record,render,CASE topic WHEN 'detail-roads' THEN 13 ELSE 12 END AS minzoom FROM donor.records""")
+    topics = deepcopy(catalog['topics']); audits = deepcopy(publication['topics'])
+    old_prefix = '/data/map-tiles/' + catalog['release_id'] + '/'
+    prefix = '/data/map-tiles/' + release; base = output / prefix.lstrip('/')
+    reused = 0
+    try:
+        for topic in topics:
+            for ref in topic['chunks'] + topic['details']:
+                require(ref['url'].startswith(old_prefix), 'Unexpected donor asset URL')
+                original = local_path(baseline, ref['url'].lstrip('/'))
+                ref['url'] = prefix + '/' + ref['url'][len(old_prefix):]
+                target = local_path(output, ref['url'].lstrip('/'))
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if not target.exists(): os.link(original, target)
+                require(digest(target) == ref['sha256'], 'Reused map asset differs')
+                reused += 1
+        original_buildings = next(t for t in topics if t['id'] == 'buildings')
+        partition_count = 0
+        for i in range(OVERVIEW_PARTITIONS):
+            name = f'buildings-overview-{i}'
+            count = db.execute('SELECT COUNT(*) FROM records WHERE topic=?', (name,)).fetchone()[0]
+            partition_count += count
+            if not count: continue
+            topics.append({**deepcopy(original_buildings), 'id': name, 'source_layer': name,
+                'chunks': [], 'details': [], 'detail_topic_id': 'buildings', 'feature_count': count, 'display_partition_of': 'buildings',
+                'description': '원본 건물 윤곽 · 넓은 지도 범위', 'maxzoom': 13})
+            audits[name] = {}
+        require(partition_count == original_buildings['feature_count'], 'Building partition identity count differs')
+        for topic in topics:
+            if topic['id'] not in DISPLAY_ZOOMS: continue
+            name = topic['id']; minimum = DISPLAY_ZOOMS[name]
+            require(topic['minzoom'] == 14, 'Unexpected published detail zooms')
+            count = db.execute('SELECT COUNT(*) FROM records WHERE topic=?', (name,)).fetchone()[0]
+            require(count == topic['feature_count'], 'Donor geometry count differs')
+            # Each zoom independently proves all source IDs were represented.
+            for zoom in range(minimum, 14):
+                audits[name].update(build_topic_tiles(db, name, work, (zoom, zoom)))
+            additions = pack_archives(db.execute('SELECT tileid,body FROM tiles WHERE topic=? ORDER BY tileid', (name,)),
+                name, topic['bounds'], base / name / 'overview', prefix + '/' + name + '/overview')
+            topic['chunks'] = sorted(additions + topic['chunks'], key=lambda ref: ref['first_tile_id'])
+            require(all(a['last_tile_id'] < b['first_tile_id'] for a, b in zip(topic['chunks'], topic['chunks'][1:])), 'Overview tile ranges overlap')
+            topic['minzoom'] = minimum
+            print(json.dumps({'stage': 'detail-overview-packed', 'topic': name, 'minzoom': minimum,
+                'features': count, 'new_chunks': len(additions)}), flush=True)
+    finally:
+        db.close()
+    result = {**catalog, 'release_id': release, 'topics': topics, 'display_zoom_extension': {
+        'source_geometry_unchanged': True, 'existing_assets_unchanged': True, 'minzooms': DISPLAY_ZOOMS,
+        'building_partitions': OVERVIEW_PARTITIONS,
+        'reason': 'Four fixed source-ID partitions keep all low-zoom building geometry inside the 1 MiB decoded tile budget.'}}
+    ref = immutable(base / 'catalog.json', result)
+    files = [{'path': p.relative_to(output).as_posix(), 'sha256': digest(p), 'byte_length': p.stat().st_size}
+        for p in sorted(base.rglob('*')) if p.is_file()]
+    require(len(files) < 3870 and all(f['byte_length'] <= HARD for f in files), 'Map file count/size budget exceeded')
+    report = {**publication, 'profile': 'national-basemap-regional-detail-overview',
+        'map_catalog': {'path': (base / 'catalog.json').relative_to(output).as_posix(), 'sha256': ref['sha256'], 'release_id': release},
+        'files': files, 'file_count': len(files), 'bytes': sum(f['byte_length'] for f in files),
+        'sources': identity, 'topics': audits, 'reused_file_count': reused}
+    immutable(output / 'publication.json', report)
+    return report
+
 
 def reuse_v1_index(db, donor, current):
     """Copy one pinned v1 transform's complete original geometry index.
@@ -250,8 +344,9 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--regions', nargs='+', default=list(DEFAULT_REGIONS))
     parser.add_argument('--reuse-index', type=Path, help='Complete pinned v1 source index; changed tile transforms rebuild tiles')
+    parser.add_argument('--extend-display', action='store_true', help='Extend a validated v2 regional candidate to broader display zooms')
     args = parser.parse_args()
-    report = build(args.baseline, args.output, tuple(args.regions), args.reuse_index)
+    report = extend_display_zooms(args.baseline, args.output) if args.extend_display else build(args.baseline, args.output, tuple(args.regions), args.reuse_index)
     print(json.dumps({k: report[k] for k in ('status', 'file_count', 'bytes', 'map_catalog')}, ensure_ascii=False))
 
 

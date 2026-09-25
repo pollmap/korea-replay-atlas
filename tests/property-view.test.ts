@@ -2,6 +2,11 @@ import {expect,it} from 'vitest';
 import {readPropertyView,transactionCsv,moneyLabel,propertyRowsView,propertyAreaOptions,transactionRows} from '../shared/property-view';
 import type {PropertyTransaction} from '../shared/property';
 const period={from:'202109',to:'202609',latest_complete_month:'202608'};
+it('restores a province search without inventing a district code',()=>{
+  expect(readPropertyView('#regionQuery='+encodeURIComponent('서울특별시'),period)).toMatchObject({regionQuery:'서울특별시',region:''});
+  expect(readPropertyView('#regionQuery='+encodeURIComponent('x'.repeat(81)),period).regionQuery).toBeUndefined();
+  expect(readPropertyView('#regionQuery=%00서울',period).regionQuery).toBeUndefined();
+});
 it('restores valid filters and bounds malicious or unavailable share parameters',()=>{
   expect(readPropertyView('#regionCode=11110&month=202602&trade=rent&area=84.99&complex=molit-apt:11110:old-code',period)).toMatchObject({region:'11110',month:'202602',trade:'rent',area:'84.99',complex:'molit-apt:11110:old-code'});
   for(const month of ['202613','202010','hello','202699'])expect(readPropertyView('#month='+month,period).month).toBe('202608');

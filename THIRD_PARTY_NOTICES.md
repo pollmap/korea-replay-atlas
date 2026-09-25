@@ -37,3 +37,7 @@
 ## 공개 전 확인
 
 소스 저장소 공개는 데이터 공개와 별개입니다. `scripts/pages-public-audit.mjs`는 현재 추적 파일과 모든 Git 이력의 비밀·개인 식별정보 후보를 값 출력 없이 보고합니다. 자동 패턴 검사만으로 비밀 부재나 모든 데이터 이용권이 입증되지는 않습니다. 검수한 공개 후보, Git 메타데이터, 예제 환경파일, 고지 파일을 함께 확인해야 합니다.
+
+`shared/data/map2d-rail-colors.json`은 OSM 노선 관계에서 추출한 파생 식별표이며 ODbL 1.0이 적용됩니다. 자체 코드의 MIT 라이선스와 별개입니다. 원본 버전·SHA와 노선별 관계 근거는 해당 JSON 및 `docs/MAP2D_RAIL_COLORS.md`에 보존합니다.
+
+`src/data/region-selection*.json`과 경계 자산 폴더는 SGIS 2025-06-30 행정구역 원본의 표시용 파생자료입니다. 원천 공개 조건(이용허락범위 제한 없음), 원본 SHA·기준일·표시 오차는 `docs/SELECTED_REGION_BOUNDARIES.md`에 기록하며 자체 코드 MIT와 구분합니다.

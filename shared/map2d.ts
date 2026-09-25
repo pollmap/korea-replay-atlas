@@ -1,3 +1,4 @@
+import {map2DRailColor} from './map2d-rail-style';
 import type {Asset,BBox,LayerId} from './contracts';
 import {AssetLoadQueue} from './asset-loader';
 import {assertGeometryVertexBudget,resolveFeatureProperties,type GeoCollection,type GeoGeometry,type GeoMetadata,type RenderFeature} from './geometry';
@@ -135,7 +136,7 @@ export async function prepareMap2DData(asset:Asset,bytes:ArrayBuffer,signal?:Abo
     records.push({id:sourceId,properties:raw});
     if(!feature.geometry)return [];
     vertexCount+=validateGeometry(feature.geometry);
-    return [{type:'Feature' as const,id:feature.id??sourceId,geometry:feature.geometry,properties:{map2d_index:index,map2d_category:category(asset,read('kind')),map2d_road:map2DRoadClass(read('highway')??read('class'))}}];
+    return [{type:'Feature' as const,id:feature.id??sourceId,geometry:feature.geometry,properties:{map2d_index:index,map2d_category:category(asset,read('kind')),map2d_road:map2DRoadClass(read('highway')??read('class')),...(category(asset,read('kind'))==='rail'?{map2d_rail_color:map2DRailColor({name:read('name'),source_id:asset.source_id},sourceId)}:{})}}];
   });
   assertGeometryVertexBudget({vertexCount},asset);
   const encoded=new TextEncoder().encode(JSON.stringify({type:'FeatureCollection',features}));

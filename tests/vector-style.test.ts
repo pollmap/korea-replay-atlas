@@ -1,11 +1,32 @@
 import {describe,expect,it} from 'vitest';
 import {vectorLayers} from '../src/vector-style';
 import {mapCoverageLabel,validateMapCatalog2D,type MapTileTopic,type MapCatalog2D} from '../shared/map-tiles';
+import {validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
+import {map2DRailColorExpression} from '../shared/map2d-rail-style';
 
 const topic=(id:string):MapTileTopic=>({id,source_layer:id,minzoom:14,maxzoom:14,
   feature_count:1,bounds:[126,37,128,38],chunks:[],details:[],description:'test',geometry_precision:'display'});
 
+describe('2D rail presentation',()=>{
+  it('uses one route colour expression for lines, station borders and labels',()=>{
+    const layers=vectorLayers(topic('rail'),'rail');
+    expect(layers.find(l=>l.type==='line')?.paint).toMatchObject({'line-color':map2DRailColorExpression()});
+    expect(layers.find(l=>l.type==='circle')?.paint).toMatchObject({'circle-color':'#ffffff','circle-stroke-color':map2DRailColorExpression()});
+    expect(layers.find(l=>l.type==='symbol')?.paint).toMatchObject({'text-color':map2DRailColorExpression()});
+    expect(validateStyleMin({version:8,glyphs:'https://example.com/{fontstack}/{range}.pbf',sources:{rail:{type:'vector',tiles:['https://example.com/{z}/{x}/{y}.mvt']}},layers})).toEqual([]);
+  });
+});
+
 describe('regional detailed roads',()=>{
+  it('uses fixed building overview partitions only until the original z14 detail takes over',()=>{
+    const original=vectorLayers(topic('buildings'),'buildings');
+    const layers=Array.from({length:4},(_,i)=>vectorLayers(topic(`buildings-overview-${i}`),`overview-${i}`)).flat();
+    expect(layers).toHaveLength(original.length*4);
+    expect(new Set(layers.map(l=>l.id)).size).toBe(layers.length);
+    for(const layer of layers)expect(layer).toMatchObject({minzoom:12,maxzoom:14});
+    expect(original.every(l=>l.maxzoom===undefined)).toBe(true);
+    expect(layers.filter(l=>l.type==='fill')).toHaveLength(4);
+  });
   it('uses road classification and line labels with its own source identity',()=>{
     const base=vectorLayers(topic('roads'),'vector-roads');
     const detail=vectorLayers(topic('detail-roads'),'vector-detail-roads');
