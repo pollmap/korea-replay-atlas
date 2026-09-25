@@ -24,7 +24,7 @@ function atlas():AtlasContent{return {
 afterEach(()=>vi.unstubAllGlobals());
 
 it('does not call unrequested price-card observations zero transactions',()=>{
-  const detail={release_id:release} as PropertyRegionDetail;
+  const detail={release_id:release,period,partitions:[]} as unknown as PropertyRegionDetail;
   const complex={id:'molit-apt:11110:test'} as PropertyComplex;
   const html=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'',onArea:()=>{},range:3,onRange:()=>{},includeReview:false}));
   expect(html).toContain('자료 확인 전');
@@ -48,4 +48,15 @@ it('keeps comparison removal available before the request succeeds and preserves
   expect(html).toContain('비교 자료를 불러오는 중');expect(html).toContain('aria-label="검증용 단지 단지 비교 제외"');
   expect(html).toMatch(/<option value="108\.55" selected="">108\.55 ㎡ · 자료 확인 전<\/option>/);
   expect(html).not.toContain('<td>0건</td>');
+});
+
+it('shows ten-year detail and comparison periods without claiming ten years are collected',()=>{
+  const detail={release_id:release,period,partitions:[]} as unknown as PropertyRegionDetail;
+  const complex={id:'molit-apt:11110:test',lawd_code:'11110',name:'검증 단지'} as PropertyComplex;
+  const history=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'84-band',onArea:()=>{},range:120,onRange:()=>{},includeReview:false,onMonth:()=>{}}));
+  expect(history).toContain('최근 10년');expect(history).toContain('게시 0/120개월');
+  expect(history).toContain('이 거래 유형의 게시 자료가 없습니다.');expect(history).toContain('거래 기간 이동');
+  const comparison=renderToStaticMarkup(createElement(ComplexComparison,{atlas:atlas(),items:[complex],month:'202608',range:120,onRange:()=>{},trade:'sale',area:'84-band',onArea:()=>{},onRemove:()=>{}}));
+  expect(comparison).toContain('2016.09–2026.08');expect(comparison).toContain('비교 조회 기간');
+  expect(comparison).not.toContain('0건');
 });

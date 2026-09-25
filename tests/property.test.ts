@@ -60,6 +60,29 @@ describe('property release source and coverage contract',()=>{
     expect(()=>parsePropertyRegionDetail({...value,metrics:[{...pendingMetric,deal_month:'202608'}]})).toThrow();
     expect(()=>parsePropertyRegionDetail({...value,metrics:[{...pendingMetric,complex_count:0}]})).toThrow();
   });
+  it('accepts ten years plus provisional data and continued monthly archive growth, with bounded scopes',()=>{
+    const build=(count:number)=>{
+      const metrics=Array.from({length:count},(_,index)=>{
+        const date=new Date(Date.UTC(2016,8+index,1));
+        const deal_month=`${date.getUTCFullYear()}${String(date.getUTCMonth()+1).padStart(2,'0')}`;
+        return (['sale','rent'] as const).map(trade_type=>({...pendingMetric,deal_month,trade_type,cancellation_policy:trade_type==='sale'?'exclude_cancelled_and_unknown':'source_not_provided'}));
+      }).flat();
+      return {schema_version:1,kind:'property-region',release_id:release,lawd_code:'11110',name:'검증 지역',
+        period:{from:'201609',to:metrics.at(-1)!.deal_month,latest_complete_month:metrics.at(-3)!.deal_month},
+        coverage:{...coverage,expected:metrics.length,complete:0,pending:metrics.length},metrics,complexes:null,
+        partitions:metrics.map(metric=>({lawd_code:'11110',deal_month:metric.deal_month,trade_type:metric.trade_type,status:'pending',source_rows:null,eligible_rows:null,retrieved_at:null,transactions:[],error_code:null}))};
+    };
+    expect(parsePropertyRegionDetail(build(121)).partitions).toHaveLength(242);
+    expect(parsePropertyRegionDetail(build(122)).partitions).toHaveLength(244);
+    const duplicate=build(122);duplicate.metrics[1]={...duplicate.metrics[0]};duplicate.partitions[1]={...duplicate.partitions[0]};
+    expect(()=>parsePropertyRegionDetail(duplicate)).toThrow();
+    const outside=build(122);outside.period.to='202608';
+    expect(()=>parsePropertyRegionDetail(outside)).toThrow();
+    const overlong=build(122);overlong.period.to='220001';
+    expect(()=>parsePropertyRegionDetail(overlong)).toThrow();
+    const latest=build(122);latest.period.latest_complete_month='220001';
+    expect(()=>parsePropertyRegionDetail(latest)).toThrow();
+  });
 });
 
 describe('property reported transactions',()=>{

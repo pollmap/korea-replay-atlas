@@ -1,4 +1,4 @@
-import {beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {parsePropertyMapPoints} from '../shared/property-map-point';
@@ -9,6 +9,7 @@ const raw=readFileSync(new URL('../src/data/seoul-property-navigation.json',impo
 const source=JSON.parse(readFileSync(new URL('../src/data/seoul-kapt-points-b63b62af834062de.geojson',import.meta.url),'utf8'));
 const helio='molit-apt:11710:11710-8865';
 beforeEach(()=>{vi.resetModules();request.mockReset();});
+afterEach(()=>vi.useRealTimers());
 it('preserves every linked source coordinate exactly, with separate provisional geometry status',()=>{
   expect(createHash('sha256').update(raw).digest('hex')).toBe(manifest.sha256);
   expect(Buffer.byteLength(raw)).toBe(manifest.bytes);expect(manifest.bytes).toBeLessThan(64*1024);
@@ -51,4 +52,35 @@ it('rejects corrupted bytes and allows an explicit retry after failure',async()=
   await expect(findPropertyMapPoint(helio,manifest.release_id)).rejects.toThrow('검증');
   expect((await findPropertyMapPoint(helio,manifest.release_id))?.kaptCode).toBe('A10025850');
   expect(request).toHaveBeenCalledTimes(2);
+});
+it('keeps concurrent releases in separate caches and does not reuse an identical complex ID',async()=>{
+  const nextRelease='property-1111111111111111',next=JSON.parse(raw);
+  next.property_release_id=nextRelease;
+  next.points.find((row:string[])=>row[0]===helio)[2]=127.11;
+  const nextRaw=JSON.stringify(next),nextManifest={...manifest,release_id:nextRelease,sha256:createHash('sha256').update(nextRaw).digest('hex'),bytes:Buffer.byteLength(nextRaw)};
+  const {createPropertyMapPointLookup}=await import('../src/property-map-points');
+  const fetcher=vi.fn(async(input:RequestInfo|URL)=>new Response(String(input)==='/old.json'?raw:nextRaw));
+  const lookup=createPropertyMapPointLookup([{manifest,url:'/old.json'},{manifest:nextManifest,url:'/next.json'}],fetcher);
+  const [old,newer]=await Promise.all([lookup.find(helio,manifest.release_id),lookup.find(helio,nextRelease)]);
+  expect(old?.releaseId).toBe(manifest.release_id);expect(newer?.releaseId).toBe(nextRelease);
+  expect(newer?.longitude).toBe(127.11);expect(old?.longitude).not.toBe(newer?.longitude);
+  expect(await lookup.find(helio,'property-2222222222222222')).toBeNull();
+  expect(await lookup.find(helio,manifest.release_id)).toBe(old);expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(()=>createPropertyMapPointLookup([{manifest,url:'/old.json'},{manifest,url:'/duplicate.json'}])).toThrow();
+});
+it('rejects a matching old payload under a new release even when its byte hash is correct',async()=>{
+  const {createPropertyMapPointLookup}=await import('../src/property-map-points');
+  const release='property-1111111111111111';
+  const lookup=createPropertyMapPointLookup([{manifest:{...manifest,release_id:release},url:'/wrong.json'}],async()=>new Response(raw));
+  await expect(lookup.find(helio,release)).rejects.toThrow('검증된 버전');
+});
+it('expires an orphaned pending request so a retry can start',async()=>{
+  vi.useFakeTimers();
+  const {createPropertyMapPointLookup}=await import('../src/property-map-points');
+  const fetcher=vi.fn<typeof fetch>().mockImplementationOnce(()=>new Promise(()=>{})).mockImplementationOnce(async()=>new Response(raw));
+  const lookup=createPropertyMapPointLookup([{manifest,url:'/old.json'}],fetcher);
+  const first=lookup.find(helio,manifest.release_id),rejected=expect(first).rejects.toThrow('시간이 초과');
+  await vi.advanceTimersByTimeAsync(30000);await rejected;
+  expect((await lookup.find(helio,manifest.release_id))?.kaptCode).toBe('A10025850');
+  expect(fetcher).toHaveBeenCalledTimes(2);
 });

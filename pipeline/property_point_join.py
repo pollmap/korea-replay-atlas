@@ -197,7 +197,30 @@ def _property_complexes(property_root: Path):
     return release, codes, complexes
 
 
-def _sale_rows(checkpoint: Path, *, start: str, end: str):
+def _twelve_months(end: str) -> tuple[str, ...]:
+    if not isinstance(end, str) or not re.fullmatch(r'20\d{2}(?:0[1-9]|1[0-2])', end):
+        raise ValueError('unexpected_property_release_window')
+    last = int(end[:4]) * 12 + int(end[4:]) - 1
+    return tuple(f'{month // 12:04d}{month % 12 + 1:02d}' for month in range(last - 11, last + 1))
+
+
+def _release_sale_window(property_root: Path) -> tuple[str, ...]:
+    manifest = json.loads((property_root / 'manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('kind') != 'property-release' or manifest.get('release_id') != property_root.name:
+        raise ValueError('unexpected_property_release_window')
+    period = manifest.get('period', {})
+    months = _twelve_months(period.get('latest_complete_month'))
+    for key in ('from', 'to'):
+        _twelve_months(period.get(key))
+    if not period['from'] <= months[0] <= months[-1] <= period['to']:
+        raise ValueError('incomplete_sale_marker_window')
+    return months
+
+
+def _sale_rows(checkpoint: Path, *, start: str, end: str, district_codes: set[str]):
+    months = _twelve_months(end)
+    if start != months[0] or len(district_codes) != 25 or any(not re.fullmatch(r'11\d{3}', code) for code in district_codes):
+        raise ValueError('incomplete_seoul_sale_window')
     db = sqlite3.connect((checkpoint / 'checkpoint.sqlite').resolve().as_uri() + '?mode=ro', uri=True)
     db.row_factory = sqlite3.Row
     try:
@@ -206,8 +229,9 @@ def _sale_rows(checkpoint: Path, *, start: str, end: str):
             "AND trade_type='sale' AND deal_month BETWEEN ? AND ? ORDER BY lawd_code,deal_month", (start, end))]
     finally:
         db.close()
-    if (len(jobs) != 25 * 12 or any(job['status'] != 'complete' for job in jobs)
-            or len({(job['lawd_code'], job['deal_month']) for job in jobs}) != len(jobs)):
+    expected = {(code, month) for code in district_codes for month in months}
+    if (len(jobs) != len(expected) or any(job['status'] != 'complete' for job in jobs)
+            or {(job['lawd_code'], job['deal_month']) for job in jobs} != expected):
         raise ValueError('incomplete_seoul_sale_window')
     rows, hashes = [], []
     for job in jobs:
@@ -240,22 +264,29 @@ def recent_sale_markers(property_root: Path, linked_complexes: set[str]) -> dict
     """Read verified release partitions; label a single latest eligible report, never a valuation."""
     release = property_root.name
     root = json.loads((property_root / 'regions.json').read_text(encoding='utf-8'))
-    end = '202608'
+    months = _release_sale_window(property_root)
+    start, end = months[0], months[-1]
     if root['release_id'] != release:
         raise ValueError('unexpected_property_release_window')
     best: dict[str, dict] = {}
     checked = 0
+    seen_codes = set()
     for region in root['regions']:
         code = region['lawd_code']
         if not re.fullmatch(r'11\d{3}', code):
             continue
+        if code in seen_codes:
+            raise ValueError('duplicate_seoul_district')
+        seen_codes.add(code)
         descriptor = region['index']
         body = _read_hash(property_root / 'regions' / f'{code}.json', descriptor['sha256'], 4 * 1024**2)
         index = json.loads(body)
-        if index['period']['latest_complete_month'] != end:
+        if (index.get('release_id') != release or index.get('lawd_code') != code
+                or index['period']['latest_complete_month'] != end):
             raise ValueError('unexpected_property_release_window')
-        parts = [part for part in index['partitions'] if part['trade_type'] == 'sale' and '202509' <= part['deal_month'] <= end]
-        if len(parts) != 12 or any(part['status'] != 'complete' for part in parts):
+        parts = [part for part in index['partitions'] if part['trade_type'] == 'sale' and start <= part['deal_month'] <= end]
+        if (len(parts) != 12 or {part['deal_month'] for part in parts} != set(months)
+                or any(part['status'] != 'complete' for part in parts)):
             raise ValueError('incomplete_sale_marker_window')
         for part in parts:
             count = 0
@@ -283,7 +314,7 @@ def recent_sale_markers(property_root: Path, linked_complexes: set[str]) -> dict
             if count != part['source_rows']:
                 raise ValueError(f'sale_marker_row_count_mismatch:{code}:{part["deal_month"]}:{count}:{part["source_rows"]}')
             checked += 1
-    if checked != 300:
+    if len(seen_codes) != 25 or checked != 300:
         raise ValueError('incomplete_seoul_sale_markers')
     return best
 
@@ -292,7 +323,8 @@ def build(collection: Path, checkpoint: Path, property_root: Path, old_points: P
     old = json.loads(_read_hash(old_points, OLD_POINTS_SHA, 1024**2))
     rows, seoul_hashes = _seoul_rows(collection)
     release, codes, complexes = _property_complexes(property_root)
-    sales, sale_hashes = _sale_rows(checkpoint, start='202509', end='202608')
+    months = _release_sale_window(property_root)
+    sales, sale_hashes = _sale_rows(checkpoint, start=months[0], end=months[-1], district_codes=set(codes.values()))
     matches, audit = match_identities(rows, sales, codes, complexes)
     recent = recent_sale_markers(property_root, set(matches.values()))
     seen = set()

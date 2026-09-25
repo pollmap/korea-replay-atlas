@@ -106,8 +106,12 @@ function coverage(v:unknown):v is PropertyCoverage{return obj(v)
   &&['expected','complete','empty','failed','pending','partial'].every(k=>nat(v[k]))
   &&v.expected===(v.complete as number)+(v.empty as number)+(v.failed as number)+(v.pending as number)+(v.partial as number)
   &&v.historical_coverage==='current_codes_only_pending_effective_date_crosswalk';}
+/** Stored releases can grow past the UI's 120-month window; retain a finite input bound. */
+export const MAX_PROPERTY_PERIOD_MONTHS=1200;
+function periodMonths(from:string,to:string):number{return (Number(to.slice(0,4))-Number(from.slice(0,4)))*12+Number(to.slice(4))-Number(from.slice(4))+1;}
 function period(v:unknown):v is PropertyPeriod{return obj(v)&&month(v.from)&&month(v.to)&&month(v.latest_complete_month)
-  &&v.from<=v.to&&v.latest_complete_month>=v.from&&v.latest_complete_month<=v.to;}
+  &&v.from<=v.to&&v.latest_complete_month>=v.from&&v.latest_complete_month<=v.to
+  &&periodMonths(v.from,v.to)<=MAX_PROPERTY_PERIOD_MONTHS;}
 function base(v:unknown,kind:string):v is Record<string,unknown>{return obj(v)&&v.schema_version===1&&v.kind===kind
   &&typeof v.release_id==='string'&&RELEASE.test(v.release_id);}
 function nullableNat(v:unknown):boolean{return v===null||nat(v);}
@@ -157,7 +161,7 @@ export function parsePropertyRegionDetail(v:unknown):PropertyRegionDetail{
   if(!base(v,'property-region')||!code(v.lawd_code)||!text(v.name)||!period(v.period)||!coverage(v.coverage)
     ||!(v.complexes===null||asset(v.complexes)&&ownAsset(v.complexes,v.release_id))
     ||!Array.isArray(v.metrics)||!v.metrics.every(m=>metric(m)&&m.lawd_code===v.lawd_code)
-    ||!Array.isArray(v.partitions)||v.partitions.length>122||v.partitions.length!==v.metrics.length)return fail();
+    ||!Array.isArray(v.partitions)||v.partitions.length>periodMonths(v.period.from,v.period.to)*2||v.partitions.length!==v.metrics.length)return fail();
   const seen=new Set<string>(),metrics=new Map<string,RegionMetric>();
   for(const m of v.metrics as RegionMetric[]){const key=`${m.deal_month}/${m.trade_type}`;
     if(metrics.has(key)||m.deal_month<v.period.from||m.deal_month>v.period.to)return fail();metrics.set(key,m);}
