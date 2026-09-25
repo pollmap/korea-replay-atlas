@@ -4,6 +4,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {discoverPropertyComplexes,EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDiscoveryDongs,type PropertyDiscoveryFilters} from '../shared/property-discovery';
 import type {PropertyComplex,PropertyTransaction} from '../shared/property';
 import PropertyComplexList from '../src/PropertyComplexList';
+import {propertyFilterChips} from '../shared/property-filter-chips';
 
 const complex=(id:string,overrides:Partial<PropertyComplex>={}):PropertyComplex=>({
   id:`molit-apt:11110:${id}`,source_complex_id:id,lawd_code:'11110',name:'해 뜨는 아파트',
@@ -24,6 +25,24 @@ const filters=(overrides:Partial<PropertyDiscoveryFilters>={}):PropertyDiscovery
 const search=(complexes:PropertyComplex[],rows:PropertyTransaction[],overrides:Partial<PropertyDiscoveryFilters>={},ready=true,trade:'sale'|'rent'='sale')=>discoverPropertyComplexes(complexes,rows,ready,trade,filters(overrides));
 
 describe('property discovery provenance and filtering',()=>{
+  it('only hides no-trade complexes after the month is verified and never counts cancelled contracts',()=>{
+    const complexes=[complex('a'),complex('b'),complex('c')];
+    const rows=[transaction('valid','a'),transaction('cancelled','b',{cancellation:'cancelled'})];
+    expect(search(complexes,rows,{hasTrades:true}).items.map(item=>item.complex.source_complex_id)).toEqual(['a']);
+    const pending=search(complexes,rows,{hasTrades:true},false);
+    expect(pending.items).toHaveLength(3);
+    expect(pending.items.every(item=>item.count===null)).toBe(true);
+    expect(pending.transactionFiltersPending).toBe(true);
+  });
+  it('removes one active filter without changing the other conditions or sort order',()=>{
+    const state=filters({query:'해뜨는',dong:'청운동',priceMinEok:'3',priceMaxEok:'5',areaMinM2:'84',areaMaxM2:'84.99999',hasTrades:true,sort:'price-low'});
+    const chips=propertyFilterChips(state,'sale');
+    expect(chips.map(item=>item.label)).toEqual(['검색 해뜨는','청운동','매매 3–5억','전용 84㎡대','거래 있는 단지']);
+    const next={...state,...chips.find(item=>item.id==='price')!.clear};
+    expect(next).toMatchObject({priceMinEok:'',priceMaxEok:'',areaMinM2:'84',hasTrades:true,sort:'price-low',dong:'청운동'});
+    expect(propertyFilterChips(filters({priceMaxEok:'0',hasTrades:false}),'rent').map(item=>item.label)).toEqual(['보증금 0억 이하']);
+    expect(propertyFilterChips(filters({sort:'count'}),'sale')).toEqual([]);
+  });
   it('sorts by latest exclusive unit price rather than total and leaves unknown prices last',()=>{
     const rows=[transaction('a','a',{area_m2:'50',price_krw:5e8}),transaction('b','b',{area_m2:'100',price_krw:6e8})];
     expect(search([complex('a'),complex('b'),complex('c')],rows,{sort:'pyeong-low'}).items.map(item=>item.complex.source_complex_id)).toEqual(['b','a','c']);
