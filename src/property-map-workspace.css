@@ -1,0 +1,45 @@
+/* 2D apartment workspace only. The existing 3D and replay layouts are untouched. */
+.atlas-shell.is-2d.is-exploring .property-region-picker{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:7px 16px;border-bottom:1px solid #e3e0f1;background:#fff;color:#7b7495}
+.property-region-picker label{flex:1;min-width:0}.property-region-picker select{width:100%;min-height:40px;border:0;border-radius:5px;background:#f6f5fa;color:#302b4d;font-family:inherit;font-weight:600;font-size:12px;padding:0 8px;text-overflow:ellipsis}.property-region-picker select:disabled{color:#888294}
+.atlas-shell.is-2d.is-exploring .property-header{padding:12px 16px;background:#fff}
+.atlas-shell.is-2d.is-exploring .property-header h2{font-size:20px;letter-spacing:-.6px;margin-top:2px}
+.atlas-shell.is-2d.is-exploring .property-header .eyebrow{display:none}
+.atlas-shell.is-2d.is-exploring .property-type-switch{margin-top:8px;padding:0;background:transparent}
+.atlas-shell.is-2d.is-exploring .property-type-switch button{border:1px solid #e3dff1;border-radius:5px;min-height:34px}
+.atlas-shell.is-2d.is-exploring .property-type-switch button[aria-pressed=true]{color:#5145cd;background:#f0edff;border-color:#b8aee9;box-shadow:none}
+.atlas-shell.is-2d.is-exploring .property-body{padding-inline:16px}
+.atlas-shell.is-2d.is-exploring .region-shortcuts{margin-inline:-16px;padding-inline:16px}
+.atlas-shell.is-2d.is-exploring .property-body .national-stat{display:grid;grid-template-columns:1fr auto;align-items:center;padding:4px 0 12px;gap:4px}
+.atlas-shell.is-2d.is-exploring .national-stat>span:last-child{grid-column:1/-1}
+.atlas-shell.is-2d.is-exploring .property-body .national-stat strong{font-size:27px;margin:0}
+.atlas-shell.is-2d.is-exploring .dashboard-nav{min-height:40px;background:#faf9fd}
+.atlas-shell.is-2d.is-exploring .dashboard-nav button{min-height:40px}
+.atlas-shell.is-2d.is-exploring .showing-complex .dashboard-nav{display:none}
+.atlas-shell.is-2d.is-exploring .complex-identity{background:#fff}
+.atlas-shell.is-2d.is-exploring .property-provider-location{margin:8px 0 4px;padding:6px 8px;min-height:34px;border:0;border-radius:4px;font-size:11px;background:#faf7ef}
+.atlas-shell.is-2d.is-exploring .property-provider-location span{font-size:10px}
+.atlas-shell.is-2d.is-exploring .property-querybar{padding-block:10px;gap:8px;margin-bottom:8px}
+.atlas-shell.is-2d.is-exploring .history-summary{background:#fff;border:0;border-radius:0;padding:4px 0 10px;margin:4px 0 8px}
+.atlas-shell.is-2d.is-exploring .history-summary strong{font-size:30px}
+.atlas-shell.is-2d.is-exploring .region-map-caption{max-width:290px;font-size:11px}
+.atlas-shell.is-2d.is-exploring .seoul-kapt-note{font-size:10px}
+.atlas-shell.is-2d.is-exploring .maplibregl-ctrl-attrib{font-size:9px}
+@media(min-width:781px){
+  .app-shell.atlas-shell.is-2d.is-exploring{--atlas-header-height:56px;--atlas-rail-width:min(35vw,370px)}
+  .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .topbar{height:56px}
+  .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .search-wrap{position:absolute;top:56px;left:0;width:var(--atlas-rail-width);height:64px;max-width:none;border:0;border-bottom:1px solid #e3e0f1;border-right:1px solid #ddd8eb;border-radius:0;box-sizing:border-box;background:#fff;padding:0 16px}
+  .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .search-wrap input{height:40px;border:1px solid #ded8ee;background:#f8f7fc;border-radius:6px;padding:0 10px;font-size:13px}
+  .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .search-wrap kbd{display:none}
+  .atlas-shell.is-2d.is-exploring .search-results{left:8px;right:8px;top:58px}
+  .app-shell.atlas-shell.is-2d.is-exploring .property-panel{top:120px}
+  .app-shell.atlas-shell.is-2d.is-exploring .map-dock{top:72px;left:calc(var(--atlas-rail-width) + 16px);border-radius:7px;box-shadow:0 2px 8px #25234412}
+  .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .focus-toggle{top:72px;border-radius:7px}
+  .app-shell.atlas-shell.is-2d.is-exploring .interaction-tools{top:142px}
+  .atlas-shell.is-2d.is-exploring .maplibregl-ctrl-attrib{position:fixed;bottom:5px;right:8px;margin:0;max-width:calc(100vw - var(--atlas-rail-width) - 24px)}
+}
+@media(max-width:780px){
+  .atlas-shell.is-2d.is-exploring .property-region-picker{padding:4px 12px}
+  .property-region-picker select{min-height:44px}
+  .atlas-shell.is-2d.is-exploring .property-panel.sheet-peek .property-region-picker{display:none}
+  .atlas-shell.is-2d.is-exploring .dashboard-nav button,.atlas-shell.is-2d.is-exploring .property-type-switch button{min-height:44px}
+}

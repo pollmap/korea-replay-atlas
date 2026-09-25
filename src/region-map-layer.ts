@@ -78,16 +78,16 @@ export function provinceMapData(input:RegionMapInput|null|undefined):FeatureColl
 export function provinceMapLayer():LayerSpecification {
   return {id:PROVINCE_MAP_LAYER,type:'symbol',source:REGION_MAP_SOURCE,minzoom:3,maxzoom:6.5,
     filter:['has','property_province_name'],
-    layout:{'text-field':['format',['get','display_name'],{'font-scale':.9},'\n',{},['get','count_label'],{'font-scale':1.05}],
-      'text-font':['Malgun Gothic','sans-serif'],'text-size':['interpolate',['linear'],['zoom'],3,10,6,12],'text-line-height':1.1,'text-max-width':8,'text-padding':3,'text-allow-overlap':false,
+    layout:{'text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','count_label'],{'font-scale':1.05}],
+      'text-font':['Malgun Gothic','sans-serif'],'text-size':13,'text-line-height':1.25,'text-max-width':8,'text-padding':5,'text-allow-overlap':false,
       'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[4,6,4,6],'icon-allow-overlap':false},paint:{'text-color':'#102b46','icon-opacity':.98}};
 }
 
 export function regionMapLayer():LayerSpecification {
-  return {id:REGION_MAP_LAYER,type:'symbol',source:REGION_MAP_SOURCE,minzoom:6.5,maxzoom:10,
+  return {id:REGION_MAP_LAYER,type:'symbol',source:REGION_MAP_SOURCE,minzoom:6.5,
     filter:['has','property_region_code'],
-    layout:{'symbol-sort-key':['get','sort_key'],'symbol-z-order':'source','text-field':['format',['get','display_name'],{'font-scale':.85},'\n',{},['get','count_label'],{'font-scale':1.1},'\n',{},['get','month_label'],{'font-scale':.7}],
-      'text-font':['Malgun Gothic','sans-serif'],'text-size':['interpolate',['linear'],['zoom'],3,11,8,12,11,13],'text-line-height':1.2,'text-max-width':10,'text-padding':8,'text-allow-overlap':false,'text-ignore-placement':false,
+    layout:{'symbol-sort-key':['get','sort_key'],'symbol-z-order':'source','text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','count_label'],{'font-scale':1.1},'\n',{},['get','month_label'],{'font-scale':.7}],
+      'text-font':['Malgun Gothic','sans-serif'],'text-size':14,'text-line-height':1.25,'text-max-width':10,'text-padding':8,'text-allow-overlap':false,'text-ignore-placement':false,
       'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[5,8,5,8],'icon-allow-overlap':false,'icon-ignore-placement':false},
     paint:{'text-color':'#102b46','icon-opacity':.98}};
 }

@@ -20,6 +20,8 @@ import {map2DLiveBuses,map2DLiveBusSelection} from './map2d-live';
 import type {PropertyRegions,PropertyRelease} from '../shared/property';
 import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBubbleImage,regionMapData,regionMapLayer,PROVINCE_MAP_LAYER,REGION_MAP_IMAGE,REGION_MAP_LAYER,REGION_MAP_SOURCE} from './region-map-layer';
 
+import {apartmentMapLayer,APARTMENT_MAP_LAYER,APARTMENT_SELECTED_LAYER} from './apartment-map-layer';
+
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
@@ -29,7 +31,7 @@ type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
 const anchors=['land','water','area','road','point'] as const;
 const SEOUL_KAPT_SOURCE='seoul-kapt-provider-points';
-const SEOUL_KAPT_SELECTED='seoul-kapt-selected-point';
+
 const SEOUL_KAPT_URL=new URL('./data/seoul-kapt-points-b63b62af834062de.geojson',import.meta.url).href;
 // Fit the mainland and Jeju for legible national discovery. Offshore islands
 // remain in the same world and can be reached through search or panning.
@@ -169,7 +171,13 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(disposed||!ready)return;
       const point=latest.current.propertyMapPoint;
       const valid=point&&point.releaseId===latest.current.vectorData?.property?.release_id;
-      (map.getSource(SEOUL_KAPT_SELECTED) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:valid?[{type:'Feature',geometry:{type:'Point',coordinates:[point.longitude,point.latitude]},properties:{kapt_code:point.kaptCode}}]:[]});
+      if(map.getLayer(APARTMENT_SELECTED_LAYER)){
+        map.setFilter(APARTMENT_SELECTED_LAYER,['==',['get','kapt_code'],valid?point.kaptCode:'']);
+        map.setFilter(APARTMENT_MAP_LAYER,['!=',['get','kapt_code'],valid?point.kaptCode:'']);
+        const label=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale');
+        map.setLayoutProperty(APARTMENT_MAP_LAYER,'text-field',label.layout!['text-field']);
+        map.setLayoutProperty(APARTMENT_SELECTED_LAYER,'text-field',label.layout!['text-field']);
+      }
       node.dataset.selectedPropertyComplex=valid?point.complexId:'';
     };
     refreshSelectedPointRef.current=refreshSelectedPoint;
@@ -177,18 +185,16 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(disposed||!ready)return;
       const bounds=map.getBounds();
       const visible=map.getZoom()>=10&&bounds.getEast()>=126.6&&bounds.getWest()<=127.4&&bounds.getNorth()>=37.3&&bounds.getSouth()<=37.8;
-      node.dataset.seoulKaptVisible=String(visible);
+      node.dataset.seoulKaptVisible=String(visible&&(map.getZoom()>=13||!!latest.current.propertyMapPoint));
       if(!visible||map.getSource(SEOUL_KAPT_SOURCE))return;
-      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:SEOUL_KAPT_URL,cluster:true,clusterRadius:42,clusterMaxZoom:13,attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
-      map.addLayer({id:'seoul-kapt-clusters',type:'circle',source:SEOUL_KAPT_SOURCE,minzoom:10,filter:['has','point_count'],paint:{'circle-color':'#5145cd','circle-opacity':.88,'circle-radius':['step',['get','point_count'],15,20,19,100,24],'circle-stroke-color':'#fff','circle-stroke-width':2}});
-      map.addLayer({id:'seoul-kapt-cluster-count',type:'symbol',source:SEOUL_KAPT_SOURCE,minzoom:10,filter:['has','point_count'],layout:{'text-field':['concat',['get','point_count_abbreviated'],'개'],'text-size':10,'text-font':['Malgun Gothic','sans-serif']},paint:{'text-color':'#fff'}});
-      map.addLayer({id:'seoul-kapt-points',type:'circle',source:SEOUL_KAPT_SOURCE,minzoom:10,filter:['!',['has','point_count']],paint:{'circle-color':['case',['has','property_complex_id'],'#16805f','#2859c4'],'circle-radius':['interpolate',['linear'],['zoom'],10,4,15,6],'circle-stroke-color':'#fff','circle-stroke-width':2,'circle-opacity':.93}});
-      map.addLayer({id:'seoul-kapt-linked-names',type:'symbol',source:SEOUL_KAPT_SOURCE,minzoom:13,maxzoom:14,filter:['all',['!',['has','point_count']],['has','property_complex_id']],layout:{'text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-offset':[0,1.35],'text-anchor':'top','text-max-width':12,'text-optional':true},paint:{'text-color':'#174c38','text-halo-color':'#fff','text-halo-width':1.5}});
-      map.addLayer({id:'seoul-kapt-linked-sale',type:'symbol',source:SEOUL_KAPT_SOURCE,minzoom:14,filter:['all',['!',['has','point_count']],['has','recent_sale_label']],layout:{'text-field':['concat',['get','name'],'\n',['get','recent_sale_label']],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-offset':[0,1.35],'text-anchor':'top','text-max-width':20,'text-optional':true},paint:{'text-color':'#174c38','text-halo-color':'#fff','text-halo-width':2}});
-      map.addLayer({id:'seoul-kapt-linked-no-sale',type:'symbol',source:SEOUL_KAPT_SOURCE,minzoom:14,filter:['all',['!',['has','point_count']],['has','property_complex_id'],['!',['has','recent_sale_label']]],layout:{'text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-offset':[0,1.35],'text-anchor':'top','text-optional':true},paint:{'text-color':'#174c38','text-halo-color':'#fff','text-halo-width':1.5}});
-      map.addSource(SEOUL_KAPT_SELECTED,{type:'geojson',data:{type:'FeatureCollection',features:[]}});
-      map.addLayer({id:'seoul-kapt-selected-halo',type:'circle',source:SEOUL_KAPT_SELECTED,minzoom:10,paint:{'circle-color':'#ffb12b','circle-radius':15,'circle-opacity':.28,'circle-stroke-color':'#fff','circle-stroke-width':2}});
-      map.addLayer({id:'seoul-kapt-selected-core',type:'circle',source:SEOUL_KAPT_SELECTED,minzoom:10,paint:{'circle-color':'#f28d20','circle-radius':6,'circle-stroke-color':'#fff','circle-stroke-width':2}});
+      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:SEOUL_KAPT_URL,attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
+      const release=latest.current.vectorData?.property?.release_id??'',trade=latest.current.propertyTrade??'sale';
+      map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade));
+      map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade,true));
+      for(const id of [APARTMENT_MAP_LAYER,APARTMENT_SELECTED_LAYER]){
+        map.on('mouseenter',id,()=>{if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';});
+        map.on('mouseleave',id,()=>{map.getCanvas().style.cursor=(latest.current.measurement?.mode??'none')==='none'?'':'crosshair';});
+      }
       node.dataset.seoulKaptLayer='provider-points-crs-unconfirmed';
       refreshSelectedPoint();
     };
@@ -254,11 +260,9 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(liveHit){const selection=map2DLiveBusSelection(latest.current.liveTransit,liveHit.properties.live_bus_id);if(selection)latest.current.onSelect(selection);return;}
       const kaptHit=hits.find(feature=>feature.source===SEOUL_KAPT_SOURCE);
       if(kaptHit){
-        if(kaptHit.properties?.cluster){map.easeTo({center:event.lngLat,zoom:Math.min(15,map.getZoom()+2),duration:350});return;}
         const code=kaptHit.properties?.kapt_code,name=kaptHit.properties?.name;
         if(typeof code==='string'&&typeof name==='string'){
           const coordinates=kaptHit.geometry.type==='Point'?kaptHit.geometry.coordinates:[event.lngLat.lng,event.lngLat.lat];
-          (map.getSource(SEOUL_KAPT_SELECTED) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates},properties:{kapt_code:code}}]});
           const identity=kaptHit.properties?.property_complex_id,match=/^molit-apt:(11\d{3}):[A-Za-z0-9_-]{1,64}$/.exec(typeof identity==='string'?identity:'');
           if(match&&kaptHit.properties?.property_release_id===latest.current.vectorData?.property?.release_id&&latest.current.onPropertyComplex){
             latest.current.onPropertyComplex(match[1],identity);
@@ -327,9 +331,9 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   },[]);
   useEffect(()=>{refreshRef.current?.();},[props.catalog,props.layers,props.boundaries,props.lightweight,props.vectorData,props.vectorPending]);
   useEffect(()=>{refreshRegionsRef.current?.();},[regions,props.measurement]);
-  useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData]);
+  useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData,props.propertyTrade]);
   useEffect(()=>{const source=mapRef.current?.getSource('live-buses') as GeoJSONSource|undefined;const data=map2DLiveBuses(props.liveTransit);source?.setData(data);if(element.current)element.current.dataset.liveBusCount=String(data.features.length);},[props.liveTransit]);
   useEffect(()=>{const map=mapRef.current;if(!map)return;const source=map.getSource('measure') as GeoJSONSource|undefined;source?.setData(measurementGeoJSON(props.measurement??EMPTY_MEASUREMENT));map.getCanvas().style.cursor=props.measurement&&props.measurement.mode!=='none'?'crosshair':'';},[props.measurement]);
-  return <><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">서울시 K-apt 제공 점 · 초록색은 실거래 ID 연결 · 좌표계 검토 중</div>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
+  return <><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.data.features.length>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표시 · 위치·자료 미연결 {regions.excluded}개 제외</span></div>}</>;
 });
 export default Map2D;

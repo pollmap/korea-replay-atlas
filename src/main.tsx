@@ -9,6 +9,7 @@ import './property-history.css';
 import './atlas-shell.css';
 import './atlas-property.css';
 import './atlas-colors.css';
+import './property-map-workspace.css';
 
 void startDownloadGate().catch(()=>{
   document.body.dataset.downloadGate='unavailable';document.body.dataset.downloadGateReason='startup_failed';document.body.dataset.downloadGateLimit='unavailable';
