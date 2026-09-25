@@ -4,14 +4,16 @@ import {discoverPropertyComplexes,EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDisco
 import {transactionPrice} from '../shared/property-pricing';
 import {moneyLabel} from '../shared/property-view';
 import {propertyFilterChips} from '../shared/property-filter-chips';
+import PropertySavedFilters from './PropertySavedFilters';
 
 export interface PropertyComplexListProps {
+  savedFilterRegion?:string;
   complexes:PropertyComplex[];rows:PropertyTransaction[];dataReady:boolean;trade:'sale'|'rent';
   onSelect:(id:string)=>void;selectedId?:string;watchedIds?:ReadonlySet<string>;onWatch?:(item:PropertyComplex)=>void;
 }
 const PAGE_SIZE=40;
 
-export default function PropertyComplexList({complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch}:PropertyComplexListProps){
+export default function PropertyComplexList({complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion}:PropertyComplexListProps){
   const [filters,setFilters]=useState<PropertyDiscoveryFilters>(EMPTY_PROPERTY_DISCOVERY_FILTERS),[page,setPage]=useState(0);
   const captionId=useId(),errorId=useId();
   const [filterPanel,setFilterPanel]=useState<'price'|'area'|'year'|null>(null);
@@ -27,6 +29,7 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
   const change=<K extends keyof PropertyDiscoveryFilters>(key:K,value:PropertyDiscoveryFilters[K])=>{setFilters(current=>({...current,[key]:value}));setPage(0);};
   const chips=propertyFilterChips(filters,trade),active=chips.length>0;
   return <section className="property-discovery" aria-label="아파트 단지 찾기">
+    {savedFilterRegion&&<PropertySavedFilters region={savedFilterRegion} trade={trade} filters={filters} onApply={value=>{setFilters(value);setPage(0);setFilterPanel(null);}}/>}
     <label className="discovery-search">단지 찾기<input type="search" value={filters.query} placeholder="아파트 이름 또는 법정동" onChange={event=>change('query',event.target.value)} autoComplete="off"/></label>
     <div className="discovery-filter-chips" ref={filterButtons} role="group" aria-label="단지 조건 빠른 선택">{([['price',trade==='sale'?'매매가':'보증금',filters.priceMinEok||filters.priceMaxEok],['area','전용면적',filters.areaMinM2||filters.areaMaxM2],['year','건축연도',filters.buildYearMin||filters.buildYearMax]] as const).map(([id,label,enabled])=><button key={id} aria-expanded={filterPanel===id} aria-controls={panelId} data-filter={id} data-active={!!enabled} onClick={()=>setFilterPanel(current=>current===id?null:id)}>{label}{enabled?<span className="filter-active-dot" aria-label="적용 중"/>:<span aria-hidden="true">⌄</span>}</button>)}</div>
     <div className="discovery-selects">
