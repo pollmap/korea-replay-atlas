@@ -4,11 +4,11 @@ import {eligiblePropertyTransactions} from './property';
 import {HISTORY_RANGES,type HistoryRange} from './property-history';
 import {readRentKind,rentKindMatches,type RentKind} from './property-rent';
 export type PropertyType='apartment'|'officetel';
-export interface PropertyViewState {propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
+export interface PropertyViewState {regionQuery?:string;propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
 export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
   const p=new URLSearchParams(hash.replace(/^#/,'')),region=p.get('regionCode')??'',month=p.get('month')??'',complex=p.get('complex')??'',area=p.get('area')??'';
   const propertyType:PropertyType=p.get('propertyType')==='officetel'?'officetel':'apartment';
-  return {propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:propertyType==='apartment'&&/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
+  return {...(p.get('regionQuery')&&p.get('regionQuery')!.length<=80&&Array.from(p.get('regionQuery')!).every(char=>char.charCodeAt(0)>=32)?{regionQuery:p.get('regionQuery')!}:{}),propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:propertyType==='apartment'&&/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
     month:/^\d{4}(?:0[1-9]|1[0-2])$/.test(month)&&month>=period.from&&month<=period.to?month:period.latest_complete_month,
     complex:propertyType==='apartment'&&/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
     area:area===NATIONAL_AREA?NATIONAL_AREA:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',

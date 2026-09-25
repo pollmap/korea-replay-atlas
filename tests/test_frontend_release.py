@@ -364,3 +364,128 @@ def test_cli_requires_explicit_reuse_bundle():
     with pytest.raises(SystemExit) as caught:
         frontend.main([])
     assert caught.value.code == 2
+
+
+@pytest.fixture
+def region_assets(fixture, monkeypatch):
+    """A small canonical source tree with production's exact inventory shape."""
+    source_root = fixture.root / 'canonical/src/data'
+    source_root.mkdir(parents=True)
+    monkeypatch.setattr(frontend, 'REGION_SOURCE_ROOT', source_root)
+    codes = [str(10000 + index) for index in range(252)]
+    manifests = []
+    for stem, prefix, directory, groups in (
+        ('region-selection', 'boundary', 'region-selection-areas',
+         [(code, 1) for code in [*[str(10 + i) for i in range(17)], *codes]]),
+        ('region-selection-dongs', 'dongs', 'region-selection-dongs',
+         [(code, 15 if i < 31 else 14) for i, code in enumerate(codes)]),
+    ):
+        refs = []
+        for code, count in groups:
+            rows = [[code if prefix == 'boundary' else code + f'{i:03}', 'Fixture region', 5, [['??']]]
+                    for i in range(count)]
+            body = json.dumps(rows, separators=(',', ':')).encode()
+            source = source_root / directory / f'{prefix}-{code}.json'
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(body)
+            refs.append([code, len(body), hashlib.sha256(body).hexdigest()])
+            (fixture.client / f'assets/{prefix}-{code}-12345678.json').write_bytes(body)
+        manifest = {'schema': 1, 'referenceDate': frontend.REGION_REFERENCE_DATE,
+                    'namespace': 'SGIS administrative', 'archiveSha256': frontend.REGION_ARCHIVE_SHA,
+                    'featureCount': sum(count for _, count in groups), 'chunks': refs}
+        index = source_root / (stem + '.json')
+        index.write_text(json.dumps(manifest), encoding='utf-8')
+        manifests.append(index)
+    return source_root, manifests
+
+
+def test_region_assets_exact_521_inventory_can_be_staged_without_map_data_changes(fixture, region_assets):
+    result = restage(fixture)
+    bundle = Path(result['bundle'])
+    manifest = json.loads((bundle / 'asset-manifest.json').read_bytes())
+    assert len([row for row in manifest if frontend.REGION_ASSET.fullmatch(row['target'])]) == 521
+    assert result['catalog_hash'] == fixture.first['catalog_hash']
+    assert_prior_unchanged(fixture)
+
+
+@pytest.mark.parametrize('change', ['unlisted', 'hash', 'missing', 'duplicate'])
+def test_region_frontend_rejects_unlisted_altered_missing_or_duplicate_assets(fixture, region_assets, change):
+    target = fixture.client / 'assets/boundary-10-12345678.json'
+    if change == 'unlisted':
+        target.rename(fixture.client / 'assets/boundary-99-12345678.json')
+    elif change == 'hash':
+        target.write_bytes(target.read_bytes().replace(b'Fixture', b'Changed'))
+    elif change == 'missing':
+        target.unlink()
+    else:
+        (fixture.client / 'assets/boundary-10-87654321.json').write_bytes(target.read_bytes())
+    with pytest.raises(ValueError, match='Region asset|region assets|region asset identity'):
+        restage(fixture)
+    assert_no_new_bundle(fixture)
+
+
+@pytest.mark.parametrize('change', ['traversal', 'revision', 'count', 'oversize', 'source_hash', 'credential'])
+def test_region_canonical_manifest_and_payload_are_validated(fixture, region_assets, change):
+    source_root, indexes = region_assets
+    index = indexes[0]
+    manifest = json.loads(index.read_bytes())
+    if change == 'traversal':
+        manifest['chunks'][0][0] = '../10'
+    elif change == 'revision':
+        manifest['referenceDate'] = '2030-01-01'
+    elif change == 'count':
+        manifest['featureCount'] -= 1
+    elif change == 'oversize':
+        manifest['chunks'][0][1] = frontend.REGION_MAX_FILE_BYTES + 1
+    elif change == 'source_hash':
+        manifest['chunks'][0][2] = '0' * 64
+    else:
+        source = source_root / 'region-selection-areas/boundary-10.json'
+        body = b'[["10","serviceKey=do-not-publish-this-fixture-value",5,[["??"]]]]'
+        source.write_bytes(body)
+        manifest['chunks'][0][1:] = [len(body), hashlib.sha256(body).hexdigest()]
+    index.write_text(json.dumps(manifest), encoding='utf-8')
+    with pytest.raises(ValueError, match='[Rr]egion|Credential-like') as caught:
+        restage(fixture)
+    assert 'do-not-publish' not in str(caught.value)
+    assert_no_new_bundle(fixture)
+
+
+def test_frontend_cannot_supply_its_own_region_allowlist(fixture, region_assets, monkeypatch):
+    monkeypatch.setattr(frontend, 'REGION_SOURCE_ROOT', fixture.root / 'absent-canonical-source')
+    # A copied manifest is never consulted to approve the matching path.
+    (fixture.client / 'assets/region-selection-12345678.json').write_bytes(region_assets[1][0].read_bytes())
+    with pytest.raises((ValueError, OSError)):
+        restage(fixture)
+    assert_no_new_bundle(fixture)
+
+
+def test_approved_region_asset_can_replace_hashed_url_but_never_overwrite_old_url(fixture, region_assets):
+    previous = restage(fixture)
+    fixture.bundle = Path(previous['bundle'])
+    old = fixture.client / 'assets/boundary-10-12345678.json'
+    old.rename(fixture.client / 'assets/boundary-10-87654321.json')
+    result = restage(fixture)
+    assert not (Path(result['bundle']) / 'client/assets/boundary-10-12345678.json').exists()
+    assert (fixture.bundle / 'client/assets/boundary-10-12345678.json').is_file()
+
+
+def test_even_audited_region_updates_cannot_overwrite_an_existing_immutable_url(fixture, region_assets):
+    previous = restage(fixture)
+    fixture.bundle = Path(previous['bundle'])
+    source_root, indexes = region_assets
+    source = source_root / 'region-selection-areas/boundary-10.json'
+    body = source.read_bytes().replace(b'Fixture region', b'Changed region')
+    source.write_bytes(body)
+    manifest = json.loads(indexes[0].read_bytes())
+    manifest['chunks'][0][1:] = [len(body), hashlib.sha256(body).hexdigest()]
+    indexes[0].write_text(json.dumps(manifest), encoding='utf-8')
+    (fixture.client / 'assets/boundary-10-12345678.json').write_bytes(body)
+    with pytest.raises(ValueError, match='immutable frontend asset URL'):
+        restage(fixture)
+
+
+def test_region_total_byte_budget_is_independent_of_per_file_budget(fixture, region_assets, monkeypatch):
+    monkeypatch.setattr(frontend, 'REGION_MAX_TOTAL_BYTES', 1)
+    with pytest.raises(ValueError, match='byte budget'):
+        restage(fixture)

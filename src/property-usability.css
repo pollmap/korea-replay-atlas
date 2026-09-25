@@ -68,3 +68,18 @@
  .atlas-shell.is-2d.is-exploring .discovery-active-filters button{min-height:44px}
  .atlas-shell.is-2d.is-exploring .property-discovery .discovery-trade-only{min-height:44px}
 }
+
+/* Apartment exploration has one map surface; city tools live in More. */
+.app-shell.is-2d.is-exploring .map-dock[hidden]{display:none}
+.property-reopen{position:absolute;z-index:7;left:20px;top:90px;min-height:44px;padding:0 18px;border:1px solid #ddd6ed;border-radius:12px;background:#fff;color:#5934a3;font-family:inherit;font-size:14px;font-weight:700;box-shadow:0 3px 14px #24163d16}
+@media(max-width:780px){.property-reopen{top:auto;bottom:28px;left:50%;transform:translateX(-50%)}}
+
+.selected-region-caption{position:absolute;z-index:4;top:86px;left:22px;display:flex;align-items:center;gap:10px;max-width:calc(100% - 110px);padding:10px 13px;background:#fffffff0;border:1px solid #d4c1f2;border-radius:10px;box-shadow:0 3px 14px #46336614;color:#59318c}
+.has-property .selected-region-caption{left:calc(var(--atlas-rail-width) + 20px)}
+.selected-region-caption strong{font-size:13px}.selected-region-caption small{font-size:10px;color:#756784}.selected-region-caption button{min-width:36px;min-height:36px;font-size:22px;color:#59318c}
+.is-focused .selected-region-caption{display:none}
+.atlas-shell.is-2d.is-exploring .region-map-caption>span{display:none}
+.atlas-shell.is-2d.is-exploring .seoul-kapt-note{display:none}
+@media(max-width:780px){.selected-region-caption,.has-property .selected-region-caption{top:76px;left:12px;max-width:calc(100% - 82px);flex-wrap:wrap;gap:3px 8px;padding:8px 11px}.selected-region-caption strong{font-size:12px}.selected-region-caption small{display:block;font-size:9px}.selected-region-caption button{min-width:44px;min-height:44px}}
+
+.selected-region-caption select{min-height:36px;max-width:150px;background:#faf7ff;border:1px solid #dfd1ef;border-radius:6px;padding:0 8px;color:#59318c;font-family:inherit;font-size:12px}.selected-region-caption select:focus-visible{outline:2px solid #7140c7;outline-offset:2px}@media(max-width:780px){.selected-region-caption select{min-height:44px;max-width:132px}}

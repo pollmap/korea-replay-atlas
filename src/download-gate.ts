@@ -27,7 +27,7 @@ function validStatus(value:unknown):value is DownloadGateStatus {
     (status.retries===undefined||Number.isSafeInteger(status.retries)&&status.retries>=0)&&
     (status.lastFailure===undefined||status.lastFailure===null||
       typeof status.lastFailure==='object'&&typeof status.lastFailure.pathname==='string'&&
-      status.lastFailure.pathname.startsWith('/data/')&&!/[?#\\]/.test(status.lastFailure.pathname)&&
+      (status.lastFailure.pathname.startsWith('/data/')||/^\/assets\/(?:boundary-\d{2,8}|dongs-\d{5})-[A-Za-z0-9_-]{8}\.json$/.test(status.lastFailure.pathname))&&!/[?#\\]/.test(status.lastFailure.pathname)&&
       Array.from(status.lastFailure.pathname).every(character=>character.charCodeAt(0)>=32)&&
       ['queue','fetch','body','response','backoff'].includes(status.lastFailure.phase)&&
       typeof status.lastFailure.name==='string'&&/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(status.lastFailure.name));

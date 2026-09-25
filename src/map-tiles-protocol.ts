@@ -101,7 +101,10 @@ export function createMapTilesProtocol(options:MapTilesProtocolOptions){
     const result=await archive.getZxy(z,x,y,controller.signal);if(disposed||controller.signal.aborted)throw aborted();return {data:result?.data??new ArrayBuffer(0)};
   };
   const pick=async(topicId:string,id:string,signal?:AbortSignal):Promise<MapSelection|null>=>{
-    if(disposed||signal?.aborted)throw aborted();const topic=topics.get(topicId);if(!topic)return null;const ref=findDetailChunk(topic,id);if(!ref)return null;
+    if(disposed||signal?.aborted)throw aborted();const topic=topics.get(topicId);if(!topic)return null;
+    if(topic.detail_topic_id!==undefined&&parseInt(id[0]??'',16)%4!==Number(topic.id.slice(-1)))return null;
+    const detailTopic=topic.detail_topic_id?topics.get(topic.detail_topic_id):topic;if(!detailTopic)return null;
+    const ref=findDetailChunk(detailTopic,id);if(!ref)return null;
     const body=await decompressMapTile(await store.get(ref,signal),Compression.Gzip);if(disposed||signal?.aborted)throw aborted();
     const document=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body)) as {schema_version:number;records:MapTileRecord[]};
     if(document.schema_version!==1||!Array.isArray(document.records)||document.records.length!==ref.record_count)throw new Error('Invalid 2D selection records');

@@ -44,7 +44,7 @@ describe('verified whole-archive shared LRU',()=>{
   it('enforces four body-lifetime slots and cancels queued/active work on dispose',async()=>{
     const starts:Array<(r:Response)=>void>=[];const bytes=new Uint8Array([1]);const fetcher=vi.fn(()=>new Promise<Response>(resolve=>starts.push(resolve)));const store=new VerifiedMapTileStore(origin,fetcher);
     const promises=Array.from({length:8},(_,i)=>store.get(ref(bytes,`${i}.pmtiles`)).catch(e=>e));expect(starts).toHaveLength(4);expect(store.snapshot().peakActive).toBe(4);
-    starts[0](new Response(bytes));await tick();await tick();expect(starts.length).toBe(5);store.dispose();const settled=await Promise.all(promises);expect(settled.filter(v=>v instanceof DOMException).length).toBe(7);
+    starts[0](new Response(bytes));await vi.waitFor(()=>expect(starts).toHaveLength(5),{timeout:2000,interval:10});store.dispose();const settled=await Promise.all(promises);expect(settled.filter(v=>v instanceof DOMException).length).toBe(7);
     for(const end of starts.slice(1))end(new Response(bytes));await tick();expect(store.snapshot().cachedBytes).toBe(0);
   });
   it('evicts archive bodies at the shared byte budget and reloads through a key-only source',async()=>{
@@ -55,6 +55,20 @@ describe('verified whole-archive shared LRU',()=>{
 });
 
 describe('bounded selection and lifetime',()=>{
+  it('shares original building details with bounded overview partitions and rejects wrong membership',async()=>{
+    const id='1'.repeat(64),row={stable_id:id,source_record_id:'building/1',source_id:'overture',version:'v',properties:{name:'원본 건물'},geometry_sha256:'a'.repeat(64),source_asset_id:'source'};
+    const bytes=gzipSync(JSON.stringify({schema_version:1,records:[row]})),c=catalog();
+    const original={...c.topics[0],id:'buildings',source_layer:'buildings',minzoom:14,maxzoom:14,display_id_hex_length:16 as const,
+      details:[{...ref(bytes,'buildings.json.gz'),first_id:id,last_id:id,record_count:1}]};
+    c.topics=[original,{...original,id:'buildings-overview-1',source_layer:'buildings-overview-1',minzoom:12,maxzoom:13,details:[],chunks:[],detail_topic_id:'buildings'}];
+    const fetcher=vi.fn(async()=>new Response(bytes)),api=createMapTilesProtocol({catalog:c,origin,allowedOrigins:[origin],fetcher});
+    expect((await api.pick('buildings-overview-1',id.slice(0,16)))?.sourceId).toBe('building/1');
+    expect((await api.pick('buildings',id))?.sourceId).toBe('building/1');
+    expect(await api.pick('buildings-overview-1','2'.repeat(16))).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);api.dispose();
+    c.topics[1].feature_count=0;expect(()=>validateMapCatalog2D(c)).toThrow('partition coverage');
+    c.topics[1].feature_count=1;c.topics[1].detail_topic_id='bad' as 'buildings';expect(()=>validateMapCatalog2D(c)).toThrow('detail alias');
+  });
   it('resolves collision-audited compact display keys across full-hash shard boundaries',async()=>{
     const full='1234567890abcdef'+'f'.repeat(48),row={stable_id:full,source_record_id:'원본/123',source_id:'osm',version:'v',properties:{name:'원래 도로'},geometry_sha256:'a'.repeat(64),source_asset_id:'source'},bytes=gzipSync(JSON.stringify({schema_version:1,records:[row]}));
     const c=catalog();c.topics[0].display_id_hex_length=16;c.topics[0].details=[{...ref(bytes,'compact.json.gz'),first_id:full,last_id:full,record_count:1}];

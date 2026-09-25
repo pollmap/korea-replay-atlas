@@ -9,6 +9,8 @@ export interface MapTileTopic {
   description:string;geometry_precision:string;
   /** Display keys are collision-audited prefixes; selection records keep full hashes. */
   display_id_hex_length?:16|64;
+  /** Fixed low-zoom partitions share the original building selection archive. */
+  detail_topic_id?:'buildings';
 }
 export interface MapCatalog2D {
   schema_version:1;release_id:string;bounds:BBox;topics:MapTileTopic[];sources:Source[];
@@ -40,7 +42,14 @@ export function validateMapCatalog2D(value:unknown):MapCatalog2D {
     requireValue(t.display_id_hex_length===undefined||t.display_id_hex_length===16||t.display_id_hex_length===64,'Invalid display identity policy');
     let last=-1;for(const f of t.chunks){file(f,'.pmtiles');requireValue(Number.isSafeInteger(f.first_tile_id)&&Number.isSafeInteger(f.last_tile_id)&&f.first_tile_id>last&&f.last_tile_id>=f.first_tile_id&&Number.isSafeInteger(f.tile_count)&&f.tile_count>0,'Overlapping or invalid tile ranges');last=f.last_tile_id;}
     let lastId='';let count=0;for(const f of t.details){file(f,'.json.gz');requireValue(hex.test(f.first_id)&&hex.test(f.last_id)&&f.first_id>lastId&&f.last_id>=f.first_id&&Number.isSafeInteger(f.record_count)&&f.record_count>0,'Overlapping or invalid detail ranges');lastId=f.last_id;count+=f.record_count;}
-    requireValue(count===t.feature_count,'2D detail records do not cover every source feature');
+    if(t.detail_topic_id!==undefined){
+      requireValue(t.detail_topic_id==='buildings'&&/^buildings-overview-[0-3]$/.test(t.id)&&t.details.length===0&&t.minzoom===12&&t.maxzoom===13,'Invalid 2D detail alias');
+    }else requireValue(count===t.feature_count,'2D detail records do not cover every source feature');
+  }
+  const aliases=c.topics.filter(t=>t.detail_topic_id!==undefined);
+  if(aliases.length){
+    const original=c.topics.find(t=>t.id==='buildings');
+    requireValue(original&&original.detail_topic_id===undefined&&original.minzoom===14&&aliases.reduce((sum,t)=>sum+t.feature_count,0)===original.feature_count&&aliases.every(t=>t.display_id_hex_length===original.display_id_hex_length),'Invalid 2D building partition coverage');
   }
   if(c.regional_detail!==undefined){
     const detail=c.regional_detail;
