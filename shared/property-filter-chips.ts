@@ -1,9 +1,11 @@
 import type {PropertyDiscoveryFilters} from './property-discovery';
+import {rentKindLabel} from './property-rent';
 
 export interface PropertyFilterChip {id:string;label:string;clear:Partial<PropertyDiscoveryFilters>;}
 /** Show the actual bounds so an applied condition remains understandable when its editor is closed. */
 export function propertyFilterChips(filters:PropertyDiscoveryFilters,trade:'sale'|'rent'):PropertyFilterChip[]{
   const chips:PropertyFilterChip[]=[];
+  if(trade==='rent'&&filters.rentKind&&filters.rentKind!=='all')chips.push({id:'rentKind',label:rentKindLabel(filters.rentKind),clear:{rentKind:'all'}});
   if(filters.query)chips.push({id:'query',label:`검색 ${filters.query}`,clear:{query:''}});
   if(filters.dong)chips.push({id:'dong',label:filters.dong,clear:{dong:''}});
   const ranges=[

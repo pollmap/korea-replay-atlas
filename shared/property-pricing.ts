@@ -1,5 +1,6 @@
 import {propertyStatisticsEligible,type PropertyTransaction} from './property';
 import {areaMatches,M2_PER_PYEONG,NATIONAL_AREA} from './property-area';
+import {rentKindMatches,type RentKind} from './property-rent';
 
 export type PriceBasis='total'|'pyeong'|'m2';
 export const PRICE_BASES:readonly [PriceBasis,string][]=[['total','총액'],['pyeong','전용 평당가'],['m2','전용 ㎡당가']];
@@ -16,8 +17,8 @@ export function priceMedian(values:readonly number[]):number|null {
   return sorted.length?(sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2):null;
 }
 /** Medians of individual eligible reports, not median total price / median area. */
-export function pricingSummary(rows:readonly PropertyTransaction[],options:{complexId:string;trade:'sale'|'rent';area:string}) {
-  const valid=rows.filter(row=>row.complex_id===options.complexId&&row.trade_type===options.trade&&propertyStatisticsEligible(row));
+export function pricingSummary(rows:readonly PropertyTransaction[],options:{complexId:string;trade:'sale'|'rent';area:string;rentKind?:RentKind}) {
+  const valid=rows.filter(row=>row.complex_id===options.complexId&&row.trade_type===options.trade&&rentKindMatches(row,options.rentKind)&&propertyStatisticsEligible(row));
   const selected=valid.filter(row=>areaMatches(row.area_m2,options.area));
   const national=valid.filter(row=>areaMatches(row.area_m2,NATIONAL_AREA));
   const perPyeong=selected.flatMap(row=>{const price=transactionPrice(row,'pyeong');return price===null?[]:[price];});

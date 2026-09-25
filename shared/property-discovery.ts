@@ -1,5 +1,6 @@
 import {propertyStatisticsEligible,type PropertyComplex,type PropertyTransaction} from './property';
 import {transactionPrice} from './property-pricing';
+import {rentKindMatches,type RentKind} from './property-rent';
 
 export type PropertyDiscoverySort='recent'|'count'|'name'|'price-low'|'price-high'|'pyeong-low'|'pyeong-high';
 export interface PropertyDiscoveryFilters {
@@ -7,6 +8,7 @@ export interface PropertyDiscoveryFilters {
   priceMinEok:string; priceMaxEok:string; areaMinM2:string; areaMaxM2:string;
   sort:PropertyDiscoverySort;
   hasTrades?:boolean;
+  rentKind?:RentKind;
 }
 export const EMPTY_PROPERTY_DISCOVERY_FILTERS:PropertyDiscoveryFilters={query:'',dong:'',buildYearMin:'',buildYearMax:'',priceMinEok:'',priceMaxEok:'',areaMinM2:'',areaMaxM2:'',sort:'recent'};
 export interface PropertyDiscoveryItem {
@@ -46,12 +48,12 @@ export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],r
   const [yearMin,yearMax]=range(filters.buildYearMin,filters.buildYearMax,'건축연도',9999,0,1,errors);
   const [priceMin,priceMax]=range(filters.priceMinEok,filters.priceMaxEok,trade==='sale'?'매매가':'보증금',90_000_000,8,100_000_000,errors);
   const [areaMin,areaMax]=range(filters.areaMinM2,filters.areaMaxM2,'전용면적',10_000,5,1,errors);
-  const transactionFiltered=!!filters.hasTrades||[priceMin,priceMax,areaMin,areaMax].some(value=>value!==null);
+  const transactionFiltered=!!filters.hasTrades||trade==='rent'&&!!filters.rentKind&&filters.rentKind!=='all'||[priceMin,priceMax,areaMin,areaMax].some(value=>value!==null);
   const transactionFiltersPending=!dataReady&&transactionFiltered;
   if(errors.length)return {items:[],errors,transactionFiltersPending};
   const byId=new Map<string,{count:number;latest:PropertyTransaction}>();
   if(dataReady)for(const row of rows){
-    if(row.trade_type!==trade||row.complex_id===null||!propertyStatisticsEligible(row))continue;
+    if(row.trade_type!==trade||row.complex_id===null||!propertyStatisticsEligible(row)||!rentKindMatches(row,filters.rentKind))continue;
     const value=trade==='sale'?row.price_krw:row.deposit_krw;
     if(!within(value,priceMin,priceMax)||!within(row.area_m2===null?null:Number(row.area_m2),areaMin,areaMax))continue;
     const current=byId.get(row.complex_id);

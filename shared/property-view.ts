@@ -2,12 +2,13 @@ import {areaMatches,areaLabel,NATIONAL_AREA} from './property-area';
 import type {PropertyStatus,PropertyTransaction,RegionMetric} from './property';
 import {eligiblePropertyTransactions} from './property';
 import {HISTORY_RANGES,type HistoryRange} from './property-history';
+import {readRentKind,rentKindMatches,type RentKind} from './property-rent';
 export type PropertyType='apartment'|'officetel';
-export interface PropertyViewState {propertyType?:PropertyType;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
+export interface PropertyViewState {propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
 export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
   const p=new URLSearchParams(hash.replace(/^#/,'')),region=p.get('regionCode')??'',month=p.get('month')??'',complex=p.get('complex')??'',area=p.get('area')??'';
   const propertyType:PropertyType=p.get('propertyType')==='officetel'?'officetel':'apartment';
-  return {propertyType,region:propertyType==='apartment'&&/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
+  return {propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:propertyType==='apartment'&&/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
     month:/^\d{4}(?:0[1-9]|1[0-2])$/.test(month)&&month>=period.from&&month<=period.to?month:period.latest_complete_month,
     complex:propertyType==='apartment'&&/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
     area:area===NATIONAL_AREA?NATIONAL_AREA:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
@@ -38,8 +39,8 @@ export function propertyAreaOptions(areas:readonly string[],selected:string,data
   if(areas.some(value=>areaMatches(value,NATIONAL_AREA)))available.add(NATIONAL_AREA);
   return [...new Set([NATIONAL_AREA,...areas,...(selected?[selected]:[])])].sort((a,b)=>a===NATIONAL_AREA?-1:b===NATIONAL_AREA?1:Number(a)-Number(b)).map(value=>({value,label:`${value===NATIONAL_AREA?areaLabel(value):`${value} ㎡`}${available.has(value)?'':dataReady?' · 현재 기간 거래 없음':' · 자료 확인 전'}`}));
 }
-export function transactionRows(rows:readonly PropertyTransaction[],filters:{trade:'sale'|'rent';complex:string|null;area:string;cancelled:boolean}):PropertyTransaction[]{
-  return (filters.cancelled?rows:eligiblePropertyTransactions(rows)).filter(row=>row.trade_type===filters.trade&&(!filters.complex||row.complex_id===filters.complex)&&areaMatches(row.area_m2,filters.area)).sort((a,b)=>(b.contract_date??'').localeCompare(a.contract_date??'')||a.id.localeCompare(b.id));
+export function transactionRows(rows:readonly PropertyTransaction[],filters:{trade:'sale'|'rent';complex:string|null;area:string;cancelled:boolean;rentKind?:RentKind}):PropertyTransaction[]{
+  return (filters.cancelled?rows:eligiblePropertyTransactions(rows)).filter(row=>row.trade_type===filters.trade&&rentKindMatches(row,filters.rentKind)&&(!filters.complex||row.complex_id===filters.complex)&&areaMatches(row.area_m2,filters.area)).sort((a,b)=>(b.contract_date??'').localeCompare(a.contract_date??'')||a.id.localeCompare(b.id));
 }
 export function transactionCsv(rows:readonly PropertyTransaction[]):string {
   const cell=(value:unknown)=>{let text=value===null||value===undefined?'':String(value);if(/^[=+\-@\t\r]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`;};

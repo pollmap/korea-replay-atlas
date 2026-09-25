@@ -1,4 +1,7 @@
 /* Price-first 2D property workspace; no changes to the 3D renderer or its chrome. */
+.atlas-shell.is-2d.is-exploring .property-rent-kinds{display:flex;gap:6px;margin:0 0 10px}
+.atlas-shell.is-2d.is-exploring .property-rent-kinds button{flex:1;min-height:36px;border:1px solid #d9cee9;border-radius:6px;background:#fff;color:#625276;font:inherit;font-size:12px;cursor:pointer}
+.atlas-shell.is-2d.is-exploring .property-rent-kinds button[aria-pressed=true]{border-color:#7056bd;color:#5637a9;background:#eee7fc;font-weight:700}
 .atlas-shell.is-2d.is-exploring .apartment-fact-highlights{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0;background:#f4f0ff;border:1px solid #e2d9f6;border-radius:8px;padding:14px 12px}
 .atlas-shell.is-2d.is-exploring .apartment-fact-highlights>div{display:flex;flex-direction:column;gap:6px}
 .atlas-shell.is-2d.is-exploring .apartment-fact-highlights span,.atlas-shell.is-2d.is-exploring .apartment-fact-highlights small{color:#706381;font-size:11px}
@@ -49,6 +52,7 @@
 .atlas-shell.is-2d.is-exploring .quick-filter-done:disabled{background:#e5deee;color:#81718d;cursor:default}
 .atlas-shell.is-2d.is-exploring .property-panel :is(button,select,summary):focus-visible{outline:2px solid #6950c6;outline-offset:2px}
 @media(max-width:780px){
+ .atlas-shell.is-2d.is-exploring .property-rent-kinds button{min-height:44px}
  .atlas-shell.is-2d.is-exploring .property-saved-filters :is(button,summary,input),.atlas-shell.is-2d.is-exploring .apartment-fact-source summary{min-height:44px}
  .atlas-shell.is-2d.is-exploring .showing-complex .property-header{padding:0 14px 5px}
  .atlas-shell.is-2d.is-exploring .showing-complex .property-header h2{font-size:20px;margin:0}
