@@ -12,6 +12,7 @@ export function checkedDiscoveryFilters(value:unknown,trade:'sale'|'rent'):Prope
   }
   if(typeof row.sort!=='string'||!sortValues.includes(row.sort)||row.hasTrades!==undefined&&typeof row.hasTrades!=='boolean')throw new Error('정렬·거래 조건을 확인해 주세요.');
   filters.sort=row.sort as PropertyDiscoveryFilters['sort'];filters.hasTrades=!!row.hasTrades;
+  if(row.rentKind!==undefined){if(typeof row.rentKind!=='string'||!['all','jeonse','monthly'].includes(row.rentKind))throw new Error('전세·월세 조건을 확인해 주세요.');if(trade==='rent')filters.rentKind=row.rentKind as PropertyDiscoveryFilters['rentKind'];}
   const result=discoverPropertyComplexes([],[],false,trade,filters);if(result.errors.length)throw new Error(result.errors.join(' '));
   return filters;
 }
