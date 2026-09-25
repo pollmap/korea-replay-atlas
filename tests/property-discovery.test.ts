@@ -24,6 +24,11 @@ const filters=(overrides:Partial<PropertyDiscoveryFilters>={}):PropertyDiscovery
 const search=(complexes:PropertyComplex[],rows:PropertyTransaction[],overrides:Partial<PropertyDiscoveryFilters>={},ready=true,trade:'sale'|'rent'='sale')=>discoverPropertyComplexes(complexes,rows,ready,trade,filters(overrides));
 
 describe('property discovery provenance and filtering',()=>{
+  it('sorts by latest exclusive unit price rather than total and leaves unknown prices last',()=>{
+    const rows=[transaction('a','a',{area_m2:'50',price_krw:5e8}),transaction('b','b',{area_m2:'100',price_krw:6e8})];
+    expect(search([complex('a'),complex('b'),complex('c')],rows,{sort:'pyeong-low'}).items.map(item=>item.complex.source_complex_id)).toEqual(['b','a','c']);
+    expect(search([complex('a'),complex('b'),complex('c')],rows,{sort:'pyeong-high'}).items.map(item=>item.complex.source_complex_id)).toEqual(['a','b','c']);
+  });
   it('matches Korean whitespace variants, known aliases and legal dong without inferring position',()=>{
     const a=complex('a'),b=complex('b',{name:'다른단지',observed_name_variants:['ABC Palace'],legal_dong_name:'교남동'});
     expect(search([a,b],[],{query:' 해뜨는아파트 '}).items.map(row=>row.complex.id)).toEqual([a.id]);

@@ -31,10 +31,11 @@ it('keeps an absent pinned area explicit when a month changes and avoids claimin
   const restored=readPropertyView('#regionCode=11110&month=202607&area=108.55',period);
   expect(restored.area).toBe('108.55');
   expect(propertyAreaOptions(['84.99','84.99'],restored.area,true)).toEqual([
+    {value:'84-band',label:'국평 · 전용 84㎡대'},
     {value:'84.99',label:'84.99 ㎡'},{value:'108.55',label:'108.55 ㎡ · 현재 기간 거래 없음'},
   ]);
-  expect(propertyAreaOptions([],restored.area,false)).toEqual([{value:'108.55',label:'108.55 ㎡ · 자료 확인 전'}]);
-  expect(propertyAreaOptions(['108.55'],restored.area,true)).toEqual([{value:'108.55',label:'108.55 ㎡'}]);
+  expect(propertyAreaOptions([],restored.area,false)).toEqual([{value:'84-band',label:'국평 · 전용 84㎡대 · 자료 확인 전'},{value:'108.55',label:'108.55 ㎡ · 자료 확인 전'}]);
+  expect(propertyAreaOptions(['108.55'],restored.area,true)).toEqual([{value:'84-band',label:'국평 · 전용 84㎡대 · 현재 기간 거래 없음'},{value:'108.55',label:'108.55 ㎡'}]);
 });
 
 it('restores the review filter without changing source identity, trade, complex or area conditions',()=>{

@@ -1,3 +1,4 @@
+import {areaMatches,NATIONAL_AREA} from './property-area';
 /** Immutable official-report release. Counts never turn missing/failed queries into zero. */
 export type PropertyTradeType = 'sale' | 'rent';
 export type PropertyStatus = 'complete' | 'empty' | 'failed' | 'pending' | 'partial';
@@ -234,10 +235,10 @@ export interface PropertySummaryFilter {complex_id:string;trade_type:PropertyTra
 export function summarizePropertyTransactions(rows:readonly PropertyTransaction[],filter:PropertySummaryFilter){
   if(!/^molit-apt:[0-9]{5}:[A-Za-z0-9_-]{1,64}$/.test(filter.complex_id)
     ||!['sale','rent'].includes(filter.trade_type)||!day(filter.from)||!day(filter.to)||filter.from>filter.to
-    ||!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(filter.area_m2)||Number(filter.area_m2)<=0||Number(filter.area_m2)>10_000)throw new Error('invalid_property_summary_filter');
+    ||(filter.area_m2!==NATIONAL_AREA&&(!/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(filter.area_m2)||Number(filter.area_m2)<=0||Number(filter.area_m2)>10_000)))throw new Error('invalid_property_summary_filter');
   if(new Set(rows.map(r=>r.id)).size!==rows.length)throw new Error('duplicate_snapshot_records');
   const selected=eligiblePropertyTransactions(rows).filter(r=>r.complex_id===filter.complex_id&&r.trade_type===filter.trade_type
-    &&r.area_m2===filter.area_m2&&r.contract_date!==null&&r.contract_date>=filter.from&&r.contract_date<=filter.to);
+    &&areaMatches(r.area_m2,filter.area_m2)&&r.contract_date!==null&&r.contract_date>=filter.from&&r.contract_date<=filter.to);
   const median=(key:'price_krw'|'deposit_krw'|'monthly_rent_krw')=>{
     const values=selected.map(r=>r[key]).filter((v):v is number=>v!==null).sort((a,b)=>a-b),middle=Math.floor(values.length/2);
     return !values.length?null:values.length%2?values[middle]:values[middle-1]+(values[middle]-values[middle-1])/2;
