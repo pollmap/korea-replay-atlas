@@ -1,0 +1,43 @@
+/* Price-first 2D property workspace; no changes to the 3D renderer or its chrome. */
+.atlas-shell.is-2d.is-exploring .complex-subtitle{margin:5px 0 0;color:#716780;font-size:11px;line-height:1.5}
+.atlas-shell.is-2d.is-exploring .complex-actionbar{display:flex;align-items:center;gap:6px;padding:0 16px 10px;flex:0 0 auto;background:#fff}
+.atlas-shell.is-2d.is-exploring .complex-actionbar button{flex:1;min-height:36px;padding:6px;border:1px solid #ded8ee;border-radius:6px;background:#fff;color:#63558e;font-size:12px;cursor:pointer}
+.atlas-shell.is-2d.is-exploring .complex-actionbar button[aria-pressed=true]{background:#eee8ff;border-color:#a897e1;color:#5140a7;font-weight:700}
+.atlas-shell.is-2d.is-exploring .complex-actionbar button:disabled{opacity:.45;cursor:default}
+.atlas-shell.is-2d.is-exploring .showing-complex>.complex-section-nav{padding:0 16px;background:#fff;box-shadow:0 2px 5px #2d245206}
+.atlas-shell.is-2d.is-exploring .showing-complex .property-body{scroll-padding-top:68px}
+.atlas-shell.is-2d.is-exploring .showing-complex .property-querybar{margin:0;padding:8px 0;border-bottom:0}
+.atlas-shell.is-2d.is-exploring .history-controls{gap:8px;margin-bottom:10px}
+.atlas-shell.is-2d.is-exploring .history-controls>.property-search{width:auto;flex:1;min-width:0}
+.atlas-shell.is-2d.is-exploring .history-controls select,.atlas-shell.is-2d.is-exploring .chart-basis-select select{width:100%;min-height:38px;border:1px solid #dfd9ed;border-radius:6px;background:#fff;padding:7px;color:#544568;font:inherit;font-size:12px}
+.atlas-shell.is-2d.is-exploring .history-period-select{flex:0 0 108px}
+.atlas-shell.is-2d.is-exploring .history-coverage{margin:0 0 10px;color:#746780}
+.atlas-shell.is-2d.is-exploring .history-chart-toolbar{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid #ede8f4}
+.atlas-shell.is-2d.is-exploring .history-chart-modes{flex:1;margin:0}
+.atlas-shell.is-2d.is-exploring .chart-basis-select{flex:0 0 116px}
+.atlas-shell.is-2d.is-exploring .history-chart{margin-top:10px}
+.atlas-shell.is-2d.is-exploring .pricing-cards{margin:12px 0 16px}
+.atlas-shell.is-2d.is-exploring .pricing-method{margin-top:12px;border-top:1px solid #eee9f5}
+.atlas-shell.is-2d.is-exploring .pricing-method summary{min-height:40px;display:flex;align-items:center;cursor:pointer}
+.atlas-shell.is-2d.is-exploring .discovery-active-filters{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0 0}
+.atlas-shell.is-2d.is-exploring .discovery-active-filters button{padding:6px 9px;min-height:32px;border:1px solid #d2c6ec;border-radius:5px;background:#f5efff;color:#614690;font-size:11px;max-width:100%;overflow-wrap:anywhere;cursor:pointer}
+.atlas-shell.is-2d.is-exploring .discovery-active-filters button:hover{background:#eae0fa}
+.atlas-shell.is-2d.is-exploring .property-discovery .discovery-trade-only{display:flex;flex-direction:row;gap:8px;align-items:center;min-height:36px;color:#66567d;font-size:12px;cursor:pointer}
+.atlas-shell.is-2d.is-exploring .discovery-trade-only input{width:16px;height:16px;min-height:0;accent-color:#6950ba}
+.atlas-shell.is-2d.is-exploring .quick-filter-done:disabled{background:#e5deee;color:#81718d;cursor:default}
+.atlas-shell.is-2d.is-exploring .property-panel :is(button,select,summary):focus-visible{outline:2px solid #6950c6;outline-offset:2px}
+@media(max-width:780px){
+ .atlas-shell.is-2d.is-exploring .showing-complex .property-header{padding:0 14px 5px}
+ .atlas-shell.is-2d.is-exploring .showing-complex .property-header h2{font-size:20px;margin:0}
+ .atlas-shell.is-2d.is-exploring .showing-complex .complex-subtitle{font-size:11px;margin-top:2px}
+ .atlas-shell.is-2d.is-exploring .showing-complex .property-back{min-height:44px;font-size:11px}
+ .atlas-shell.is-2d.is-exploring .property-header>button{min-width:44px;min-height:44px}
+ .atlas-shell.is-2d.is-exploring .showing-complex.sheet-half .complex-actionbar{display:none}
+ .atlas-shell.is-2d.is-exploring .showing-complex.sheet-peek :is(.complex-actionbar,.complex-section-nav,.complex-subtitle){display:none}
+ .atlas-shell.is-2d.is-exploring .complex-actionbar{padding-inline:14px}
+ .atlas-shell.is-2d.is-exploring .complex-actionbar button{min-height:44px}
+ .atlas-shell.is-2d.is-exploring .history-controls select,.atlas-shell.is-2d.is-exploring .chart-basis-select select{min-height:44px}
+ .atlas-shell.is-2d.is-exploring .history-chart-modes button{min-height:44px}
+ .atlas-shell.is-2d.is-exploring .discovery-active-filters button{min-height:44px}
+ .atlas-shell.is-2d.is-exploring .property-discovery .discovery-trade-only{min-height:44px}
+}

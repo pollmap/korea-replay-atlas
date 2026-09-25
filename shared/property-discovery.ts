@@ -6,6 +6,7 @@ export interface PropertyDiscoveryFilters {
   query:string; dong:string; buildYearMin:string; buildYearMax:string;
   priceMinEok:string; priceMaxEok:string; areaMinM2:string; areaMaxM2:string;
   sort:PropertyDiscoverySort;
+  hasTrades?:boolean;
 }
 export const EMPTY_PROPERTY_DISCOVERY_FILTERS:PropertyDiscoveryFilters={query:'',dong:'',buildYearMin:'',buildYearMax:'',priceMinEok:'',priceMaxEok:'',areaMinM2:'',areaMaxM2:'',sort:'recent'};
 export interface PropertyDiscoveryItem {
@@ -45,7 +46,7 @@ export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],r
   const [yearMin,yearMax]=range(filters.buildYearMin,filters.buildYearMax,'건축연도',9999,0,1,errors);
   const [priceMin,priceMax]=range(filters.priceMinEok,filters.priceMaxEok,trade==='sale'?'매매가':'보증금',90_000_000,8,100_000_000,errors);
   const [areaMin,areaMax]=range(filters.areaMinM2,filters.areaMaxM2,'전용면적',10_000,5,1,errors);
-  const transactionFiltered=[priceMin,priceMax,areaMin,areaMax].some(value=>value!==null);
+  const transactionFiltered=!!filters.hasTrades||[priceMin,priceMax,areaMin,areaMax].some(value=>value!==null);
   const transactionFiltersPending=!dataReady&&transactionFiltered;
   if(errors.length)return {items:[],errors,transactionFiltersPending};
   const byId=new Map<string,{count:number;latest:PropertyTransaction}>();
