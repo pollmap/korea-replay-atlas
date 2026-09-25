@@ -35,7 +35,12 @@ const abortError=()=>new DOMException('Aborted','AbortError');
 const anchors=['land','water','area','road','point'] as const;
 const SEOUL_KAPT_SOURCE='seoul-kapt-provider-points';
 
-const SEOUL_KAPT_URL=new URL('./data/seoul-kapt-points-b63b62af834062de.geojson',import.meta.url).href;
+const SEOUL_KAPT_SOURCES:Readonly<Record<string,string>>={
+  'property-eea48453a819f517':new URL('./data/seoul-kapt-points-b63b62af834062de.geojson',import.meta.url).href,
+  'property-54bf1817fdcc7bd9':new URL('./data/seoul-kapt-points-14916a799c24a49e.geojson',import.meta.url).href,
+};
+const SEOUL_KAPT_BASE=new URL('./data/seoul-kapt-points-8360eb2d88be0ab4.geojson',import.meta.url).href;
+const seoulKaptUrl=(release:string)=>SEOUL_KAPT_SOURCES[release]??SEOUL_KAPT_BASE;
 // Fit the mainland and Jeju for legible national discovery. Offshore islands
 // remain in the same world and can be reached through search or panning.
 const NATIONAL_OVERVIEW:[[number,number],[number,number]]=[[125,33],[130.2,38.7]];
@@ -215,8 +220,12 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(map.getLayer(REGION_MAP_LAYER))map.setPaintProperty(REGION_MAP_LAYER,'text-color',['case',['==',['get','property_region_code'],latest.current.propertyRegion??''],'#713fc7','#102b46']);
     };
     refreshBoundaryRef.current=refreshBoundary;
+    let installedKaptUrl='';
     const refreshSelectedPoint=()=>{
       if(disposed||!ready)return;
+      const source=map.getSource(SEOUL_KAPT_SOURCE) as GeoJSONSource|undefined;
+      const url=seoulKaptUrl(latest.current.vectorData?.property?.release_id??'');
+      if(source&&installedKaptUrl!==url){installedKaptUrl=url;source.setData(url);}
       const point=latest.current.propertyMapPoint;
       const valid=point&&point.releaseId===latest.current.vectorData?.property?.release_id;
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
@@ -235,7 +244,8 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const visible=map.getZoom()>=10&&bounds.getEast()>=126.6&&bounds.getWest()<=127.4&&bounds.getNorth()>=37.3&&bounds.getSouth()<=37.8;
       node.dataset.seoulKaptVisible=String(visible&&(map.getZoom()>=13||!!latest.current.propertyMapPoint));
       if(!visible||map.getSource(SEOUL_KAPT_SOURCE))return;
-      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:SEOUL_KAPT_URL,attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
+      installedKaptUrl=seoulKaptUrl(latest.current.vectorData?.property?.release_id??'');
+      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:installedKaptUrl,attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
       const release=latest.current.vectorData?.property?.release_id??'',trade=latest.current.propertyTrade??'sale';
       map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade));
       map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade,true));

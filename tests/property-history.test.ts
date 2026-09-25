@@ -2,6 +2,9 @@ import {expect,it} from 'vitest';
 import {historyMonths,historyDay,historySummary} from '../shared/property-history';
 import {readPropertyView} from '../shared/property-view';
 import {loadPropertyHistory,type HistoryResult} from '../src/property-history-loader';
+import {loadComparisonHistory} from '../src/property-comparison-loader';
+import type {AtlasContent} from '../src/useAtlas';
+import type {PropertyComplex} from '../shared/property';
 import type {PropertyPartition,PropertyRegionDetail,PropertyTransaction} from '../shared/property';
 
 const stamp='2026-09-20T00:00:00Z',release='property-0123456789abcdef',complex='molit-apt:11110:test';
@@ -14,6 +17,11 @@ function row(overrides:Partial<PropertyTransaction>={}):PropertyTransaction{retu
 function partition(month='202608',overrides:Partial<PropertyPartition>={}):PropertyPartition{return {lawd_code:'11110',deal_month:month,trade_type:'sale',status:'complete',source_rows:1,eligible_rows:1,retrieved_at:stamp,error_code:null,transactions:[{url:`/data/property/${release}/${month}.json`,sha256:'b'.repeat(64),bytes:1000}],...overrides};}
 function detail(partitions:PropertyPartition[]):PropertyRegionDetail{return {schema_version:1,kind:'property-region',release_id:release,lawd_code:'11110',name:'테스트 지역',period:{from:'202606',to:'202609',latest_complete_month:'202608'},coverage:{expected:partitions.length,complete:partitions.length,empty:0,pending:0,partial:0,failed:0,historical_coverage:'current_codes_only_pending_effective_date_crosswalk'},metrics:[],partitions,complexes:null};}
 function packet(transactions:PropertyTransaction[],deal_month='202608'){return {schema_version:1,kind:'property-transactions',release_id:release,lawd_code:'11110',deal_month,transactions};}
+function publishedDetail(partitions:PropertyPartition[]):PropertyRegionDetail {
+  const value=detail(partitions);
+  value.metrics=partitions.map(partition=>({lawd_code:partition.lawd_code,deal_month:partition.deal_month,trade_type:'sale',status:'complete',source_rows:partition.source_rows,eligible_rows:partition.eligible_rows,cancelled_rows:0,invalid_rows:0,statistics_excluded_rows:0,complex_count:1,retrieved_at:stamp,median_price_per_m2_krw:1000000,statistic:'reported-row-median-price-per-m2',cancellation_policy:'exclude_cancelled_and_unknown'}));
+  return value;
+}
 
 it('places different months on an elapsed-day axis and handles year/leap boundaries',()=>{
   expect(historyMonths('202601',3)).toEqual(['202511','202512','202601']);
@@ -67,4 +75,33 @@ it('limits concurrent month jobs and preserves recent results when older files e
   await loadPropertyHistory({...input,onMonth:r=>results.push(r),fetchJson:async ref=>{const month=ref.url!.split('/').pop()!.slice(0,6);expect(month).not.toBe('202606');return packet([row()],month);}});
   expect(results.filter(r=>r.status==='ready')).toHaveLength(2);
   expect(results.find(r=>r.month==='202606')).toMatchObject({status:'missing',reason:'download_budget',rows:[]});
+});
+
+it('loads a district once for several compared complexes and retains distinct identical reports',async()=>{
+  const other='molit-apt:11110:other',ignored='molit-apt:11110:ignored';
+  const source=publishedDetail([partition('202608',{source_rows:4,eligible_rows:4})]);
+  const atlas={origin:'https://example.com',property:{release_id:release},regions:{regions:[{lawd_code:'11110',index:{url:'/region.json',sha256:'a'.repeat(64),bytes:100}}]}} as AtlasContent;
+  const items=[complex,other].map(id=>({id,lawd_code:'11110'} as PropertyComplex));
+  const urls:string[]=[];
+  const data=await loadComparisonHistory({atlas,items,month:'202608',range:3,trade:'sale',signal:new AbortController().signal,fetchJson:async ref=>{
+    urls.push(ref.url!);
+    return ref.url==='/region.json'?source:packet([row(),row({id:`molit-sale:${'1'.repeat(64)}:2`}),row({id:`molit-sale:${'2'.repeat(64)}:1`,complex_id:other}),row({id:`molit-sale:${'3'.repeat(64)}:1`,complex_id:ignored})]);
+  }});
+  expect(urls).toHaveLength(2);
+  expect(data['11110'].find(result=>result.month==='202608')?.rows.map(value=>value.complex_id)).toEqual([complex,complex,other]);
+  expect(data['11110'].filter(result=>result.status==='missing')).toHaveLength(2);
+});
+
+it('retains other comparison regions when one region lookup fails and does not publish an aborted comparison',async()=>{
+  const source=publishedDetail([partition()]);
+  const atlas={origin:'https://example.com',property:{release_id:release},regions:{regions:['11110','11140'].map(code=>({lawd_code:code,index:{url:`/${code}.json`,sha256:'a'.repeat(64),bytes:100}}))}} as AtlasContent;
+  const items=[{id:complex,lawd_code:'11110'},{id:'molit-apt:11140:other',lawd_code:'11140'}] as PropertyComplex[];
+  const data=await loadComparisonHistory({atlas,items,month:'202608',range:1,trade:'sale',signal:new AbortController().signal,fetchJson:async ref=>{
+    if(ref.url==='/11140.json')throw new Error('offline');
+    return ref.url==='/11110.json'?source:packet([row()]);
+  }});
+  expect(data['11110'][0].status).toBe('ready');expect(data['11140'][0]).toMatchObject({status:'error',reason:'offline',rows:[]});
+  const controller=new AbortController();
+  const aborted=await loadComparisonHistory({atlas,items:items.slice(0,1),month:'202608',range:1,trade:'sale',signal:controller.signal,fetchJson:async()=>{controller.abort();return source;}});
+  expect(aborted).toEqual({});
 });

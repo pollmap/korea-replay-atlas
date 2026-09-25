@@ -39,10 +39,15 @@ SEOUL_KAPT_ASSET_HASHES = {
     '8360eb2d88be0ab4': SEOUL_KAPT_GEOJSON_SHA,
     '33058dae0a1d86c3': SEOUL_KAPT_JOINED_SHA,
     'b63b62af834062de': SEOUL_KAPT_RECENT_SHA,
+    '14916a799c24a49e': '14916a799c24a49e0bd2c91311dfc8e98ff287fb4ce8d09a958bad75f1208c35',
 }
 SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
-PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-[A-Za-z0-9_-]{8}\.json\Z')
+PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-(?:[a-f0-9]{16}-)?[A-Za-z0-9_-]{8}\.json\Z')
 PROPERTY_NAVIGATION_SHA = 'b93cbc63ea3e74836f349ed11dc73742ee2095f9ba258a13b9812c726879cf7e'
+PROPERTY_NAVIGATION_ASSETS = {
+    (PROPERTY_NAVIGATION_SHA, 55929),
+    ('9ee094b267838e30d2f5117c027444d16fedc8b5348f1214011a265e93432e7c', 55930),
+}
 REGION_ASSET = re.compile(r'assets/(boundary-(?:[0-9]{2}|[0-9]{5})|dongs-[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
 REGION_SOURCE_ROOT = Path(__file__).resolve().parents[1] / 'src/data'
 REGION_ARCHIVE_SHA = 'f1cf0f9de453ac7eaacb273f39cee52851183372b9ddfda428a967c3a670b2c6'
@@ -121,7 +126,7 @@ def _region_asset_inventory():
 def _approved_point_asset(name: str, sha: str, size: int) -> bool:
     match = SEOUL_KAPT_GEOJSON.fullmatch(name)
     return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 2 * 1024 * 1024
-                or PROPERTY_NAVIGATION.fullmatch(name) and sha == PROPERTY_NAVIGATION_SHA and size == 55929)
+                or PROPERTY_NAVIGATION.fullmatch(name) and (sha, size) in PROPERTY_NAVIGATION_ASSETS)
 FORBIDDEN_NAME = re.compile(r'(?i)(?:^|[-_.])(?:secrets?|credentials?|tokens?|private|id_rsa)(?:$|[-_.])')
 CREDENTIAL_PATTERNS = (
     re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),

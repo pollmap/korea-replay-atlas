@@ -4,7 +4,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import data from '../src/data/seoul-apartment-facts.json';
 import navigation from '../src/data/seoul-property-navigation.json';
 import {apartmentFactsIndex,parkingPerHousehold} from '../shared/property-facts';
-import ApartmentFacts from '../src/ApartmentFacts';
+import ApartmentFacts,{createApartmentFactsLookup} from '../src/ApartmentFacts';
 
 it('ties every published fact to exactly the existing audited identity without upgrading coordinates',()=>{
   const index=apartmentFactsIndex(data),ids=new Map(navigation.points.map(row=>[row[0],row[1]]));
@@ -26,4 +26,21 @@ it('renders the actual official Helio City counts and retains unknown vs zero',(
 });
 it('rejects duplicate identity, numeric coercion, and invalid source dates',()=>{
   for(const rows of [[data.rows[0],data.rows[0]],[{...data.rows[0],households:'12'}],[{...data.rows[0],approved_on:'2026-02-31'}]])expect(()=>apartmentFactsIndex({...data,rows})).toThrow();
+});
+it('indexes facts independently by audited property release and rejects duplicate release registrations',()=>{
+  const nextRelease='property-1111111111111111',next={...data,property_release_id:nextRelease,rows:[{...data.rows[0],households:1234}]};
+  const lookup=createApartmentFactsLookup([data,next]);
+  expect(lookup(data.property_release_id)?.rows.size).toBe(842);
+  expect(lookup(nextRelease)?.rows.size).toBe(1);
+  expect(lookup(nextRelease)?.rows.get(data.rows[0].complex_id)?.households).toBe(1234);
+  expect(lookup('property-2222222222222222')).toBeUndefined();
+  expect(lookup(nextRelease)).toBe(lookup(nextRelease));
+  expect(()=>createApartmentFactsLookup([data,data])).toThrow('버전 목록');
+});
+it('does not let invalid facts in one release poison another release cache',()=>{
+  const nextRelease='property-1111111111111111',bad={...data,property_release_id:nextRelease,rows:[{...data.rows[0],households:'1234'}]};
+  const lookup=createApartmentFactsLookup([data,bad]);
+  expect(()=>lookup(nextRelease)).toThrow();
+  expect(lookup(data.property_release_id)?.rows.size).toBe(842);
+  expect(()=>lookup(nextRelease)).toThrow();
 });

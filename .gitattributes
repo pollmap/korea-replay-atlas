@@ -1,0 +1,4 @@
+# Public generated assets are byte-pinned; Windows checkout must preserve LF.
+src/data/*.json text eol=lf
+src/data/*.geojson text eol=lf
+src/data/**/*.json text eol=lf
