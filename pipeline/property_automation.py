@@ -16,7 +16,7 @@ import uuid
 
 from .real_estate import RealEstateError, utc_instant, _reject_links
 from .real_estate_archive import D1Archive
-from .real_estate_fetch import fetch_page, instant, month_sequence, read_key
+from .real_estate_fetch import fetch_page, instant, month_sequence, read_key, MAX_PAGE_BYTES
 from .real_estate_remote import RemoteWorkspace, RemoteCollector
 from .real_estate_run_guard import CollectionGuard, DAY, guarded_transport
 
@@ -136,6 +136,58 @@ def requeue_safe_failures(db, stamp, *, limit=5, selected=None):
             'next_retry_at': next_retry.strftime('%Y-%m-%dT%H:%M:%SZ') if next_retry else None}
 
 
+def pagination_budget_preflight(db, stamp, *, max_requests, max_bytes, selected=None):
+    """Stop proven unfinishable stale jobs before Collector restarts page one."""
+    db.execute('''CREATE TABLE IF NOT EXISTS property_automation_pagination (
+        job_id TEXT PRIMARY KEY, first_page_sha TEXT NOT NULL,
+        required_requests INTEGER NOT NULL, required_bytes INTEGER NOT NULL)''')
+    condition = ' AND j.deal_month=?' if selected else ''
+    rows = db.execute("""SELECT j.pages,p.first_page_sha,p.required_requests,p.required_bytes
+        FROM jobs j JOIN property_automation_pagination p ON p.job_id=j.id
+        WHERE j.status IN ('partial','pending')""" + condition, (selected,) if selected else ()).fetchall()
+    now = utc_instant(stamp)
+    for raw, first_sha, required_requests, required_bytes in rows:
+        pages = json.loads(raw)
+        if not pages or pages[0]['sha256'] != first_sha:
+            continue
+        if (now - utc_instant(pages[0]['retrieved_at'])).total_seconds() <= 900:
+            continue  # Still-valid pages can finish across bounded runs.
+        if max_requests < required_requests or max_bytes < required_bytes:
+            raise RealEstateError('automation_pagination_budget_insufficient')
+
+
+def record_pagination_budget(db, since_call, report):
+    """Keep evidence only when this whole run started and served one job.
+
+    A job partially served after other jobs may fit the next full run budget;
+    that case must not produce a blocking assertion.
+    """
+    with db:
+        db.execute("DELETE FROM property_automation_pagination WHERE job_id IN (SELECT id FROM jobs WHERE status IN ('complete','empty'))")
+    if report['stop_reason'] != 'run_budget':
+        return
+    calls = db.execute('SELECT job_id,page_no,status FROM calls WHERE id>? ORDER BY id', (since_call,)).fetchall()
+    if (not calls or len({row[0] for row in calls}) != 1 or calls[0][1] != 1
+            or any(row[2] != 'validated' for row in calls)):
+        return
+    job = calls[0][0]
+    row = db.execute("SELECT pages FROM jobs WHERE id=? AND status='partial'", (job,)).fetchone()
+    if not row:
+        return
+    pages = json.loads(row[0])
+    if not pages or len(pages) != len(calls):
+        raise RealEstateError('automation_pagination_evidence_invalid')
+    first = pages[0]
+    required = (first['total_count'] + first['page_size'] - 1) // first['page_size']
+    if required <= len(pages):
+        raise RealEstateError('automation_pagination_evidence_invalid')
+    # Collector reserves MAX_PAGE_BYTES of remaining response budget before the
+    # next call. Raising only the request cap cannot fix a proven byte shortfall.
+    with db:
+        db.execute('INSERT OR REPLACE INTO property_automation_pagination VALUES(?,?,?,?)',
+                   (job, first['sha256'], required, sum(p['bytes'] for p in pages) + MAX_PAGE_BYTES))
+
+
 def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
                    as_of=None, mode='auto', months=121, transport=fetch_page,
                    reserve_bytes=2*1024**3):
@@ -151,6 +203,13 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
     guard.initialize()
     if guard.query(f"SELECT 1 FROM collection_reservations WHERE day={DAY} AND error_code='upstream_quota' LIMIT 1")['results']:
         raise RealEstateError('upstream_quota')
+    # HTTP 200 XML quota responses are durably stored before normalization.
+    # Their provider error therefore lives in the checkpoint calls, not the raw
+    # reservation's error_code. Use the same authoritative KST day as the guard.
+    today = guard.query(f'SELECT {DAY} AS day')['results'][0]['day']
+    with sqlite3.connect((workspace.root / 'checkpoint.sqlite').as_uri() + '?mode=ro', uri=True) as db:
+        if db.execute("SELECT 1 FROM calls WHERE day=? AND error_code='upstream_quota' LIMIT 1", (today,)).fetchone():
+            raise RealEstateError('upstream_quota')
     lease = guard.acquire(workspace.head)
     collector = None
     try:
@@ -159,6 +218,8 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
             reserve_bytes=reserve_bytes, transport=guarded_transport(guard, lease, transport))
         state, lane, selected = prepare_lane(collector.db, stamp, mode=mode, months=months)
         retries = requeue_safe_failures(collector.db, stamp, limit=min(5, max_requests), selected=selected)
+        pagination_budget_preflight(collector.db, instant(), max_requests=max_requests, max_bytes=max_bytes, selected=selected)
+        since_call = collector.db.execute('SELECT COALESCE(MAX(id),0) FROM calls').fetchone()[0]
         report = collector.collect(key, max_requests=max_requests, max_bytes=max_bytes,
                                    timeout=30, collect_months=[selected] if selected else None)
         if report['stop_reason'] in UNCERTAIN_STOPS:
@@ -167,6 +228,7 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
         # scheduled run and does not advance the correction cursor.
         if report['stop_reason'] in SUCCESS_STOPS:
             finish_lane(collector.db, state, lane, selected)
+        record_pagination_budget(collector.db, since_call, report)
         collector.close()
         collector = None
         pending = guard.query("SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? AND phase='reserved' LIMIT 1",

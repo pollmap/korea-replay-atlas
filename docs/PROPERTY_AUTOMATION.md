@@ -90,6 +90,35 @@ errors include the next UTC day at 00:17 as `next_retry_at`; provider daily-quot
 errors use the next KST day at 00:17. These are earliest retry hints, not automatic
 unlock instructions or guarantees of provider recovery.
 
+HTTP-success responses containing XML quota codes (22/23) are also checked in the
+restored checkpoint's call ledger before any new source call. A raw reservation may
+correctly have status `stored` even when subsequent normalization reports quota;
+checking only reservation error codes would miss this case.
+
+## Pagination and bounded-run progress
+
+Collector expires incomplete pagination after 15 minutes. The four-hour schedule
+does not promise continuation of those pages. The automation records a durable
+budget proof only when an entire run starts at page one and serves a single job,
+stops at `run_budget`, and that job still needs pages. It records the first-page SHA,
+reported page count and the bytes needed to attempt at least one further page under
+Collector's existing response-size reservation rule.
+
+On the next run, valid pages within 15 minutes can continue normally. After expiry,
+if the configured request or response-byte limit is still demonstrably insufficient,
+the run stops **before another source call** with
+`automation_pagination_budget_insufficient`. The previous private head remains;
+the provably zero-request attempt releases its own lease. An operator must inspect
+the evidence and raise the appropriate budget within the existing hard bounds or
+provide another verified collection strategy. The code never silently increases
+request/byte caps and does not claim that increasing one limit guarantees completion.
+
+A partial job started after other jobs consumed the run budget does not create this
+proof: it may fit the next run's full budget and is allowed one full-budget retry.
+If that dedicated retry is again insufficient, it produces the blocking proof.
+Completed jobs clear their obsolete proof; changed first-page SHA cannot reuse old
+evidence. Original raw pages and snapshots remain preserved throughout.
+
 Logs contain only bounded counts, coverage and allowlisted error codes. Successful
 local fixture tests prove orchestration and failure semantics; they do not prove
 the secrets were provisioned, live APIs responded, schedule ran, ten years were

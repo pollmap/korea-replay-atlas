@@ -7,9 +7,10 @@ from pipeline.real_estate import RealEstateError
 from pipeline.real_estate_archive import backup, restore
 from pipeline.real_estate_run_guard import CollectionGuard
 from pipeline.property_automation import (STATE_KEY, finish_lane, main,
-    prepare_lane, requeue_safe_failures, retry_at, run_automation)
+    pagination_budget_preflight, prepare_lane, record_pagination_budget,
+    requeue_safe_failures, retry_at, run_automation)
 from test_real_estate_archive import LocalD1
-from test_real_estate_fetch import collector, xml, STAMP
+from test_real_estate_fetch import collector, xml, rent, STAMP
 
 
 def parent(tmp_path):
@@ -235,3 +236,100 @@ def test_legacy_timeout_retry_is_durable_in_verified_remote_head(tmp_path):
     with sqlite3.connect(tmp_path / 'restored/checkpoint.sqlite') as db:
         assert db.execute('SELECT requeues,error_code FROM property_automation_retries').fetchall() == [(1, 'upstream_timeout')]
         assert db.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0] == 4
+
+
+def test_http_success_xml_quota_blocks_next_run_before_source_call(tmp_path):
+    store = parent(tmp_path)
+    calls = []
+    def quota(*args, **kwargs):
+        calls.append(1)
+        return xml(code='22')
+    report = run_automation(tmp_path / 'xml-quota', store, 'fixture-key', as_of=STAMP, months=2,
+                            max_requests=1, reserve_bytes=0, transport=quota)
+    assert report['stop_reason'] == 'upstream_quota'
+    assert CollectionGuard(store).query("SELECT phase,error_code FROM collection_reservations")['results'] == [
+        {'phase': 'stored', 'error_code': None}]
+    with pytest.raises(RealEstateError, match='upstream_quota'):
+        run_automation(tmp_path / 'blocked', store, 'fixture-key', as_of=STAMP, months=2,
+                        max_requests=1, reserve_bytes=0, transport=quota)
+    assert calls == [1]
+
+
+def page_transport(calls):
+    def fetch(key, trade, code, month, page, size, **kwargs):
+        calls.append((trade, page))
+        return xml([rent() for _ in range(1000 if page == 1 else 1)], page=page, total=1001)
+    return fetch
+
+
+def bounded_collect(c, stamp, *, requests, byte_limit):
+    pagination_budget_preflight(c.db, stamp, max_requests=requests, max_bytes=byte_limit)
+    start = c.db.execute('SELECT COALESCE(MAX(id),0) FROM calls').fetchone()[0]
+    result = c.collect('fixture-key', max_requests=requests, max_bytes=byte_limit, min_interval=0)
+    record_pagination_budget(c.db, start, result)
+    return result
+
+
+@pytest.mark.parametrize(('requests','byte_limit'), [(1, 16*1024**2), (25, 8*1024**2)])
+def test_stale_exclusive_partial_stops_instead_of_repeating_first_page(tmp_path, requests, byte_limit):
+    stamp = [STAMP]
+    calls = []
+    c = collector(tmp_path / 'local', page_transport(calls), clock=lambda: stamp[0])
+    assert bounded_collect(c, stamp[0], requests=requests, byte_limit=byte_limit)['stop_reason'] == 'run_budget'
+    stamp[0] = '2026-09-20T04:00:00Z'
+    with pytest.raises(RealEstateError, match='automation_pagination_budget_insufficient'):
+        bounded_collect(c, stamp[0], requests=requests, byte_limit=byte_limit)
+    assert calls == [('rent', 1)]
+    # Increasing the bottleneck budget deliberately permits a new complete pass.
+    bounded_collect(c, stamp[0], requests=2, byte_limit=16*1024**2)
+    assert calls == [('rent', 1), ('rent', 1), ('rent', 2)]
+    assert c.summary()['complete'] == 1
+    c.close()
+
+
+def test_valid_partial_pages_resume_without_requiring_full_job_request_budget(tmp_path):
+    stamp = [STAMP]
+    calls = []
+    c = collector(tmp_path / 'local', page_transport(calls), clock=lambda: stamp[0])
+    bounded_collect(c, stamp[0], requests=1, byte_limit=8*1024**2)
+    stamp[0] = '2026-09-20T00:05:00Z'
+    bounded_collect(c, stamp[0], requests=1, byte_limit=8*1024**2)
+    assert calls == [('rent', 1), ('rent', 2)]
+    assert c.summary()['complete'] == 1
+    assert c.db.execute('SELECT COUNT(*) FROM property_automation_pagination').fetchone()[0] == 0
+    c.close()
+
+
+def test_partial_after_other_job_may_retry_with_full_next_run_budget(tmp_path):
+    stamp = [STAMP]
+    calls = []
+    transport = page_transport(calls)
+    def mixed(key, trade, *args, **kwargs):
+        if trade == 'rent':
+            calls.append((trade, 1))
+            return xml()
+        return transport(key, trade, *args, **kwargs)
+    c = collector(tmp_path / 'local', mixed, clock=lambda: stamp[0])
+    bounded_collect(c, stamp[0], requests=2, byte_limit=16*1024**2)
+    assert c.db.execute('SELECT COUNT(*) FROM property_automation_pagination').fetchone()[0] == 0
+    stamp[0] = '2026-09-20T04:00:00Z'
+    bounded_collect(c, stamp[0], requests=2, byte_limit=16*1024**2)
+    assert calls == [('rent', 1), ('sale', 1), ('sale', 1), ('sale', 2)]
+    c.close()
+
+
+def test_pagination_evidence_survives_remote_head_and_blocks_with_owner_released(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    store = parent(tmp_path)
+    calls = []
+    result = run_automation(tmp_path / 'first', store, 'fixture-key', as_of=STAMP, months=2,
+        max_requests=1, reserve_bytes=0, transport=page_transport(calls))
+    assert result['stop_reason'] == 'run_budget'
+    before = store.head()
+    future = (datetime.now(timezone.utc) + timedelta(hours=4)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    monkeypatch.setattr('pipeline.property_automation.instant', lambda: future)
+    with pytest.raises(RealEstateError, match='automation_pagination_budget_insufficient'):
+        run_automation(tmp_path / 'second', store, 'fixture-key', as_of=STAMP, months=2,
+            max_requests=1, reserve_bytes=0, transport=page_transport(calls))
+    assert len(calls) == 1 and store.head() == before
+    assert CollectionGuard(store).status()['owner'][0]['occupied'] == 0
