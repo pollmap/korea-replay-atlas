@@ -201,7 +201,7 @@ export default function App(){
     const params=new URLSearchParams(location.hash.slice(1));
     if(params.has('flatCamera')||params.has('camera')||params.has('position'))return;
     const region=atlas.content.regions.regions.find(row=>row.lawd_code===params.get('regionCode'));
-    const target=region?regionNavigationPlace(region,atlas.content.map):null;if(target)goTo(target);
+    const target=regionNavigationPlace(region??{name:params.get('regionQuery')??''},atlas.content.map);if(target)goTo(target);
   },[atlas.content,goTo]);
   const inspect=useCallback((value:Selection|null)=>{if(value&&mode==='map'&&!isApartmentMapSelection(value))return;setSelection(value);if(value){setMenuOpen(false);setSunOpen(false);setObservationsOpen(false);}},[mode]);
   const acceptLiveTransit=useCallback((value:LiveTransitSnapshot|null)=>{setLiveTransit(value);setSelection(previous=>previous?.properties?.live?null:previous);},[]);
