@@ -3,8 +3,10 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import ComplexComparison from '../src/ComplexComparison';
 import PropertyExplorer from '../src/PropertyExplorer';
+import PropertyHistory from '../src/PropertyHistory';
 import type {AtlasContent} from '../src/useAtlas';
 import type {PropertyComplex,RegionMetric} from '../shared/property';
+import type {PropertyRegionDetail} from '../shared/property';
 
 const release='property-0123456789abcdef',period={from:'202109',to:'202609',latest_complete_month:'202608'};
 const coverage={expected:2,complete:0,empty:0,failed:0,pending:2,partial:0,historical_coverage:'current_codes_only_pending_effective_date_crosswalk' as const};
@@ -20,6 +22,15 @@ function atlas():AtlasContent{return {
     latest:{sale:metric,rent:{...metric,trade_type:'rent',cancellation_policy:'source_not_provided'}}}]},
 };}
 afterEach(()=>vi.unstubAllGlobals());
+
+it('does not call unrequested price-card observations zero transactions',()=>{
+  const detail={release_id:release} as PropertyRegionDetail;
+  const complex={id:'molit-apt:11110:test'} as PropertyComplex;
+  const html=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'',onArea:()=>{},range:3,onRange:()=>{},includeReview:false}));
+  expect(html).toContain('자료 확인 전');
+  expect(html).not.toContain('확인 0건');
+  expect(html).not.toContain('유효 0건');
+});
 
 it('does not present an entirely uncollected nationwide view as zero transactions',()=>{
   vi.stubGlobal('location',{hash:''});
