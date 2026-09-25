@@ -26,7 +26,8 @@ describe('consistent property map labels',()=>{
     }
   });
   it('always preserves the apartment name and identifies actual contract date',()=>{
-    expect(label({name:'검증 아파트',property_complex_id:'molit-apt:11710:1',property_release_id:release,recent_sale_label:'최근 신고 9억 · 84㎡',recent_sale_contract_date:'2026-08-15'})).toBe('검증 아파트\n최근 신고 9억 · 84㎡\n2026-08-15');
+    expect(label({name:'검증 아파트',property_complex_id:'molit-apt:11710:1',property_release_id:release,recent_sale_label:'최근 신고 9억 · 84㎡',recent_sale_contract_date:'2026-08-15'})).toBe('검증 아파트\n9억 · 84㎡\n2026-08-15');
+    expect(label({name:'검증 아파트',property_complex_id:'molit-apt:11710:1',property_release_id:release,recent_sale_label:'9억 · 84㎡'})).toBe('검증 아파트\n9억 · 84㎡');
     expect(label({name:'공식 단지'})).toBe('공식 단지\n공식 단지 정보');
   });
   it('never labels stale or sale-only prices as current rental data',()=>{
