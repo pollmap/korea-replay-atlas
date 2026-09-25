@@ -1,6 +1,7 @@
 import {useId,useMemo,useRef,useState} from 'react';
 import type {PropertyComplex,PropertyTransaction} from '../shared/property';
 import {discoverPropertyComplexes,EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDiscoveryDongs,type PropertyDiscoveryFilters,type PropertyDiscoverySort} from '../shared/property-discovery';
+import {transactionPrice} from '../shared/property-pricing';
 import {moneyLabel} from '../shared/property-view';
 
 export interface PropertyComplexListProps {
@@ -27,7 +28,7 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
     <div className="discovery-filter-chips" ref={filterButtons} role="group" aria-label="단지 조건 빠른 선택">{([['price',trade==='sale'?'매매가':'보증금',filters.priceMinEok||filters.priceMaxEok],['area','전용면적',filters.areaMinM2||filters.areaMaxM2],['year','건축연도',filters.buildYearMin||filters.buildYearMax]] as const).map(([id,label,enabled])=><button key={id} aria-expanded={filterPanel===id} aria-controls={panelId} data-filter={id} data-active={!!enabled} onClick={()=>setFilterPanel(current=>current===id?null:id)}>{label}{enabled?<span className="filter-active-dot" aria-label="적용 중"/>:<span aria-hidden="true">⌄</span>}</button>)}</div>
     <div className="discovery-selects">
       <label>법정동<select value={filters.dong} onChange={event=>change('dong',event.target.value)}><option value="">모든 법정동</option>{dongs.map(dong=><option key={dong} value={dong}>{dong}</option>)}</select></label>
-      <label>정렬<select value={filters.sort} onChange={event=>change('sort',event.target.value as PropertyDiscoverySort)}><option value="recent">최근 계약순</option><option value="count">신고 거래 많은순</option><option value="price-low">최근 거래금액 낮은순</option><option value="price-high">최근 거래금액 높은순</option><option value="name">단지 이름순</option></select></label>
+      <label>정렬<select value={filters.sort} onChange={event=>change('sort',event.target.value as PropertyDiscoverySort)}><option value="recent">최근 계약순</option><option value="count">신고 거래 많은순</option><option value="price-low">최근 거래금액 낮은순</option><option value="price-high">최근 거래금액 높은순</option><option value="pyeong-low">전용 평당가 낮은순</option><option value="pyeong-high">전용 평당가 높은순</option><option value="name">단지 이름순</option></select></label>
     </div>
     {filterPanel&&<div id={panelId} className="discovery-filters quick-filter-panel" onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();closeFilter();}}}>
       <div className="quick-filter-heading"><strong>{filterPanel==='price'?'거래금액 조건':filterPanel==='area'?'전용면적 조건':'건축연도 조건'}</strong><button aria-label="조건 선택 닫기" onClick={closeFilter}>닫기</button></div>
@@ -39,7 +40,7 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
         <label>최대<input inputMode="decimal" value={filters.priceMaxEok} onChange={event=>change('priceMaxEok',event.target.value)} placeholder="제한 없음" aria-label={`최대 ${trade==='sale'?'매매가':'보증금'} (억원)`}/></label>
       </fieldset>
       {trade==='rent'&&<p className="discovery-note">보증금만 필터합니다. 월세는 최근 계약에 따로 표시합니다.</p>}</>}
-      {filterPanel==='area'&&<><div className="filter-presets">{[['60㎡ 이하','','60'],['60–85㎡','60','85'],['85–102㎡','85','102'],['102㎡ 이상','102','']].map(([label,min,max])=><button key={label} aria-pressed={filters.areaMinM2===min&&filters.areaMaxM2===max} onClick={()=>{setFilters(current=>({...current,areaMinM2:min,areaMaxM2:max}));setPage(0);}}>{label}</button>)}</div><fieldset>
+      {filterPanel==='area'&&<><div className="filter-presets">{[['국평 · 84㎡대','84','84.99999'],['60㎡ 이하','','60'],['60–85㎡','60','85'],['85–102㎡','85','102'],['102㎡ 이상','102','']].map(([label,min,max])=><button key={label} aria-pressed={filters.areaMinM2===min&&filters.areaMaxM2===max} onClick={()=>{setFilters(current=>({...current,areaMinM2:min,areaMaxM2:max}));setPage(0);}}>{label}</button>)}</div><fieldset>
         <legend>전용면적 · ㎡</legend>
         <label>최소<input inputMode="decimal" value={filters.areaMinM2} onChange={event=>change('areaMinM2',event.target.value)} placeholder="제한 없음" aria-label="최소 전용면적 (제곱미터)"/></label>
         <span aria-hidden="true">–</span>
@@ -66,6 +67,7 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
         {complex.address_conflict&&<span className="discovery-note">신고 주소가 달라 확인이 필요한 단지입니다.</span>}
         {latest?<>
           <span className="discovery-price"><span>{trade==='sale'?'최근 매매':'최근 보증금'}</span><strong>{moneyLabel(trade==='sale'?latest.price_krw:latest.deposit_krw)}원</strong>{trade==='rent'&&<small>월세 {moneyLabel(latest.monthly_rent_krw)}원</small>}</span>
+          <span className="discovery-unit-price">전용평당 {moneyLabel(transactionPrice(latest,'pyeong'))}원{trade==='rent'?' · 보증금 기준':''}</span>
           <span className="discovery-contract">{latest.contract_date} · 전용 {latest.area_m2}㎡{latest.floor===null?'':` · ${latest.floor}층`}</span>
         </>:<span className="discovery-no-trade">{count===null?'거래 자료 확인 전':'선택 월의 유효 신고 없음'}</span>}
         <span className="discovery-count">{count===null?'신고 건수 미확인':`현재 조건 ${count.toLocaleString('ko-KR')}건`}</span>

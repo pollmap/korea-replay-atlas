@@ -1,3 +1,4 @@
+import {areaMatches,areaLabel,NATIONAL_AREA} from './property-area';
 import type {PropertyStatus,PropertyTransaction,RegionMetric} from './property';
 import {eligiblePropertyTransactions} from './property';
 import {HISTORY_RANGES,type HistoryRange} from './property-history';
@@ -9,7 +10,7 @@ export function readPropertyView(hash:string,period:{from:string;to:string;lates
   return {propertyType,region:propertyType==='apartment'&&/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
     month:/^\d{4}(?:0[1-9]|1[0-2])$/.test(month)&&month>=period.from&&month<=period.to?month:period.latest_complete_month,
     complex:propertyType==='apartment'&&/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
-    area:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
+    area:area===NATIONAL_AREA?NATIONAL_AREA:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
     compare:propertyType==='apartment'?[...new Set((p.get('compareRegions')??'').split(',').filter(v=>/^\d{5}$/.test(v)))].slice(0,3):[],
     compareComplexes:propertyType==='apartment'?[...new Set((p.get('compareComplexes')??'').split(',').filter(v=>/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(v)))].slice(0,3):[],
     includeReview:p.get('review')==='include',historyMonths:(HISTORY_RANGES.includes(Number(p.get('historyMonths')) as HistoryRange)?Number(p.get('historyMonths')):3) as HistoryRange};
@@ -34,10 +35,11 @@ export function propertyRowsView({status,loading,loaded,error,count}:{status:Pro
 /** Keep a pinned filter visible even when the new month has no matching area. */
 export function propertyAreaOptions(areas:readonly string[],selected:string,dataReady:boolean):{value:string;label:string}[]{
   const available=new Set(areas);
-  return [...new Set([...areas,...(selected?[selected]:[])])].sort((a,b)=>Number(a)-Number(b)).map(value=>({value,label:`${value} ㎡${available.has(value)?'':dataReady?' · 현재 기간 거래 없음':' · 자료 확인 전'}`}));
+  if(areas.some(value=>areaMatches(value,NATIONAL_AREA)))available.add(NATIONAL_AREA);
+  return [...new Set([NATIONAL_AREA,...areas,...(selected?[selected]:[])])].sort((a,b)=>a===NATIONAL_AREA?-1:b===NATIONAL_AREA?1:Number(a)-Number(b)).map(value=>({value,label:`${value===NATIONAL_AREA?areaLabel(value):`${value} ㎡`}${available.has(value)?'':dataReady?' · 현재 기간 거래 없음':' · 자료 확인 전'}`}));
 }
 export function transactionRows(rows:readonly PropertyTransaction[],filters:{trade:'sale'|'rent';complex:string|null;area:string;cancelled:boolean}):PropertyTransaction[]{
-  return (filters.cancelled?rows:eligiblePropertyTransactions(rows)).filter(row=>row.trade_type===filters.trade&&(!filters.complex||row.complex_id===filters.complex)&&(!filters.area||row.area_m2===filters.area)).sort((a,b)=>(b.contract_date??'').localeCompare(a.contract_date??'')||a.id.localeCompare(b.id));
+  return (filters.cancelled?rows:eligiblePropertyTransactions(rows)).filter(row=>row.trade_type===filters.trade&&(!filters.complex||row.complex_id===filters.complex)&&areaMatches(row.area_m2,filters.area)).sort((a,b)=>(b.contract_date??'').localeCompare(a.contract_date??'')||a.id.localeCompare(b.id));
 }
 export function transactionCsv(rows:readonly PropertyTransaction[]):string {
   const cell=(value:unknown)=>{let text=value===null||value===undefined?'':String(value);if(/^[=+\-@\t\r]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`;};

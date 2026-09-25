@@ -1,6 +1,7 @@
 import {propertyStatisticsEligible,type PropertyComplex,type PropertyTransaction} from './property';
+import {transactionPrice} from './property-pricing';
 
-export type PropertyDiscoverySort='recent'|'count'|'name'|'price-low'|'price-high';
+export type PropertyDiscoverySort='recent'|'count'|'name'|'price-low'|'price-high'|'pyeong-low'|'pyeong-high';
 export interface PropertyDiscoveryFilters {
   query:string; dong:string; buildYearMin:string; buildYearMax:string;
   priceMinEok:string; priceMaxEok:string; areaMinM2:string; areaMaxM2:string;
@@ -73,6 +74,11 @@ export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],r
     items.push({complex,count:dataReady?records?.count??0:null,latest:records?.latest??null});
   }
   items.sort((a,b)=>{
+    if(filters.sort==='pyeong-low'||filters.sort==='pyeong-high'){
+      const av=a.latest?transactionPrice(a.latest,'pyeong'):null,bv=b.latest?transactionPrice(b.latest,'pyeong'):null;
+      if(av===null&&bv!==null)return 1;if(av!==null&&bv===null)return -1;
+      if(av!==null&&bv!==null&&av!==bv)return filters.sort==='pyeong-low'?av-bv:bv-av;
+    }
     if(filters.sort==='price-low'||filters.sort==='price-high'){
       const av=trade==='sale'?a.latest?.price_krw:a.latest?.deposit_krw,bv=trade==='sale'?b.latest?.price_krw:b.latest?.deposit_krw;
       if(av==null&&bv!=null)return 1;if(av!=null&&bv==null)return -1;
