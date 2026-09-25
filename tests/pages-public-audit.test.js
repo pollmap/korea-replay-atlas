@@ -8,4 +8,9 @@ describe('public audit redaction',()=>{
   it('does not mistake explicit placeholders and public noreply addresses for credentials',()=>{
     expect(scanPublicText('DATA_GO_KR_SERVICE_KEY="fixture-not-a-real-credential"\n123+developer@users.noreply.github.com')).toEqual([]);
   });
+  it('detects archive broker credentials without disclosing their value',()=>{
+    const value='a1'.repeat(32),report=scanPublicText('PROPERTY_ARCHIVE_BROKER_TOKEN="'+value+'"');
+    expect(report).toEqual([{category:'credential-literal',line:1}]);
+    expect(JSON.stringify(report)).not.toContain(value);
+  });
 });

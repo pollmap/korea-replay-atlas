@@ -16,6 +16,14 @@ Configure these repository secrets without logging their values:
 | `CLOUDFLARE_API_TOKEN` | Token restricted to the existing private archive D1 account/databases |
 | `PROPERTY_ARCHIVE_CONFIG` | Existing archive config: `account_id`, `control_database`, four `object_databases` |
 
+The restricted archive broker is an alternative to the Cloudflare management
+token. When selected, set repository secrets `PROPERTY_ARCHIVE_BROKER_TOKEN` and
+`PROPERTY_ARCHIVE_BROKER_URL` together. The worker endpoint is pinned by
+the transport and serves only the fixed archive operations. Partial broker
+configuration fails closed; it never silently falls back to a management token.
+The broker secret is distinct from the source API key and deployment OAuth.
+See `PROPERTY_ARCHIVE_BROKER.md` for deployment and verification requirements.
+
 Missing credentials stop before any remote or source request. No OAuth session,
 browser state, raw response, checkpoint or secret file is uploaded to GitHub.
 

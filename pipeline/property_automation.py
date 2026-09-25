@@ -266,8 +266,8 @@ def retry_at(code, now=None):
     now = now or datetime.now(timezone.utc)
     if code in RETRY_DELAYS:
         return (now + RETRY_DELAYS[code]).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    zone = timezone.utc if code == 'archive_daily_write_limit' else timezone(timedelta(hours=9))
-    if code not in ('archive_daily_write_limit', 'upstream_quota', 'local_daily_budget', 'collection_daily_budget'):
+    zone = timezone.utc if code in ('archive_daily_write_limit', 'archive_daily_read_limit') else timezone(timedelta(hours=9))
+    if code not in ('archive_daily_write_limit', 'archive_daily_read_limit', 'upstream_quota', 'local_daily_budget', 'collection_daily_budget'):
         return None
     local = now.astimezone(zone)
     midnight = (local + timedelta(days=1)).replace(hour=0, minute=17, second=0, microsecond=0)
@@ -277,14 +277,23 @@ def retry_at(code, now=None):
 def credentials():
     """Validate every injected credential before any network connection."""
     token = os.environ.get('CLOUDFLARE_API_TOKEN', '')
+    broker_token = os.environ.get('PROPERTY_ARCHIVE_BROKER_TOKEN', '')
+    broker_url = os.environ.get('PROPERTY_ARCHIVE_BROKER_URL', '')
     config_text = os.environ.get('PROPERTY_ARCHIVE_CONFIG_JSON', '')
-    if not token or len(token) > 4096 or not config_text or len(config_text) > 16384:
+    broker_requested = bool(broker_token or broker_url)
+    if (not config_text or len(config_text) > 16384
+            or (broker_requested and (not broker_token or not broker_url))
+            or (not broker_requested and (not token or len(token) > 4096))):
         raise RealEstateError('automation_credentials_missing')
     key = read_key()
     config = json.loads(config_text)
     if not isinstance(config, dict) or set(config) != {'account_id', 'control_database', 'object_databases'}:
         raise RealEstateError('automation_archive_configuration')
-    # D1Archive's constructor validates IDs and makes no network requests.
+    # Explicit broker configuration never falls back to a management credential.
+    # Constructors validate their complete configuration without network access.
+    if broker_requested:
+        from .real_estate_archive import BrokerArchive
+        return BrokerArchive(config, token=broker_token, endpoint=broker_url), key
     return D1Archive(config, token=token), key
 
 

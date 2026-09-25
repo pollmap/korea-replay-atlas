@@ -111,12 +111,50 @@ def test_schedule_lanes_preserve_backfill_budget(tmp_path, runs, expected):
 
 
 def test_missing_credentials_fail_before_network_or_workspace(tmp_path, monkeypatch, capsys):
-    for name in ('DATA_GO_KR_SERVICE_KEY', 'CLOUDFLARE_API_TOKEN', 'PROPERTY_ARCHIVE_CONFIG_JSON'):
+    for name in ('DATA_GO_KR_SERVICE_KEY', 'CLOUDFLARE_API_TOKEN', 'PROPERTY_ARCHIVE_CONFIG_JSON',
+                 'PROPERTY_ARCHIVE_BROKER_TOKEN', 'PROPERTY_ARCHIVE_BROKER_URL'):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr('pipeline.property_automation.D1Archive', lambda *a, **kw: pytest.fail('network-capable object must not be constructed'))
     assert main(['--execute', '--work-parent', str(tmp_path / 'absent')]) == 1
     assert not (tmp_path / 'absent').exists()
     assert json.loads(capsys.readouterr().out)['error'] == 'automation_credentials_missing'
+
+
+@pytest.mark.parametrize('present', ['PROPERTY_ARCHIVE_BROKER_TOKEN', 'PROPERTY_ARCHIVE_BROKER_URL'])
+def test_partial_broker_configuration_never_falls_back_to_management_token(monkeypatch, present):
+    from pipeline.property_automation import credentials
+    monkeypatch.setenv('CLOUDFLARE_API_TOKEN', 'fixture-management-token')
+    monkeypatch.setenv('PROPERTY_ARCHIVE_CONFIG_JSON', '{}')
+    for name in ('PROPERTY_ARCHIVE_BROKER_TOKEN', 'PROPERTY_ARCHIVE_BROKER_URL'):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(present, 'fixture-present')
+    monkeypatch.setattr('pipeline.property_automation.D1Archive',
+                        lambda *a, **kw: pytest.fail('partial broker must not use REST'))
+    with pytest.raises(RealEstateError, match='automation_credentials_missing'):
+        credentials()
+
+
+def test_complete_broker_configuration_does_not_require_management_token(monkeypatch):
+    from pipeline.property_automation import credentials
+    config = {'account_id': 'a' * 32, 'control_database': '11111111-1111-4111-8111-111111111111',
+              'object_databases': [f'{n:08d}-1111-4111-8111-111111111111' for n in range(2, 6)]}
+    endpoint = 'https://archive.example.invalid/v1/query'
+    monkeypatch.delenv('CLOUDFLARE_API_TOKEN', raising=False)
+    monkeypatch.setenv('PROPERTY_ARCHIVE_CONFIG_JSON', json.dumps(config))
+    monkeypatch.setenv('DATA_GO_KR_SERVICE_KEY', 'fixture-service-key')
+    monkeypatch.setenv('PROPERTY_ARCHIVE_BROKER_TOKEN', '1' * 64)
+    monkeypatch.setenv('PROPERTY_ARCHIVE_BROKER_URL', endpoint)
+    marker = object()
+    calls = []
+    def make_broker(config, **kwargs):
+        calls.append((config, kwargs))
+        return marker
+    monkeypatch.setattr('pipeline.real_estate_archive.BrokerArchive', make_broker)
+    monkeypatch.setattr('pipeline.property_automation.D1Archive',
+                        lambda *a, **kw: pytest.fail('broker must not construct management transport'))
+    store, key = credentials()
+    assert store is marker and key == 'fixture-service-key'
+    assert calls == [(config, {'token': '1' * 64, 'endpoint': endpoint})]
 
 
 def test_unexpected_secret_config_is_never_logged(tmp_path, monkeypatch, capsys):
@@ -148,6 +186,7 @@ def test_retry_times_distinguish_archive_utc_and_provider_kst():
     from datetime import datetime, timezone
     now = datetime(2026, 9, 26, 20, 0, tzinfo=timezone.utc)
     assert retry_at('archive_daily_write_limit', now) == '2026-09-27T00:17:00Z'
+    assert retry_at('archive_daily_read_limit', now) == '2026-09-27T00:17:00Z'
     assert retry_at('upstream_quota', now) == '2026-09-27T15:17:00Z'
     assert retry_at('automation_recovery_required', now) is None
 
