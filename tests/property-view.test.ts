@@ -56,3 +56,27 @@ it('restores the review filter without changing source identity, trade, complex 
   expect(selection('')).toEqual(['valid']);expect(selection('&review=include')).toEqual(['cancelled','valid']);
   expect(selection('&review=anything')).toEqual(['valid']);
 });
+
+
+it('restores the same legal-dong list when revisiting district, complex and list URLs',()=>{
+  const list=new URLSearchParams({regionCode:'41287',legalDong:'주엽동',trade:'rent',rentKind:'jeonse',month:'202608'});
+  const detail=new URLSearchParams(list);detail.set('complex','molit-apt:41287:apt-1');
+  const returned=new URLSearchParams(detail);returned.delete('complex');
+  for(const hash of [list,detail,returned,detail,list]){
+    const view=readPropertyView('#'+hash.toString(),period);
+    expect(view).toMatchObject({region:'41287',legalDong:'주엽동',trade:'rent',rentKind:'jeonse',month:'202608'});
+    expect(view.complex).toBe(hash.get('complex')??'');
+  }
+});
+it('does not apply a legal dong without an apartment district or merge ambiguous URL values',()=>{
+  for(const hash of ['#legalDong=주엽동','#regionCode=invalid&legalDong=주엽동','#regionCode=41287&propertyType=officetel&legalDong=주엽동','#regionCode=41287&legalDong=주엽동&legalDong=대화동']){
+    expect(readPropertyView(hash,period).legalDong).toBeUndefined();
+  }
+  for(const value of ['', ' 주엽동', '주엽동 ', '\u0000동', '동\u007f', '동'.repeat(81)]){
+    expect(readPropertyView('#regionCode=41287&legalDong='+encodeURIComponent(value),period).legalDong).toBeUndefined();
+  }
+});
+it('keeps a syntactically valid but unavailable dong explicit instead of falling back to all districts',()=>{
+  expect(readPropertyView('#regionCode=41287&legalDong='+encodeURIComponent('이 버전에 없는 동'),period)).toMatchObject({region:'41287',legalDong:'이 버전에 없는 동'});
+  expect(readPropertyView('#regionCode=41287',period).legalDong).toBeUndefined();
+});

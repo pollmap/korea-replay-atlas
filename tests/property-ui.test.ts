@@ -60,3 +60,12 @@ it('shows ten-year detail and comparison periods without claiming ten years are 
   expect(comparison).toContain('2016.09–2026.08');expect(comparison).toContain('비교 조회 기간');
   expect(comparison).not.toContain('0건');
 });
+
+
+it('identifies the selected legal-dong list and its district parent before region data loads',()=>{
+  vi.stubGlobal('location',{hash:'#regionCode=11110&legalDong='+encodeURIComponent('청운동')});
+  const html=renderToStaticMarkup(createElement(PropertyExplorer,{atlas:atlas(),hidden:false,mapLayout:true,onClose:()=>{},onLocate:()=>{},onViewState:()=>{}}));
+  expect(html).toContain('청운동 아파트</h2>');
+  expect(html).toContain('← 검증 지역 전체');
+  expect(html).not.toContain('← 전국 지역 목록');
+});

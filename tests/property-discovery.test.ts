@@ -143,3 +143,20 @@ describe('property discovery presentation',()=>{
     expect(html).toContain('신고 건수 미확인');expect(html).not.toContain('현재 조건 0건');expect(html).toContain('aria-pressed="true"');
   });
 });
+
+
+it('restores the externally selected legal dong after a list remount or trade switch',()=>{
+  const complexes=[complex('a',{name:'청운 단지'}),complex('b',{name:'교남 단지',legal_dong_name:'교남동'})];
+  for(const trade of ['sale','rent'] as const){
+    const html=renderToStaticMarkup(createElement(PropertyComplexList,{complexes,rows:[],dataReady:false,trade,dong:'교남동',onDong:()=>{},onSelect:()=>{}}));
+    expect(html).toContain('<option value="교남동" selected="">교남동</option>');
+    expect(html).toContain('교남 단지');expect(html).not.toContain('청운 단지');
+    expect(html).toContain('교남동 조건 해제');expect(html).toContain('1개 단지');
+    expect(html).toContain('거래 자료 확인 전');expect(html).not.toContain('현재 조건 0건');
+  }
+});
+it('retains an unavailable restored dong with an explicit option instead of showing unrelated apartments',()=>{
+  const html=renderToStaticMarkup(createElement(PropertyComplexList,{complexes:[complex('a')],rows:[],dataReady:true,trade:'sale',dong:'알 수 없는 동',onDong:()=>{},onSelect:()=>{}}));
+  expect(html).toContain('<option value="알 수 없는 동" selected="">알 수 없는 동 · 연결된 단지 없음</option>');
+  expect(html).not.toContain('해 뜨는 아파트');expect(html).toContain('조건에 맞는 단지가 없습니다.');
+});

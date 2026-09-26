@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import type {PropertyComplex} from '../shared/property';
 import {COMMUTE_STORAGE_KEY,commuteUrl,parseCommuteDestinations,type CommuteDestination} from '../shared/property-commute';
+import PropertyMapLinks from './PropertyMapLinks';
 
 export default function PropertyCommute({complex,region}:{complex:PropertyComplex;region:string}) {
   const [items,setItems]=useState<CommuteDestination[]>(()=>{try{return parseCommuteDestinations(localStorage.getItem(COMMUTE_STORAGE_KEY));}catch{return [];}});
@@ -12,6 +13,7 @@ export default function PropertyCommute({complex,region}:{complex:PropertyComple
   };
   return <section className="property-commute" aria-label="출퇴근과 교통"><h3>내 목적지까지</h3>
     <p className="commute-origin"><span>출발 단지</span><strong>{complex.name}</strong><small>{origin}</small></p>
+    <PropertyMapLinks complex={complex} region={region}/>
     <p className="property-caption">목적지를 저장하면 다른 단지에서도 같은 직장·학교까지 경로를 열 수 있습니다. 소요시간·환승은 외부 지도에서 출발 시각과 위치를 확인하세요.</p>
     {complex.address_conflict&&<p role="status">신고 주소가 달라 출발지를 외부 지도에서 반드시 확인해야 합니다.</p>}
     <ul className="commute-destinations">{items.map((item,index)=><li key={`${item.label}:${item.address}`}><div><strong>{item.label}</strong><button aria-label={`${item.label} 목적지 삭제`} onClick={()=>save(items.filter((_,i)=>i!==index))}>삭제</button></div><p>{item.address}</p><nav aria-label={`${item.label} 경로 확인`}>{([['transit','대중교통'],['driving','자동차'],['walking','도보']] as const).map(([mode,title])=><a key={mode} href={commuteUrl(origin,item.address,mode)??undefined} target="_blank" rel="noopener noreferrer">{title} ↗</a>)}</nav></li>)}</ul>
