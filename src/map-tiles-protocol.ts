@@ -1,6 +1,7 @@
 import {Compression,PMTiles,ResolvedValueCache,zxyToTileId,type Source as PMSource} from 'pmtiles';
 import {findDetailChunk,findTileChunk,MAP_TILE_LIMIT,validateMapCatalog2D,type MapCatalog2D,type MapTileFile,type MapTileRecord} from '../shared/map-tiles';
 import {selectedProperties,type MapSelection} from '../shared/selection';
+import {DecodedMapTileCache} from './map-tile-cache';
 
 const aborted=()=>new DOMException('Aborted','AbortError');
 const digest=async(data:ArrayBuffer)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),x=>x.toString(16).padStart(2,'0')).join('');
@@ -84,9 +85,11 @@ class BoundedDirectoryCache extends ResolvedValueCache {
   override prune(){if(this.disposed){this.cache.clear();return;}while(this.cache.size>64||this.allocation()>4*1024*1024){let key:string|undefined,min=Infinity;for(const [k,v] of this.cache)if(v.lastUsed<min){min=v.lastUsed;key=k;}if(key===undefined)break;this.cache.delete(key);}}
   dispose(){this.disposed=true;this.cache.clear();}
 }
-export interface MapTilesProtocolOptions {catalog:MapCatalog2D;origin:string;allowedOrigins:string[];mobile?:boolean;fetcher?:typeof fetch;}
+export interface MapTilesProtocolOptions {catalog:MapCatalog2D;origin:string;allowedOrigins:string[];mobile?:boolean;fetcher?:typeof fetch;cacheDecodedTiles?:boolean;}
 export function createMapTilesProtocol(options:MapTilesProtocolOptions){
-  const catalog=validateMapCatalog2D(options.catalog),store=new VerifiedMapTileStore(options.origin,options.fetcher, (options.mobile?32:64)*1024*1024,options.allowedOrigins),directories=new BoundedDirectoryCache();
+  const cacheBudget=(options.mobile?32:64)*1024*1024,decodedBudget=options.cacheDecodedTiles===false?0:cacheBudget/4;
+  const decoded=new DecodedMapTileCache(decodedBudget);
+  const catalog=validateMapCatalog2D(options.catalog),store=new VerifiedMapTileStore(options.origin,options.fetcher,cacheBudget-decodedBudget,options.allowedOrigins),directories=new BoundedDirectoryCache();
   const topics=new Map(catalog.topics.map(t=>[t.id,t])),archives=new Map<string,PMTiles>();let disposed=false;
   const tileUrl=(topic:string)=>{if(!topics.has(topic))throw new Error('Unknown 2D topic');return `krtile://${catalog.release_id}/${topic}/{z}/{x}/{y}`;};
   const protocol=async(params:{url:string},controller:AbortController):Promise<{data:ArrayBuffer}>=>{
@@ -94,11 +97,13 @@ export function createMapTilesProtocol(options:MapTilesProtocolOptions){
     const m=/^krtile:\/\/(map2d-[a-f0-9]{20,64})\/([a-z][a-z0-9-]{0,47})\/(\d+)\/(\d+)\/(\d+)$/.exec(params.url);
     if(!m||m[1]!==catalog.release_id)throw new Error('Invalid 2D protocol URL');const topic=topics.get(m[2]);
     const z=Number(m[3]),x=Number(m[4]),y=Number(m[5]);if(!topic||z<topic.minzoom||z>topic.maxzoom||x>=2**z||y>=2**z)throw new Error('Invalid 2D tile coordinates');
+    const cached=decoded.get(params.url);if(cached)return {data:cached};
     const chunk=findTileChunk(topic,zxyToTileId(z,x,y));if(!chunk)return {data:new ArrayBuffer(0)};
     // Attach caller cancellation before PMTiles' header path, whose API has no signal parameter.
     await store.get(chunk,controller.signal);if(disposed||controller.signal.aborted)throw aborted();
     let archive=archives.get(chunk.sha256);if(!archive){archive=new PMTiles(new VerifiedArchiveSource(chunk,store),directories,(data,c)=>decompressMapTile(data,c,MAP_TILE_LIMIT));archives.set(chunk.sha256,archive);if(archives.size>128)archives.delete(archives.keys().next().value!);}
-    const result=await archive.getZxy(z,x,y,controller.signal);if(disposed||controller.signal.aborted)throw aborted();return {data:result?.data??new ArrayBuffer(0)};
+    const result=await archive.getZxy(z,x,y,controller.signal);if(disposed||controller.signal.aborted)throw aborted();
+    const data=result?.data??new ArrayBuffer(0);decoded.set(params.url,data);return {data};
   };
   const pick=async(topicId:string,id:string,signal?:AbortSignal):Promise<MapSelection|null>=>{
     if(disposed||signal?.aborted)throw aborted();const topic=topics.get(topicId);if(!topic)return null;
@@ -113,5 +118,5 @@ export function createMapTilesProtocol(options:MapTilesProtocolOptions){
     if(!row.properties||typeof row.properties!=='object'||typeof row.source_record_id!=='string'||typeof row.source_id!=='string'||typeof row.version!=='string')throw new Error('Invalid 2D selection provenance');
     return selectedProperties(row.source_record_id,row.properties,{source_id:row.source_id,version:row.version});
   };
-  return {catalog,tileUrl,protocol,pick,snapshot:()=>({...store.snapshot(),directoryEntries:directories.cache.size,directoryAllocationEstimateBytes:directories.allocation(),archiveHandles:archives.size}),dispose(){if(disposed)return;disposed=true;store.dispose();directories.dispose();archives.clear();}};
+  return {catalog,tileUrl,protocol,pick,snapshot:()=>({...store.snapshot(),...decoded.snapshot(),totalTileCacheLimitBytes:cacheBudget,directoryEntries:directories.cache.size,directoryAllocationEstimateBytes:directories.allocation(),archiveHandles:archives.size}),dispose(){if(disposed)return;disposed=true;store.dispose();directories.dispose();archives.clear();decoded.clear();}};
 }

@@ -89,6 +89,11 @@ describe('bounded selection and lifetime',()=>{
     const bytes=new Uint8Array(Buffer.from('UE1UaWxlcwN/AAAAAAAAAB0AAAAAAAAAnAAAAAAAAABaAAAAAAAAAPYAAAAAAAAAAAAAAAAAAAD2AAAAAAAAAMMAAAAAAAAAAQAAAAAAAAABAAAAAAAAAAEAAAAAAAAAAQICAQwMABMaSwAqdRUAQEtMAFemFgyAqbJLgMANFh+LCAAAAAAAAv9jnLmni5PxMCMjAIeRGtEJAAAAH4sIAAAAAAAC/6tWKktNLskvis9JrEwtKlayUoiuVspMAdJKRfmJKcVKOgpKaZmpOSkgqWql4pLEpJzUeIiC4JKizLx0kIq8xNxUJJHa2thaALN6woxZAAAAH4sIAAAAAAAC/w3KOw6CMAAA0IKfBIySMJm6mE6OtFA+G/Eipj8TEgUFTIxLHbiEm+5usslZvIAcQt/84NOwR2XBZOUu3DEAhmGa8wFyLPTRELx1pwHotAOHOdsraFU14zu1ySSclepQqkrlNauzIkeOPe1vTX9vlt9X2z9atLbTmOAk8UNJCfVJKCJfSiw8hcnW4yH1g4jzkFAVYBFEgsWcMCYkDSj+Z4wpQRPbOp5YXmcXJVfX9Gz+AAiWLzGvAAAA','base64'));
     const c=catalog();c.topics[0].chunks=[{...ref(bytes),first_tile_id:19045913,last_tile_id:19045913,tile_count:1}];
     const fetcher=vi.fn(async()=>new Response(bytes));const api=createMapTilesProtocol({catalog:c,origin,allowedOrigins:[origin],fetcher});
-    const tile=await api.protocol({url:`krtile://${release}/roads/12/3493/1583`},new AbortController());expect(tile.data.byteLength).toBe(175);expect(fetcher).toHaveBeenCalledTimes(1);expect(api.snapshot().directoryEntries).toBeGreaterThan(0);api.dispose();expect(api.snapshot().directoryEntries).toBe(0);
+    const tile=await api.protocol({url:`krtile://${release}/roads/12/3493/1583`},new AbortController());expect(tile.data.byteLength).toBe(175);
+    const expected=new Uint8Array(tile.data.slice(0));structuredClone(tile.data,{transfer:[tile.data]});
+    const revisit=await api.protocol({url:`krtile://${release}/roads/12/3493/1583`},new AbortController());
+    expect(new Uint8Array(revisit.data)).toEqual(expected);expect(api.snapshot().decodedTileHits).toBe(1);
+    expect(api.snapshot().limitBytes+api.snapshot().decodedTileLimitBytes).toBe(64*1024*1024);
+    const cancelled=new AbortController();cancelled.abort();await expect(api.protocol({url:`krtile://${release}/roads/12/3493/1583`},cancelled)).rejects.toMatchObject({name:'AbortError'});expect(fetcher).toHaveBeenCalledTimes(1);expect(api.snapshot().directoryEntries).toBeGreaterThan(0);api.dispose();expect(api.snapshot().directoryEntries).toBe(0);
   });
 });
