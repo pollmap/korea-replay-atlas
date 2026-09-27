@@ -132,3 +132,32 @@ local fixture tests prove orchestration and failure semantics; they do not prove
 the secrets were provisioned, live APIs responded, schedule ran, ten years were
 collected or the public website was refreshed. Record the actual Actions run URL,
 private checkpoint verification and public release verification separately.
+
+## First acquisition and correction queues
+
+`backfill` now selects only jobs whose `snapshot IS NULL`. A recent/history
+correction keeps its last verified snapshot while it is pending, partial or
+failed; it cannot consume this first-acquisition lane merely because its month
+has higher priority. The existing regional order remains unchanged. Recent and
+history lanes still select their month, including never-acquired jobs in that
+month, and continue to verify corrections rather than discarding them.
+
+Safe-error requeue and stale-pagination preflight use the same acquisition filter.
+An oversized refresh therefore cannot block unrelated first acquisition, and an
+unselected refresh does not consume the backfill retry allowance. Its own lane
+still applies the original pagination/ownership/error safeguards. No job, old page,
+snapshot or remote head is deleted or rewritten by this queue change.
+
+The run report keeps `coverage` as the current processing status and adds
+`acquisition`: `verified_snapshot_jobs`, `missing_snapshot_jobs`,
+`refresh_pending_jobs`, `first_acquisition_failed_jobs` and `refresh_failed_jobs`.
+For example, marking 466 old snapshots for refresh reduces the `complete` job
+count but does not reduce acquired history. A failed correction remains a failure
+and its older snapshot remains acquired; neither is interpreted as zero trades.
+`work_complete` means the selected eligible queue was exhausted, not that failed
+jobs or all nationwide historical-code gaps have been resolved.
+
+The 2026-09-27 read-only production audit and budget estimates are in
+[PROPERTY_COLLECTION_BUDGET_20260927.md](PROPERTY_COLLECTION_BUDGET_20260927.md).
+This code change does not alter repository variables, cron, source quotas,
+archive operations or the 500-request/64-MiB automation hard limits.

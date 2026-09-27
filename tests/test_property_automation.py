@@ -7,7 +7,7 @@ from pipeline.real_estate import RealEstateError
 from pipeline.real_estate_archive import backup, restore
 from pipeline.real_estate_run_guard import CollectionGuard
 from pipeline.property_automation import (STATE_KEY, finish_lane, main,
-    pagination_budget_preflight, prepare_lane, record_pagination_budget,
+    acquisition_progress, pagination_budget_preflight, prepare_lane, record_pagination_budget,
     requeue_safe_failures, retry_at, run_automation)
 from test_real_estate_archive import LocalD1
 from test_real_estate_fetch import collector, xml, rent, STAMP
@@ -372,3 +372,72 @@ def test_pagination_evidence_survives_remote_head_and_blocks_with_owner_released
             max_requests=1, reserve_bytes=0, transport=page_transport(calls))
     assert len(calls) == 1 and store.head() == before
     assert CollectionGuard(store).status()['owner'][0]['occupied'] == 0
+
+
+def test_backfill_bypasses_newer_refresh_and_recent_still_updates_it(tmp_path):
+    from pipeline.real_estate_fetch import Collector
+    from test_real_estate_fetch import registry
+    c = Collector(tmp_path / 'seed', registry(), months=3, clock=lambda: STAMP,
+                  reserve_bytes=0, transport=lambda *a, **kw: xml())
+    c.collect('fixture-key', max_requests=4, min_interval=0)
+    previous = dict(c.db.execute("SELECT id,snapshot FROM jobs WHERE deal_month='202608'"))
+    assert len(previous) == 2 and all(previous.values())
+    with c.db:
+        c.db.execute("UPDATE jobs SET status='pending',pages='[]' WHERE deal_month='202608'")
+    c.close()
+    store = LocalD1(); backup(tmp_path / 'seed', store)
+    calls = []
+    def fetch(key, trade, region, month, *args, **kwargs):
+        calls.append((trade, month))
+        return xml()
+    report = run_automation(tmp_path / 'first', store, 'fixture-key', as_of=STAMP,
+                            months=3, mode='backfill', max_requests=1, reserve_bytes=0, transport=fetch)
+    assert calls == [('rent', '202607')]
+    assert report['acquisition'] == {'expected_jobs': 6, 'verified_snapshot_jobs': 5,
+        'missing_snapshot_jobs': 1, 'refresh_pending_jobs': 2,
+        'first_acquisition_failed_jobs': 0, 'refresh_failed_jobs': 0}
+    restore(tmp_path / 'check', store)
+    with sqlite3.connect(tmp_path / 'check/checkpoint.sqlite') as db:
+        assert dict(db.execute("SELECT id,snapshot FROM jobs WHERE deal_month='202608'")) == previous
+        assert db.execute("SELECT COUNT(*) FROM jobs WHERE deal_month='202608' AND status='pending'").fetchone()[0] == 2
+    refreshed = run_automation(tmp_path / 'recent', store, 'fixture-key', as_of=STAMP,
+                              months=3, mode='recent', max_requests=1, reserve_bytes=0, transport=fetch)
+    assert calls[-1] == ('rent', '202608')
+    assert refreshed['acquisition']['verified_snapshot_jobs'] == 5
+    assert refreshed['acquisition']['refresh_pending_jobs'] == 1
+    assert CollectionGuard(store).status()['owner'][0]['occupied'] == 0
+
+
+def test_refresh_failure_is_not_first_acquisition_or_lost_snapshot(tmp_path):
+    c = collector(tmp_path / 'local', lambda *a, **kw: xml())
+    c.collect('fixture-key', max_requests=1, min_interval=0)
+    with c.db:
+        c.db.execute("UPDATE jobs SET status='failed',error_code='upstream_timeout',updated_at='2026-09-19T00:00:00Z'")
+    snapshots = list(c.db.execute('SELECT id,snapshot FROM jobs ORDER BY id'))
+    result = requeue_safe_failures(c.db, STAMP, first_acquisition_only=True)
+    assert result['requeued'] == 1
+    assert c.db.execute("SELECT COUNT(*) FROM jobs WHERE snapshot IS NOT NULL AND status='failed'").fetchone()[0] == 1
+    assert list(c.db.execute('SELECT id,snapshot FROM jobs ORDER BY id')) == snapshots
+    progress = acquisition_progress(c.db)
+    assert progress == {'expected_jobs': 2, 'verified_snapshot_jobs': 1, 'missing_snapshot_jobs': 1,
+        'refresh_pending_jobs': 1, 'first_acquisition_failed_jobs': 0, 'refresh_failed_jobs': 1}
+    assert c.summary()['failed'] == 1
+    c.close()
+
+
+def test_unfinishable_refresh_cannot_block_independent_backfill(tmp_path):
+    c = collector(tmp_path / 'local', lambda *a, **kw: xml())
+    c.collect('fixture-key', max_requests=1, min_interval=0)
+    pagination_budget_preflight(c.db, STAMP, max_requests=1, max_bytes=16*1024**2)
+    first_page = {'sha256': 'a'*64, 'retrieved_at': '2026-09-19T00:00:00Z'}
+    with c.db:
+        c.db.execute("UPDATE jobs SET status='partial',pages=? WHERE snapshot IS NOT NULL", (json.dumps([first_page]),))
+        job = c.db.execute('SELECT id FROM jobs WHERE snapshot IS NOT NULL').fetchone()[0]
+        c.db.execute('INSERT INTO property_automation_pagination VALUES(?,?,?,?)', (job, 'a'*64, 50, 64*1024**2))
+    pagination_budget_preflight(c.db, STAMP, max_requests=1, max_bytes=16*1024**2, first_acquisition_only=True)
+    with pytest.raises(RealEstateError, match='automation_pagination_budget_insufficient'):
+        pagination_budget_preflight(c.db, STAMP, max_requests=1, max_bytes=16*1024**2)
+    report = c.collect('fixture-key', max_requests=1, min_interval=0, first_acquisition_only=True)
+    assert report['requests'] == 1 and c.summary()['partial'] == 1
+    assert c.db.execute('SELECT pages FROM jobs WHERE id=?', (job,)).fetchone()[0] == json.dumps([first_page])
+    c.close()

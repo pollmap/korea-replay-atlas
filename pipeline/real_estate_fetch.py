@@ -342,11 +342,13 @@ class Collector:
 
     def collect(self, key, *, max_requests=600, max_bytes=64*1024**2, daily_budget=8000,
                 min_interval=0.3, timeout=60, page_size=1000, retry_failed=False, refresh=False,
-                collect_months=None):
+                collect_months=None, first_acquisition_only=False):
         if (not 1 <= max_requests <= 2000 or not 1 <= max_bytes <= 64*1024**2
                 or not 1 <= daily_budget <= 8000 or not 0 <= min_interval <= 60
                 or not 1 <= timeout <= 60 or not 1 <= page_size <= 1000):
             raise RealEstateError('invalid_collection_budget')
+        if type(first_acquisition_only) is not bool:
+            raise RealEstateError('invalid_acquisition_filter')
         if collect_months is not None and (not collect_months or len(collect_months)>61
                 or any(not isinstance(m,str) or not re.fullmatch(r'[0-9]{4}(?:0[1-9]|1[0-2])',m) for m in collect_months)):
             raise RealEstateError('invalid_month_filter')
@@ -355,6 +357,10 @@ class Collector:
             available={r[0] for r in self.db.execute('SELECT DISTINCT deal_month FROM jobs')}
             if not set(collect_months)<=available:raise RealEstateError('month_outside_planned_window')
             condition=' AND deal_month IN ('+','.join('?' for _ in collect_months)+')'
+        if first_acquisition_only:
+            # A refresh retains its last verified snapshot. Do not let its newer
+            # month/priority consume the historical first-acquisition lane.
+            condition+=' AND snapshot IS NULL'
         # Operational start margin: default 30 GiB reserve + 5 GiB headroom.
         self._space(5*1024**3 if self.reserve_bytes else 0)
         owner = self._acquire(); used = 0; transferred = 0; stopped = 'work_complete'; failures = 0
