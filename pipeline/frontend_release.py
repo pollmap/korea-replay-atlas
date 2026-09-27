@@ -7,7 +7,7 @@ configuration, manifest, Worker and *all payload bytes* before materializing a
 new bundle. Its existing hardlink and 30 GiB reserve protections remain active.
 
 Only existing Vite chunk families, index.html and download-gate.js may change,
-plus explicitly audited point/navigation and canonical SGIS selection assets.
+plus explicitly audited point/navigation, SGIS selection and pinned OSM POI assets.
 New chunk families, copied-library changes, Worker changes or deployment-policy
 changes require full staging. No credentials are read to perform this operation;
 the frontend scan rejects recognizable credential literals, but cannot prove
@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 
@@ -55,6 +56,138 @@ REGION_REFERENCE_DATE = '2025-06-30'
 REGION_MAX_FILE_BYTES = 1024 * 1024
 REGION_MAX_TOTAL_BYTES = 10 * 1024 * 1024
 REGION_MAX_FILES = 521
+POI_ASSET = re.compile(r'assets/poi-([a-f0-9]{64})-[A-Za-z0-9_-]{8}\.json\Z')
+POI_SOURCE_ROOT = Path(__file__).resolve().parents[1] / 'src/data/property-poi'
+POI_MAX_FILE_BYTES = 1024 * 1024
+POI_MAX_TOTAL_BYTES = 32 * 1024 * 1024
+POI_MAX_FILES = 1000
+POI_SOURCE = {
+    'id': 'osm', 'label': 'OpenStreetMap contributors',
+    'url': 'https://download.geofabrik.de/asia/south-korea-latest.osm.pbf',
+    'asOf': '2026-09-15T20:20:37Z',
+    'sha256': '3135b6ec7b3d94294735de0aa47d49a58c06b638bf33ba44e30b5728cc5b76c7',
+    'license': 'ODbL-1.0',
+}
+POI_TYPES = {'transport': {'subway', 'rail', 'bus'},
+             'school': {'elementary', 'middle', 'high', 'university', 'school'},
+             'life': {'shopping', 'medical', 'park', 'public'}}
+POI_SCOPE_CODES = frozenset(('11', '23', '31', '25', '29', '21', '34011', '34012', '34040',
+                             '33041', '33042', '33043', '33044'))
+POI_SCOPE_METADATA = {
+    'boundaryDate': REGION_REFERENCE_DATE, 'boundaryNamespace': 'SGIS administrative',
+    'boundaryManifestSha256': '0ab0a840ae7ed45347f8e057a23236ff51cc27527b3714f886aa334afcdef41a',
+    'boundaryArchiveSha256': REGION_ARCHIVE_SHA, 'maximumDisplayErrorMetres': 20.0069,
+    'coverageComplete': False,
+}
+POI_TAG_KEYS = frozenset(('amenity', 'healthcare', 'leisure', 'shop', 'railway', 'station',
+                        'public_transport', 'highway', 'bus', 'subway', 'train',
+                        'isced:level', 'office', 'operator', 'ref'))
+
+
+def _poi_json(body):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate POI JSON property')
+            result[key] = value
+        return result
+
+    def invalid(_):
+        raise ValueError('Invalid POI JSON number')
+
+    return json.loads(body, object_pairs_hook=unique, parse_constant=invalid)
+
+
+def _poi_asset_inventory():
+    """An exact canonical source inventory, never a dist-provided allowlist."""
+    index = POI_SOURCE_ROOT / 'manifest.json'
+    if regular_file(index).st_size > POI_MAX_FILE_BYTES:
+        raise ValueError('POI manifest exceeds size budget')
+    manifest_body = index.read_bytes()
+    if len(manifest_body) > POI_MAX_FILE_BYTES:
+        raise ValueError('POI manifest exceeds size budget')
+    if any(pattern.search(manifest_body) for pattern in CREDENTIAL_PATTERNS):
+        raise ValueError('Credential-like content is forbidden in POI manifest')
+    manifest = _poi_json(manifest_body)
+    if not isinstance(manifest, dict):
+        raise ValueError('Invalid POI source manifest')
+    scope = manifest.get('scope', {})
+    if (set(manifest) != {'schema', 'source', 'scope', 'chunks'}
+            or type(manifest.get('schema')) is not int or manifest['schema'] != 1
+            or manifest.get('source') != POI_SOURCE or not isinstance(scope, dict)
+            or set(scope) != set(POI_SCOPE_METADATA) | {'regionCodes'}
+            or {key: scope.get(key) for key in POI_SCOPE_METADATA} != POI_SCOPE_METADATA
+            or scope.get('coverageComplete') is not False
+            or not isinstance(scope.get('regionCodes'), list) or not scope['regionCodes']
+            or any(not isinstance(code, str) for code in scope['regionCodes'])
+            or set(scope['regionCodes']) != POI_SCOPE_CODES
+            or len(set(scope['regionCodes'])) != len(scope['regionCodes'])
+            or not isinstance(manifest.get('chunks'), list) or not 0 < len(manifest['chunks']) <= POI_MAX_FILES):
+        raise ValueError('POI source revision, scope or inventory is not audited')
+    result, keys, ids = {}, set(), set()
+    total_bytes = 0
+    for ref in manifest['chunks']:
+        if (not isinstance(ref, dict) or set(ref) != {'key', 'west', 'south', 'east', 'north', 'file', 'sha256', 'bytes', 'count'}
+                or not isinstance(ref.get('key'), str) or len(ref['key']) > 80
+                or not re.fullmatch(r'[0-9]{1,4}-[0-9]{1,4}(?:-(?:00|01|10|11|a|b))*', ref['key'])
+                or ref['key'] in keys or type(ref.get('bytes')) is not int or not 0 < ref['bytes'] <= POI_MAX_FILE_BYTES
+                or type(ref.get('count')) is not int or not 0 < ref['count'] <= 10000
+                or not isinstance(ref.get('sha256'), str) or not re.fullmatch(r'[a-f0-9]{64}', ref['sha256'])
+                or ref.get('file') != 'poi-' + ref['sha256'] + '.json' or ref['sha256'] in result):
+            raise ValueError('Invalid POI chunk identity or byte budget')
+        keys.add(ref['key'])
+        bounds = [ref[k] for k in ('west', 'south', 'east', 'north')]
+        if (any(type(v) not in (int, float) or not math.isfinite(v) for v in bounds)
+                or not 123 <= bounds[0] < bounds[2] <= 133 or not 32 <= bounds[1] < bounds[3] <= 40):
+            raise ValueError('Invalid POI chunk bounds')
+        path = POI_SOURCE_ROOT / ref['file']
+        if regular_file(path).st_size != ref['bytes']:
+            raise ValueError('POI source size differs from audited manifest')
+        body = path.read_bytes()
+        if len(body) != ref['bytes'] or hashlib.sha256(body).hexdigest() != ref['sha256']:
+            raise ValueError('POI source hash differs from audited manifest')
+        if any(pattern.search(body) for pattern in CREDENTIAL_PATTERNS):
+            raise ValueError('Credential-like content is forbidden in POI assets')
+        payload = _poi_json(body)
+        if (not isinstance(payload, dict) or set(payload) != {'schema', 'records'}
+                or type(payload.get('schema')) is not int or payload['schema'] != 1
+                or not isinstance(payload.get('records'), list) or len(payload['records']) != ref['count']):
+            raise ValueError('Invalid POI payload schema or record count')
+        for row in payload['records']:
+            required = {'id', 'name', 'category', 'type', 'longitude', 'latitude', 'positionMethod'}
+            if (not isinstance(row, dict) or not required.issubset(row)
+                    or set(row) - required - {'address', 'sourceTags', 'scopeRegionCode', 'nameIsFallback'}
+                    or not isinstance(row.get('id'), str) or not re.fullmatch(r'(?:node|way|relation)/[1-9][0-9]{0,19}', row['id'])
+                    or row['id'] in ids or not isinstance(row.get('category'), str) or row['category'] not in POI_TYPES
+                    or not isinstance(row.get('type'), str) or row['type'] not in POI_TYPES[row['category']]
+                    or not isinstance(row.get('positionMethod'), str)
+                    or row['positionMethod'] not in {'original_node', 'area_representative_point', 'line_midpoint'}
+                    or ('nameIsFallback' in row and row['nameIsFallback'] is not True)
+                    or row['id'].startswith('node/') != (row['positionMethod'] == 'original_node')):
+                raise ValueError('Invalid or duplicate POI source identity or classification')
+            for field in ('name', 'address'):
+                if field in row and (not isinstance(row[field], str) or not row[field].strip() or len(row[field]) > 500
+                                     or any(ord(char) < 32 for char in row[field])):
+                    raise ValueError('Invalid POI display text')
+            lon, lat = row['longitude'], row['latitude']
+            if (type(lon) not in (int, float) or type(lat) not in (int, float)
+                    or not math.isfinite(lon) or not math.isfinite(lat)
+                    or not bounds[0] <= lon <= bounds[2] or not bounds[1] <= lat <= bounds[3]):
+                raise ValueError('POI coordinates exceed the declared chunk')
+            if 'scopeRegionCode' in row and row['scopeRegionCode'] not in scope['regionCodes']:
+                raise ValueError('POI record region differs from audited scope')
+            if 'sourceTags' in row and (not isinstance(row['sourceTags'], dict) or len(row['sourceTags']) > len(POI_TAG_KEYS)
+                    or any(k not in POI_TAG_KEYS
+                           or not isinstance(v, str) or not v or len(v) > 300
+                           or any(ord(c) < 32 for c in v) for k, v in row['sourceTags'].items())):
+                raise ValueError('Invalid POI source tags')
+            ids.add(row['id'])
+        result[ref['sha256']] = {'bytes': ref['bytes'], 'sha256': ref['sha256']}
+        total_bytes += ref['bytes']
+        if total_bytes > POI_MAX_TOTAL_BYTES:
+            raise ValueError('POI inventory exceeds total byte budget')
+    return result
 
 
 def _region_asset_inventory():
@@ -162,7 +295,7 @@ def _frontend_name(name: str) -> None:
     if (any(part.startswith('.') for part in name.split('/'))
             or FORBIDDEN_NAME.search(Path(name).name)):
         raise ValueError('Private or hidden files are forbidden in the frontend')
-    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name):
+    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name):
         raise ValueError('Unknown frontend file; full staging is required')
 
 
@@ -187,6 +320,9 @@ def _frontend_entries(client: Path, previous: dict):
     # directories too so an empty data/ or hidden directory cannot slip through.
     paths = sorted(tree_files(client))
     region_inventory = _region_asset_inventory() if any(REGION_ASSET.fullmatch(path.relative_to(client).as_posix()) for path in paths) else {}
+    poi_required = (POI_SOURCE_ROOT / 'manifest.json').exists() or any(POI_ASSET.fullmatch(name) for name in old) or any(POI_ASSET.fullmatch(path.relative_to(client).as_posix()) for path in paths)
+    poi_inventory = _poi_asset_inventory() if poi_required else {}
+    seen_pois = set()
     seen_regions = set()
     pending = [client]
     while pending:
@@ -211,7 +347,7 @@ def _frontend_entries(client: Path, previous: dict):
             if family not in families or family in seen_families:
                 raise ValueError('Changed frontend chunk families; full staging is required')
             seen_families.add(family)
-        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name):
+        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name):
             raise ValueError('Unknown frontend file; full staging is required')
         size = regular_file(path).st_size
         if not 0 <= size < release.MAX_FILE_BYTES:
@@ -228,11 +364,19 @@ def _frontend_entries(client: Path, previous: dict):
             if region_match[1] in seen_regions:
                 raise ValueError('Duplicate published region asset identity')
             seen_regions.add(region_match[1])
-        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_point_asset and not approved_region_asset:
+        poi_match = POI_ASSET.fullmatch(name)
+        approved_poi_asset = bool(poi_match and poi_inventory.get(poi_match[1]) == {'bytes': size, 'sha256': sha})
+        if poi_match:
+            if not approved_poi_asset:
+                raise ValueError('POI asset is unlisted or differs from audited manifest')
+            if poi_match[1] in seen_pois:
+                raise ValueError('Duplicate published POI asset identity')
+            seen_pois.add(poi_match[1])
+        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_point_asset and not approved_region_asset and not approved_poi_asset:
             raise ValueError('Copied frontend assets changed; full staging is required')
-        if (family or region_match) and prior and not unchanged:
+        if (family or region_match or poi_match) and prior and not unchanged:
             raise ValueError('An immutable frontend asset URL changed bytes')
-        if name in MUTABLE_ROOT or family or approved_point_asset or approved_region_asset:
+        if name in MUTABLE_ROOT or family or approved_point_asset or approved_region_asset or approved_poi_asset:
             # Reads are bounded by the same 24 MiB ceiling as static staging.
             body = path.read_bytes()
             if len(body) != size or hashlib.sha256(body).hexdigest() != sha:
@@ -250,7 +394,10 @@ def _frontend_entries(client: Path, previous: dict):
     # point or region asset need not be copied into the next app bundle.
     stable_names = set(old) - {name for name, entry in old.items()
                                if _family(name) or _approved_point_asset(name, entry['sha256'], entry['bytes'])
-                               or REGION_ASSET.fullmatch(name) and REGION_ASSET.fullmatch(name)[1] in seen_regions}
+                               or REGION_ASSET.fullmatch(name) and REGION_ASSET.fullmatch(name)[1] in seen_regions
+                               or POI_ASSET.fullmatch(name) and poi_inventory}
+    if seen_pois != set(poi_inventory):
+        raise ValueError('Audited POI assets are missing from the frontend')
     if seen_regions != set(region_inventory):
         raise ValueError('Audited region assets are missing from the frontend')
     if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != families:

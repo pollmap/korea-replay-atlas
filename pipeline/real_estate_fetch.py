@@ -318,7 +318,7 @@ class Collector:
                 retrieved_at=source['retrieved_at'],trade_type=job['trade_type']))
         partition=build_partitions(parsed)[0]
         payload=canonical_bytes(partition);stored,encoding=encode_snapshot(payload);part_hash=sha256(stored)
-        snapshot_ref={**immutable(self.root,f"snapshots/{job['id']}/{part_hash}.json.gz",stored),**encoding}
+        snapshot_ref={**immutable(self.root,f"snapshots/{job['id']}/{part_hash}.json.xz",stored),**encoding}
         if job['snapshot']:
             before=json.loads(job['snapshot']);old_path=self.root/before['path'];_reject_links(old_path)
             old_body=old_path.read_bytes()

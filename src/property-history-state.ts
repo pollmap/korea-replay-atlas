@@ -1,9 +1,9 @@
-import type {PropertyRegionDetail} from '../shared/property';
+import type {PropertyRegionDetail,PropertyPartition} from '../shared/property';
 import {historyMonths,type HistoryRange} from '../shared/property-history';
 import type {HistoryResult} from './property-history-loader';
 
 /** Publication state and browser download state are deliberately separate. */
-export function historyMonthStatus(result:HistoryResult|undefined):string {
+function historyReadStatus(result:HistoryResult|undefined):string {
   if(!result)return '불러오는 중';
   if(result.status==='ready')return '자료 확인';
   if(result.status==='error')return '조회 실패 · 재시도 가능';
@@ -15,6 +15,20 @@ export function historyMonthStatus(result:HistoryResult|undefined):string {
   if(result.reason==='partial')return '일부만 수집';
   if(result.reason==='outside_release')return '이 버전에 미게시';
   return '수집 대기';
+}
+
+const refreshLabels={pending:'갱신 대기',partial:'갱신 일부 확인',failed:'갱신 실패'} as const;
+export function historyMonthStatus(result:HistoryResult|undefined,partition?:PropertyPartition):string {
+  const status=historyReadStatus(result);
+  return partition?.refresh&&['complete','empty'].includes(partition.status)
+    ?`${status} · ${refreshLabels[partition.refresh.status]} · 이전 확인본 유지 · 마지막 성공(UTC) ${partition.retrieved_at?.slice(0,10)??'미확인'}`:status;
+}
+
+/** The source's last successful snapshot and latest collection attempt are different dates. */
+export function historyRefreshSummary(detail:PropertyRegionDetail,trade:'sale'|'rent',months:readonly string[]) {
+  const selected=new Set(months),retained=detail.partitions.filter(p=>p.trade_type===trade&&selected.has(p.deal_month)&&p.refresh&&['complete','empty'].includes(p.status));
+  const dates=retained.map(p=>p.retrieved_at).filter((v):v is string=>!!v).sort();
+  return {count:retained.length,firstSuccess:dates[0]?.slice(0,10)??null,lastSuccess:dates.at(-1)?.slice(0,10)??null};
 }
 
 export function publishedHistoryCoverage(detail:PropertyRegionDetail,trade:'sale'|'rent',months:readonly string[]) {

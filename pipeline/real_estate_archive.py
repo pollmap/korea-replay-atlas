@@ -55,7 +55,7 @@ def checked_path(value):
     if p.is_absolute() or str(p) != value or any(x in ('', '.', '..') for x in p.parts):
         raise RealEstateError('archive_path')
     if value != 'checkpoint.sqlite' and (len(p.parts) < 2 or p.parts[0] not in PREFIXES
-            or not re.fullmatch(r'[a-f0-9]{64}\.(?:xml|json|json.gz)', p.name)):
+            or not re.fullmatch(r'[a-f0-9]{64}\.(?:xml|json|json.gz|json.xz)', p.name)):
         raise RealEstateError('archive_path')
     return value
 

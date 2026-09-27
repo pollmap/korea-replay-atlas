@@ -1,4 +1,5 @@
 import json
+import gzip
 import sqlite3
 
 import pytest
@@ -9,6 +10,46 @@ from pipeline.real_estate_remote import RemoteWorkspace,run_remote
 from pipeline.real_estate_run_guard import CollectionGuard,DAY
 from test_real_estate_archive import LocalD1
 from test_real_estate_fetch import collector,xml,STAMP
+
+
+@pytest.mark.parametrize('legacy_encoding',[None,'gzip'])
+def test_legacy_parent_and_new_xz_survive_upload_hydration_restore_and_publication(tmp_path,legacy_encoding):
+    from pipeline.real_estate import canonical_bytes
+    from pipeline.real_estate_fetch import immutable
+    from pipeline.real_estate_storage import decode_snapshot
+    from pipeline.real_estate_publish import publish,verify_snapshot
+    from test_real_estate_fetch import registry
+    root=tmp_path/'original';c=collector(root,lambda *a,**kw:xml())
+    c.collect('fixture-key',max_requests=1,min_interval=0)
+    job=c.db.execute("SELECT * FROM jobs WHERE snapshot IS NOT NULL").fetchone()
+    ref=json.loads(job['snapshot']);raw=decode_snapshot((root/ref['path']).read_bytes(),ref)
+    blob=gzip.compress(raw,mtime=1720000000) if legacy_encoding else raw
+    suffix='.json.gz' if legacy_encoding else '.json'
+    legacy=immutable(root,f"snapshots/{job['id']}/{sha256(blob)}{suffix}",blob)
+    if legacy_encoding:legacy.update(encoding='gzip',decoded_bytes=len(raw),decoded_sha256=sha256(raw))
+    with c.db:
+        c.db.execute('UPDATE jobs SET snapshot=? WHERE id=?',(canonical_bytes(legacy).decode(),job['id']))
+        c.db.execute('INSERT INTO snapshots VALUES(?,?,?,?)',(job['id'],legacy['sha256'],canonical_bytes(legacy).decode(),STAMP))
+    c.close()
+    old_files={p.relative_to(root):p.read_bytes() for group in ['snapshots','raw'] for p in (root/group).rglob('*') if p.is_file()}
+    store=LocalD1();backup(root,store)
+    workspace=RemoteWorkspace(tmp_path/'hydrate',store)
+    workspace.hydrate([legacy['path']])
+    assert decode_snapshot((workspace.root/legacy['path']).read_bytes(),legacy)==raw
+    result=run_remote(tmp_path/'runner',store,'fixture-key',months=2,as_of=STAMP,
+        max_requests=1,transport=lambda *a,**kw:xml(),reserve_bytes=0)
+    target=tmp_path/'restored';restored=restore(target,store)
+    assert restored['audit']==result['checkpoint']['audit']
+    assert all((target/path).read_bytes()==body for path,body in old_files.items())
+    with sqlite3.connect(target/'checkpoint.sqlite') as db:
+        db.row_factory=sqlite3.Row
+        jobs=list(db.execute("SELECT * FROM jobs WHERE status IN ('complete','empty')"))
+        assert any(json.loads(j['snapshot']).get('encoding')=='xz' for j in jobs)
+        assert any(json.loads(j['snapshot']).get('encoding')==legacy_encoding for j in jobs)
+        for row in jobs:assert verify_snapshot(target,row)['audit']['complete_pages']
+    publication=publish(target,registry(),tmp_path/'public-candidate')
+    assert publication['audit']['source_rows']==0
+    assert CollectionGuard(store).status()['owner'][0]['occupied']==0
 
 
 def parent(tmp_path):

@@ -27,7 +27,7 @@ SOURCES = [
     {'id':'molit-apt-rent','dataset_id':'15126474','label':'국토교통부 아파트 전월세 신고·확정일자 자료',
      'page_url':'https://www.data.go.kr/data/15126474/openapi.do','evidence_type':'official_report'},
 ]
-POLICY = 'property-publication-v3-source-publication-periods'
+POLICY = 'property-publication-v4-retained-verified-snapshots'
 
 
 def coverage(jobs):
@@ -60,6 +60,7 @@ def metric(job, partition):
         'invalid_rows':None,'statistics_excluded_rows':None,'complex_count':None,'retrieved_at':None,'median_price_per_m2_krw':None,
         'statistic':'reported-row-median-price-per-m2',
         'cancellation_policy':'source_not_provided' if job['trade_type']=='rent' else 'exclude_cancelled_and_unknown'}
+    if 'refresh' in job:result['refresh']=job['refresh']
     if partition is None:return result
     records=partition['records']; active=[r for r in records if eligible(r)]
     units=[]
@@ -90,7 +91,7 @@ def public_row(row, job):
 
 def checked_read(root, descriptor, limit):
     name=descriptor.get('path')
-    if (not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9/_-]+\.(?:json(?:\.gz)?|xml)',name)
+    if (not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9/_-]+\.(?:json(?:\.(?:gz|xz))?|xml)',name)
             or '..' in Path(name).parts or not isinstance(descriptor.get('bytes'),int)
             or not 0 < descriptor['bytes'] <= limit or not re.fullmatch(r'[a-f0-9]{64}',descriptor.get('sha256',''))):
         raise RealEstateError('invalid_checkpoint_descriptor')
@@ -102,20 +103,54 @@ def checked_read(root, descriptor, limit):
     return payload
 
 
+def snapshot_sources(job, recorded):
+    """Recover the previous snapshot's exact source refs, never a refresh's pages.
+
+    Useful for selective hydration after the snapshot itself has been verified.
+    The consumer must still read/hash/reparse every returned source before use.
+    """
+    try:
+        value=json.loads(recorded)
+        source_pages=value['audit']['pages']
+        if not isinstance(source_pages,list) or not 1<=len(source_pages)<=1000:
+            raise RealEstateError('invalid_snapshot_sources')
+        sources=[{'path':f"raw/{job['trade_type']}/{job['lawd_code']}/{job['deal_month']}/{p['input_sha256']}.xml",
+                  'sha256':p['input_sha256'],'bytes':p['input_bytes'],'retrieved_at':p['retrieved_at'],
+                  'page_no':p['page_no'],'page_size':p['page_size'],'total_count':p['total_count']} for p in source_pages]
+        if (any(type(p['bytes']) is not int or not 0<p['bytes']<=8*1024**2 for p in sources)
+                or sum(p['bytes'] for p in sources)>64*1024**2):
+            raise RealEstateError('invalid_snapshot_sources')
+        return sources
+    except (KeyError,TypeError,ValueError):
+        raise RealEstateError('invalid_snapshot_sources') from None
+
+
 def verify_snapshot(root, job):
-    if job['status'] not in ('complete','empty'):return None
+    if job['status'] not in ('complete','empty','pending','partial','failed'):return None
+    if job['status'] in ('pending','partial','failed') and not job['snapshot']:return None
     if not job['snapshot']:raise RealEstateError('missing_complete_snapshot')
     descriptor=json.loads(job['snapshot'])
     recorded=decode_snapshot(checked_read(root,descriptor,128*1024**2),descriptor)
-    sources=json.loads(job['pages'])
+    sources=(json.loads(job['pages']) if job['status'] in ('complete','empty')
+             else snapshot_sources(job,recorded))
     if not 1<=len(sources)<=1000 or sum(s['bytes'] for s in sources)>64*1024**2:
         raise RealEstateError('invalid_snapshot_sources')
     pages=[normalize_xml_page(checked_read(root,s,8*1024**2),lawd_code=job['lawd_code'],
         deal_month=job['deal_month'],retrieved_at=s['retrieved_at'],trade_type=job['trade_type']) for s in sources]
     current=build_partitions(pages)[0]
     if canonical_bytes(current)!=recorded:raise RealEstateError('snapshot_not_reproducible')
-    if (len(current['records'])==0)!=(job['status']=='empty'):raise RealEstateError('snapshot_status_mismatch')
+    if job['status'] in ('complete','empty') and (len(current['records'])==0)!=(job['status']=='empty'):
+        raise RealEstateError('snapshot_status_mismatch')
     return current
+
+
+def publication_job(job, partition):
+    """A read-only projection. Never overwrite the collection ledger or failures."""
+    if partition is None or job['status'] in ('complete','empty'):return job
+    attempted=job.get('_last_attempt_at')
+    if attempted is not None and utc_instant(attempted)<=utc_instant(partition['retrieved_at']):attempted=None
+    return {**job,'status':'empty' if not partition['records'] else 'complete','error_code':None,
+            'refresh':{'status':job['status'],'error_code':job['error_code'],'attempted_at':attempted}}
 
 
 def collect_complexes(records):
@@ -161,6 +196,8 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
         if meta.get('property_type', 'apartment') != 'apartment':
             raise RealEstateError('unsupported_publication_property_type')
         jobs=[dict(r) for r in connection.execute('SELECT * FROM jobs ORDER BY lawd_code,deal_month,trade_type')]
+        attempts=dict(connection.execute('SELECT job_id,MAX(started_at) FROM calls GROUP BY job_id'))
+        for job in jobs:job['_last_attempt_at']=attempts.get(job['id'])
     finally:connection.close()
     registry_hash=sha256(canonical_bytes(registry))
     if meta.get('registry_sha256')!=registry_hash:raise RealEstateError('registry_hash_mismatch')
@@ -168,7 +205,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
     official={r['lawd_code']:r for r in registry['regions']}
     if any(j['lawd_code'] not in official for j in jobs):raise RealEstateError('unknown_legal_region')
     fingerprint={'policy':POLICY,'registry_sha256':registry_hash,
-        'jobs':[{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at')} for j in jobs]}
+        'jobs':[{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at','_last_attempt_at')} for j in jobs]}
     release='property-'+sha256(canonical_bytes(fingerprint))[:16]
     months=sorted({j['deal_month'] for j in jobs});latest=int(months[-1][:4])*12+int(months[-1][4:])-2
     period={'from':months[0],'to':months[-1],'latest_complete_month':f'{latest//12:04d}{latest%12+1:02d}'}
@@ -198,16 +235,19 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
         files.append({'path':name,'sha256':digest,'byte_length':len(payload)})
         return {'url':'/'+name,'sha256':digest,'bytes':len(payload)}
 
-    regions=[];complex_total=0;source_rows=0;groups=defaultdict(list)
+    regions=[];complex_total=0;source_rows=0;groups=defaultdict(list);published_jobs=[]
     for job in jobs:groups[job['lawd_code']].append(job)
     for code,region_jobs in sorted(groups.items()):
-        stats=[];partitions=[];all_rows=[];by_month=defaultdict(list);by_job={}
-        for job in region_jobs:
-            partition=verify_snapshot(root,job);m=metric(job,partition);stats.append(m)
+        stats=[];partitions=[];all_rows=[];by_month=defaultdict(list);by_job={};published_region_jobs=[]
+        for collection_job in region_jobs:
+            partition=verify_snapshot(root,collection_job);job=publication_job(collection_job,partition)
+            published_region_jobs.append(job);published_jobs.append(job)
+            m=metric(job,partition);stats.append(m)
             references=[]
             item={'lawd_code':code,'deal_month':job['deal_month'],'trade_type':job['trade_type'],
                 'status':job['status'],'source_rows':m['source_rows'],'eligible_rows':m['eligible_rows'],
                 'retrieved_at':m['retrieved_at'],'transactions':references,'error_code':job['error_code']}
+            if 'refresh' in job:item['refresh']=job['refresh']
             partitions.append(item);by_job[(job['deal_month'],job['trade_type'])]=item
             if partition:
                 rows=[public_row(r,job) for r in partition['records']]
@@ -230,17 +270,18 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
         complexes=collect_complexes(all_rows);complex_total+=len(complexes)
         complex_asset=emit(f'complexes/{code}.json',{'schema_version':1,'kind':'property-complexes',
             'release_id':release,'lawd_code':code,'complexes':complexes}) if complexes else None
-        name=official[code]['name'];region_coverage=coverage(region_jobs)
+        name=official[code]['name'];region_coverage=coverage(published_region_jobs)
+        collection_coverage=coverage(region_jobs)
         index=emit(f'regions/{code}.json',{'schema_version':1,'kind':'property-region','release_id':release,
-            'lawd_code':code,'name':name,'period':period,'coverage':region_coverage,
+            'lawd_code':code,'name':name,'period':period,'coverage':region_coverage,'collection_coverage':collection_coverage,
             'metrics':stats,'partitions':partitions,'complexes':complex_asset})
         latest_stats={s['trade_type']:s for s in stats if s['deal_month']==period['latest_complete_month']}
         if len(latest_stats)!=2:raise RealEstateError('missing_latest_month_jobs')
         regions.append({'lawd_code':code,'name':name,'legal_code':official[code]['legal_code'],
-            'index':index,'coverage':region_coverage,'latest':latest_stats})
+            'index':index,'coverage':region_coverage,'collection_coverage':collection_coverage,'latest':latest_stats})
     regions_asset=emit('regions.json',{'schema_version':1,'kind':'property-regions','release_id':release,'regions':regions})
     manifest={'schema_version':1,'kind':'property-release','release_id':release,'generated_at':generated,
-        'period':period,'coverage':coverage(jobs),'sources':SOURCES,
+        'period':period,'coverage':coverage(published_jobs),'collection_coverage':coverage(jobs),'sources':SOURCES,
         'code_registry':{'source_url':SOURCE_PAGE,'retrieved_at':registry['retrieved_at'],
                          'sha256':registry['source']['sha256'],'current_region_count':len(official)},
         'regions':regions_asset,'coordinates':{'verified_complexes':0,'unresolved_complexes':complex_total,'name_only_join':False},
@@ -258,7 +299,8 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
         'files':sorted(files,key=lambda f:f['path']),
         'audit':{'policy':POLICY,'source_rows':source_rows,'complexes':complex_total,
                  'raw_pages_reparsed':True,'source_hashes_verified':True,'position_policy':'no_unverified_coordinates',
-                 'files':len(files),'bytes':sum(f['byte_length'] for f in files),'coverage':coverage(jobs)}}
+                 'files':len(files),'bytes':sum(f['byte_length'] for f in files),'coverage':coverage(published_jobs),
+                 'collection_coverage':coverage(jobs),'stale_jobs':sum('refresh' in j for j in published_jobs)}}
     receipt=canonical_bytes(publication)
     if shutil.disk_usage(stage).free-len(receipt)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
     with (stage/'publication.json').open('xb') as handle:handle.write(receipt)

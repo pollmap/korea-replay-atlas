@@ -4,7 +4,7 @@ export const SURROUNDINGS_RADII=[500,1000,3000] as const;
 export type SurroundingsRadius=typeof SURROUNDINGS_RADII[number];
 export const SURROUNDINGS_TYPES={
   transport:[['subway','지하철'],['bus','버스'],['rail','철도'],['road','도로']],
-  school:[['elementary','초등학교'],['middle','중학교'],['high','고등학교'],['university','대학교']],
+  school:[['elementary','초등학교'],['middle','중학교'],['high','고등학교'],['university','대학교'],['school','학교 · 급 미분류']],
   life:[['shopping','장보기'],['medical','의료'],['park','공원'],['public','공공시설']],
   development:[['housing','주택'],['transport_plan','교통'],['industrial','산업'],['urban','도시정비']],
 } as const;
@@ -14,8 +14,9 @@ export interface SurroundingsScope {complexId:string;releaseId:string;}
 export interface SurroundingsSource {id:string;label:string;url:string;asOf:string;}
 interface SurroundingsRecordBase {
   id:string;name:string;address?:string;
-  /** Measured straight-line distance from this exact complex; never an ETA. */
+  /** Straight-line distance from the explicitly selected reference; never an ETA. */
   distanceMeters:number|null;source:SurroundingsSource;
+  position?:{longitude:number;latitude:number;method:'original_node'|'area_representative_point'|'line_midpoint'};
   development?:{stage:keyof typeof DEVELOPMENT_STAGES;effectiveDate:string;documentUrl:string};
 }
 export type SurroundingsRecord={[C in SurroundingsCategory]:SurroundingsRecordBase&{category:C;type:typeof SURROUNDINGS_TYPES[C][number][0]}}[SurroundingsCategory];

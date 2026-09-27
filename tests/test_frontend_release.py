@@ -12,8 +12,9 @@ from pipeline.core import atomic_json, digest
 
 
 @pytest.fixture
-def fixture(tmp_path):
+def fixture(tmp_path, monkeypatch):
     root = tmp_path / 'workspace'
+    monkeypatch.setattr(frontend, 'POI_SOURCE_ROOT', root / 'canonical/src/data/property-poi')
     base = root / 'public/data'
     source = base / 'roads/road.geojson'
     atomic_json(source, {'type': 'FeatureCollection', 'features': []})
@@ -489,3 +490,148 @@ def test_region_total_byte_budget_is_independent_of_per_file_budget(fixture, reg
     monkeypatch.setattr(frontend, 'REGION_MAX_TOTAL_BYTES', 1)
     with pytest.raises(ValueError, match='byte budget'):
         restage(fixture)
+
+
+@pytest.fixture
+def poi_assets(fixture):
+    source_root = frontend.POI_SOURCE_ROOT
+    source_root.mkdir(parents=True)
+    chunks = []
+    for index in range(2):
+        payload = {'schema': 1, 'records': [{'id': f'node/{index + 1}', 'name': 'Fixture station',
+                    'category': 'transport', 'type': 'subway', 'longitude': 127.1, 'latitude': 37.1,
+                    'positionMethod': 'original_node', 'scopeRegionCode': '11'}]}
+        body = json.dumps(payload, separators=(',', ':')).encode()
+        sha = hashlib.sha256(body).hexdigest()
+        name = 'poi-' + sha + '.json'
+        (source_root / name).write_bytes(body)
+        (fixture.client / f'assets/poi-{sha}-12345678.json').write_bytes(body)
+        chunks.append({'key': f'2540-740-{index}0', 'west': 127, 'south': 37, 'east': 128, 'north': 38,
+                       'file': name, 'sha256': sha, 'bytes': len(body), 'count': 1})
+    manifest = {'schema': 1, 'source': dict(frontend.POI_SOURCE),
+                'scope': {**frontend.POI_SCOPE_METADATA, 'regionCodes': sorted(frontend.POI_SCOPE_CODES)},
+                'chunks': chunks}
+    path = source_root / 'manifest.json'
+    path.write_text(json.dumps(manifest), encoding='utf-8')
+    return path
+
+
+def rewrite_poi_payload(index, transform):
+    manifest = json.loads(index.read_bytes())
+    ref = manifest['chunks'][0]
+    payload = json.loads((index.parent / ref['file']).read_bytes())
+    transform(payload)
+    body = json.dumps(payload, separators=(',', ':')).encode()
+    sha = hashlib.sha256(body).hexdigest()
+    ref.update(file='poi-' + sha + '.json', sha256=sha, bytes=len(body))
+    (index.parent / ref['file']).write_bytes(body)
+    index.write_text(json.dumps(manifest), encoding='utf-8')
+
+
+def test_poi_exact_inventory_stages_without_changing_prior_data(fixture, poi_assets):
+    result = restage(fixture)
+    assets = json.loads((Path(result['bundle']) / 'asset-manifest.json').read_bytes())
+    assert len([row for row in assets if frontend.POI_ASSET.fullmatch(row['target'])]) == 2
+    assert result['catalog_hash'] == fixture.first['catalog_hash']
+    assert_prior_unchanged(fixture)
+
+
+@pytest.mark.parametrize('change', ['missing', 'all_missing', 'duplicate', 'hash', 'unlisted'])
+def test_poi_frontend_rejects_missing_altered_or_duplicate_assets(fixture, poi_assets, change):
+    targets = sorted(fixture.client.glob('assets/poi-*.json'))
+    if change in ('missing', 'all_missing'):
+        for target in targets if change == 'all_missing' else targets[:1]:
+            target.unlink()
+    elif change == 'duplicate':
+        targets[0].with_name(targets[0].name.replace('12345678', 'abcdefgh')).write_bytes(targets[0].read_bytes())
+    elif change == 'hash':
+        targets[0].write_bytes(targets[0].read_bytes().replace(b'station', b'changed'))
+    else:
+        targets[0].rename(fixture.client / ('assets/poi-' + '0' * 64 + '-12345678.json'))
+    with pytest.raises(ValueError, match='POI'):
+        restage(fixture)
+    assert_no_new_bundle(fixture)
+
+
+@pytest.mark.parametrize('change', ['source', 'license', 'revision', 'traversal', 'size', 'count', 'scope', 'extra'])
+def test_poi_rejects_unaudited_source_manifest(fixture, poi_assets, change):
+    manifest = json.loads(poi_assets.read_bytes())
+    if change == 'source':
+        manifest['source']['sha256'] = '0' * 64
+    elif change == 'license':
+        manifest['source']['license'] = 'unknown'
+    elif change == 'revision':
+        manifest['scope']['boundaryDate'] = '2030-01-01'
+    elif change == 'traversal':
+        manifest['chunks'][0]['file'] = '../manifest.json'
+    elif change == 'size':
+        manifest['chunks'][0]['bytes'] += 1
+    elif change == 'count':
+        manifest['chunks'][0]['count'] += 1
+    elif change == 'scope':
+        manifest['scope']['regionCodes'] = ['11', '11']
+    else:
+        manifest['unchecked'] = True
+    poi_assets.write_text(json.dumps(manifest), encoding='utf-8')
+    with pytest.raises(ValueError, match='POI'):
+        restage(fixture)
+
+
+@pytest.mark.parametrize('change', ['latitude', 'nan', 'type', 'duplicate', 'position', 'schema', 'extra', 'credential', 'scope'])
+def test_poi_payload_checks_do_not_trust_matching_content_hash_alone(fixture, poi_assets, change):
+    def alter(payload):
+        row = payload['records'][0]
+        if change == 'latitude': row['latitude'] = 0
+        elif change == 'nan': row['longitude'] = float('nan')
+        elif change == 'type': row['type'] = 'unverified_plan'
+        elif change == 'duplicate': row['id'] = 'node/2'
+        elif change == 'position': row['positionMethod'] = 'name_guess'
+        elif change == 'schema': payload['schema'] = True
+        elif change == 'extra': row['etaMinutes'] = 3
+        elif change == 'credential': row['name'] = 'serviceKey=do-not-publish-this-fixture-value'
+        else: row['scopeRegionCode'] = '99999'
+    rewrite_poi_payload(poi_assets, alter)
+    with pytest.raises(ValueError, match='POI|Credential-like') as caught:
+        frontend._poi_asset_inventory()
+    assert 'do-not-publish' not in str(caught.value)
+
+
+@pytest.mark.parametrize('budget', ['POI_MAX_FILE_BYTES', 'POI_MAX_TOTAL_BYTES', 'POI_MAX_FILES'])
+def test_poi_all_publication_budgets_are_enforced(fixture, poi_assets, monkeypatch, budget):
+    monkeypatch.setattr(frontend, budget, 1)
+    with pytest.raises(ValueError, match='POI'):
+        frontend._poi_asset_inventory()
+
+
+def test_poi_requires_canonical_sources_and_preserves_old_immutable_urls(fixture, poi_assets, monkeypatch):
+    previous = restage(fixture)
+    fixture.bundle = Path(previous['bundle'])
+    target = sorted(fixture.client.glob('assets/poi-*.json'))[0]
+    target.rename(target.with_name(target.name.replace('12345678', 'abcdefgh')))
+    result = restage(fixture)
+    assert not (Path(result['bundle']) / 'client' / target.relative_to(fixture.client)).exists()
+    assert (fixture.bundle / 'client' / target.relative_to(fixture.client)).is_file()
+    monkeypatch.setattr(frontend, 'POI_SOURCE_ROOT', fixture.root / 'absent-source')
+    with pytest.raises((OSError, ValueError)):
+        restage(fixture)
+
+
+def test_poi_immutable_url_cannot_replace_prior_bytes_even_if_current_source_is_approved(fixture, poi_assets):
+    _, previous = frontend._prior_metadata(fixture.bundle)
+    target = sorted(fixture.client.glob('assets/poi-*.json'))[0]
+    name = target.relative_to(fixture.client).as_posix()
+    previous[name] = {'sha256': '0' * 64, 'bytes': target.stat().st_size}
+    with pytest.raises(ValueError, match='immutable frontend asset URL'):
+        frontend._frontend_entries(fixture.client, previous)
+
+
+def test_poi_frontend_cannot_add_its_own_approval_manifest(fixture, poi_assets):
+    (fixture.client / 'assets/manifest-12345678.json').write_bytes(poi_assets.read_bytes())
+    with pytest.raises(ValueError, match='Unknown frontend file'):
+        restage(fixture)
+
+
+@pytest.mark.parametrize('body', [b'{"schema":1,"schema":1}', b'{"records":[{"id":"node/1","id":"node/2"}]}', b'{"latitude":NaN}', b'{"longitude":Infinity}'])
+def test_poi_json_rejects_ambiguous_properties_and_nonfinite_constants(body):
+    with pytest.raises(ValueError, match='POI'):
+        frontend._poi_json(body)

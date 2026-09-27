@@ -153,3 +153,42 @@ describe('property reported transactions',()=>{
     await expect(parsePropertyAssetBytes(bytes.slice(1),descriptor,parsePropertyTransactions)).rejects.toThrow('size');
   });
 });
+
+
+function retainedDetail(refresh:unknown={status:'failed',error_code:'upstream_timeout',attempted_at:'2026-09-21T00:00:00Z'}){
+  return {schema_version:1,kind:'property-region',release_id:release,lawd_code:'11110',name:'검증 지역',period,complexes:null,
+    coverage:{...coverage,expected:1,complete:1,pending:0},collection_coverage:{...coverage,expected:1,complete:0,pending:0,failed:1},
+    metrics:[{...saleMetric,refresh}],partitions:[{lawd_code:'11110',deal_month:'202609',trade_type:'sale',status:'complete',
+      source_rows:1,eligible_rows:1,retrieved_at:stamp,transactions:[asset],error_code:null,refresh}]};
+}
+it('retains a verified snapshot separately from failed current collection without replacing its count or time',()=>{
+  const parsed=parsePropertyRegionDetail(retainedDetail());
+  expect(parsed.partitions[0]).toMatchObject({status:'complete',source_rows:1,retrieved_at:stamp,refresh:{status:'failed'}});
+  expect(parsed.coverage.complete).toBe(1);expect(parsed.collection_coverage?.failed).toBe(1);
+  for(const attempted_at of [null,stamp])expect(parsePropertyRegionDetail(retainedDetail({status:'failed',error_code:null,attempted_at})).partitions[0].refresh?.attempted_at).toBe(attempted_at);
+});
+it('strictly rejects invalid refresh shape, earlier timestamps, unsupported statuses and mismatched metrics',()=>{
+  for(const refresh of [null,{}, {status:'failed',error_code:null},
+    {status:'complete',error_code:null,attempted_at:null}, {status:['failed'],error_code:null,attempted_at:null},
+    {status:'failed',error_code:'key=secret',attempted_at:null}, {status:'failed',error_code:null,attempted_at:'2026-09-19T00:00:00Z'},
+    {status:'failed',error_code:null,attempted_at:null,unexpected:true}])expect(()=>parsePropertyRegionDetail(retainedDetail(refresh))).toThrow();
+  const mismatch=retainedDetail();mismatch.metrics[0].refresh={status:'pending',error_code:null,attempted_at:null};
+  expect(()=>parsePropertyRegionDetail(mismatch)).toThrow();
+  const missing=retainedDetail();delete (missing.metrics[0] as {refresh?:unknown}).refresh;
+  expect(()=>parsePropertyRegionDetail(missing)).toThrow();
+  const earlier=retainedDetail();earlier.metrics[0]={...pendingMetric,refresh:{status:'failed',error_code:null,attempted_at:null}};
+  expect(()=>parsePropertyRegionDetail(earlier)).toThrow();
+});
+it('validates separate collection coverage sums, denominator and exact partition refresh counts',()=>{
+  const original=manifest(),collection={...coverage,complete:0,failed:1};
+  expect(parsePropertyRelease({...original,collection_coverage:collection}).collection_coverage?.failed).toBe(1);
+  for(const bad of [null,{...collection,expected:3},{...collection,unexpected:1},{...collection,failed:-1}]){
+    expect(()=>parsePropertyRelease({...original,collection_coverage:bad})).toThrow();
+    const regions={schema_version:1,kind:'property-regions',release_id:release,regions:[{lawd_code:'11110',legal_code:'1111000000',name:'검증 지역',index:asset,coverage,collection_coverage:bad,latest:{sale:saleMetric,rent:pendingMetric}}]};
+    expect(()=>parsePropertyRegions(regions)).toThrow();
+  }
+  const wrong=retainedDetail();wrong.collection_coverage={...wrong.collection_coverage,failed:0,pending:1};
+  expect(()=>parsePropertyRegionDetail(wrong)).toThrow();
+  const unchanged=retainedDetail();delete (unchanged as {collection_coverage?:unknown}).collection_coverage;
+  expect(parsePropertyRegionDetail(unchanged).coverage.complete).toBe(1);
+});
