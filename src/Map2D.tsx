@@ -24,6 +24,7 @@ import type {PropertyRegions,PropertyRelease} from '../shared/property';
 import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBubbleImage,regionMapData,regionMapLayer,PROVINCE_MAP_LAYER,REGION_MAP_IMAGE,REGION_MAP_LAYER,REGION_MAP_SOURCE} from './region-map-layer';
 
 import {apartmentMapLayer,APARTMENT_MAP_LAYER,APARTMENT_SELECTED_LAYER} from './apartment-map-layer';
+import {createMap2DDiagnostics,writeMap2DDiagnostics} from './map2d-diagnostics';
 
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
@@ -104,19 +105,26 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     const pending=new Map<number,{resolve:(value:Map2DWorkerResponse)=>void;reject:(error:unknown)=>void;detach:()=>void}>();
     const waiters=new Set<{resume:()=>void;reject:()=>void}>();
     const budget=()=>QUALITY[latest.current.lightweight?'low':'balanced'];
-    const mark=()=>{
+    const retainOverview=()=>{
       if(disposed)return;
       if(map.getSource('vector-buildings')){
         const hold=map.getZoom()>=14&&!map.isSourceLoaded('vector-buildings');
         if(hold!==overviewHeld){overviewHeld=hold;for(const id of vectorLayerIds)if(id.startsWith('vector-buildings-overview-'))map.setLayerZoomRange(id,12,hold?24:14);}
-        node.dataset.buildingOverviewHeld=String(hold);
+        if(node.dataset.buildingOverviewHeld!==String(hold))node.dataset.buildingOverviewHeld=String(hold);
       }
-      const rows=[...resources.values()],network=downloads.stats(),sourcesLoading=rows.filter(row=>!map.isSourceLoaded(row.source)).length;
-      if(vectorProtocol){const stat=vectorProtocol.snapshot();Object.assign(node.dataset,{vectorRelease,vectorCachedBytes:String(stat.cachedBytes),vectorDecodedBytes:String(stat.decodedTileBytes),vectorDecodedHits:String(stat.decodedTileHits),vectorTotalCacheLimit:String(stat.totalTileCacheLimitBytes),vectorActive:String(stat.active),vectorPeak:String(stat.peakActive),vectorArchives:String(stat.cachedArchives)});}
-      Object.assign(node.dataset,{mapEngine:'maplibre',mapDimension:'2d',map2dPixelRatio:String(map.getPixelRatio()),map2dAssets:String(rows.length),map2dFeatures:String(rows.reduce((sum,row)=>sum+row.features,0)),map2dVertices:String(rows.reduce((sum,row)=>sum+row.vertices,0)),map2dJobs:String(jobs.size),map2dSourcesLoading:String(sourcesLoading),map2dIndexLoading:String(indexLoading),map2dMoving:String(moving),map2dErrors:String(errors),map2dFetchActive:String(network.active),map2dFetchPeak:String(network.peak),map2dFrames:String(frames),map2dMovingSamples:String(frameSamples.length),map2dMovingP95Ms:frameSamples.length?[...frameSamples].sort((a,b)=>a-b)[Math.floor((frameSamples.length-1)*.95)].toFixed(2):'0',map2dRelease:release});
-      latest.current.onStatus(vectorProtocol?`${latest.current.vectorData?mapCoverageLabel(latest.current.vectorData.map):"벡터 지도"}${vectorProtocol.snapshot().active?' · 화면 자료 불러오는 중':''}${errors?` · ${errors}개 자료 오류`:''}`:`${rows.length}개 2D 자료 연결${indexLoading||jobs.size||sourcesLoading?' · 지역 자료 불러오는 중':''}${deferred?` · ${deferred}개 상세 자료 표시 대기`:''}${errors?` · ${errors}개 자료 오류`:''}`);
     };
-    const report=()=>{if(commitFrame===undefined&&!disposed)commitFrame=requestAnimationFrame(()=>{commitFrame=undefined;mark();});};
+    let lastStatus='',diagnosticUpdates=0;
+    const mark=()=>{
+      if(disposed)return;
+      const rows=[...resources.values()],network=downloads.stats(),sourcesLoading=rows.filter(row=>!map.isSourceLoaded(row.source)).length;
+      const stat=vectorProtocol?.snapshot();
+      if(stat)writeMap2DDiagnostics(node.dataset,{vectorRelease,vectorCachedBytes:String(stat.cachedBytes),vectorDecodedBytes:String(stat.decodedTileBytes),vectorDecodedHits:String(stat.decodedTileHits),vectorTotalCacheLimit:String(stat.totalTileCacheLimitBytes),vectorActive:String(stat.active),vectorPeak:String(stat.peakActive),vectorArchives:String(stat.cachedArchives)});
+      writeMap2DDiagnostics(node.dataset,{mapEngine:'maplibre',mapDimension:'2d',map2dPixelRatio:String(map.getPixelRatio()),map2dAssets:String(rows.length),map2dFeatures:String(rows.reduce((sum,row)=>sum+row.features,0)),map2dVertices:String(rows.reduce((sum,row)=>sum+row.vertices,0)),map2dJobs:String(jobs.size),map2dSourcesLoading:String(sourcesLoading),map2dIndexLoading:String(indexLoading),map2dMoving:String(moving),map2dErrors:String(errors),map2dFetchActive:String(network.active),map2dFetchPeak:String(network.peak),map2dFrames:String(frames),map2dMovingSamples:String(frameSamples.length),map2dMovingP95Ms:frameSamples.length?[...frameSamples].sort((a,b)=>a-b)[Math.floor((frameSamples.length-1)*.95)].toFixed(2):'0',map2dRelease:release,map2dDiagnosticUpdates:String(++diagnosticUpdates)});
+      const status=vectorProtocol?`${latest.current.vectorData?mapCoverageLabel(latest.current.vectorData.map):"벡터 지도"}${stat?.active?' · 화면 자료 불러오는 중':''}${errors?` · ${errors}개 자료 오류`:''}`:`${rows.length}개 2D 자료 연결${indexLoading||jobs.size||sourcesLoading?' · 지역 자료 불러오는 중':''}${deferred?` · ${deferred}개 상세 자료 표시 대기`:''}${errors?` · ${errors}개 자료 오류`:''}`;
+      if(status!==lastStatus){lastStatus=status;latest.current.onStatus(status);}
+    };
+    const diagnostics=createMap2DDiagnostics(mark);
+    const report=()=>{if(commitFrame===undefined&&!disposed)commitFrame=requestAnimationFrame(()=>{commitFrame=undefined;retainOverview();diagnostics.request();});};
     const waitForView=(signal:AbortSignal):Promise<void>=>{
       if(disposed||signal.aborted)return Promise.reject(abortError());
       if(!moving&&!document.hidden)return Promise.resolve();
@@ -303,11 +311,12 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     const blur=()=>{resolution.releasePointers();settle();};
     // The delayed fetch-settle flag remains true after camera motion ends. Do not
     // count idle tile-arrival gaps as animation frames in the moving-frame metric.
-    const onRender=()=>{frames++;node.dataset.map2dFrames=String(frames);if(map.isMoving()&&!document.hidden){const now=performance.now();if(lastMovingFrame!==null){frameSamples.push(now-lastMovingFrame);if(frameSamples.length>600)frameSamples.shift();}lastMovingFrame=now;}else lastMovingFrame=null;};
+    const onRender=()=>{frames++;if(map.isMoving()&&!document.hidden){const now=performance.now();if(lastMovingFrame!==null){frameSamples.push(now-lastMovingFrame);if(frameSamples.length>600)frameSamples.shift();}lastMovingFrame=now;}else lastMovingFrame=null;};
     const onIdle=()=>{
       if(disposed||!ready||document.hidden||latest.current.vectorPending&&!vectorProtocol||!map.areTilesLoaded())return;
       const loaded=vectorProtocol?vectorProtocol.snapshot().cachedArchives>0:resources.size>0&&!indexLoading&&!jobs.size;
       if(!loaded)return;
+      retainOverview();if(moving)diagnostics.flush();else diagnostics.flushPending();
       const current=vectorRelease||release,now=performance.now().toFixed(2);node.dataset.map2dLastIdleMs=now;
       if(firstReadyRelease!==current){firstReadyRelease=current;node.dataset.map2dFirstReadyMs=now;}
     };
@@ -394,7 +403,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
-      disposed=true;selectDongRef.current=null;boundaryController?.abort();clearRegionBoundaryCache();refreshBoundaryRef.current=null;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
+      disposed=true;diagnostics.dispose();selectDongRef.current=null;boundaryController?.abort();clearRegionBoundaryCache();refreshBoundaryRef.current=null;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
       canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('wheel',wheel,true);window.removeEventListener('pointerup',pointerUp,true);window.removeEventListener('pointercancel',pointerUp,true);window.removeEventListener('blur',blur);resolution.dispose();
       indexController?.abort();pickController?.abort();for(const job of jobs.values())job.controller.abort();for(const waiter of [...waiters])waiter.reject();downloads.dispose();
       for(const task of pending.values()){task.detach();task.reject(abortError());}pending.clear();worker.terminate();document.removeEventListener('visibilitychange',visibility);
