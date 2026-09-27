@@ -118,7 +118,7 @@ def test_retained_snapshot_reparses_its_original_pages_and_keeps_collection_fail
         db.execute("INSERT INTO calls(day,trade_type,job_id,page_no,started_at,status) VALUES('2026-09-21','sale','sale/11110/202609',1,'2026-09-21T00:00:00Z','failed')")
         original=list(db.execute('SELECT * FROM jobs'))
     result=publish(root,registry(),tmp_path/'candidates');base=tmp_path/'candidates'/result['release_id']
-    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text())
+    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text(encoding='utf-8'))
     p=next(x for x in region['partitions'] if x['trade_type']=='sale')
     m=next(x for x in region['metrics'] if x['trade_type']=='sale')
     assert p['status']=='complete' and p['source_rows']==2 and p['transactions']
@@ -137,7 +137,7 @@ def test_enqueued_without_new_call_does_not_invent_attempt_time(tmp_path):
     with sqlite3.connect(root/'checkpoint.sqlite') as db:
         db.execute("UPDATE jobs SET status='pending',pages='[]' WHERE trade_type='sale'")
     result=publish(root,registry(),tmp_path/'candidates');base=tmp_path/'candidates'/result['release_id']
-    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text())
+    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text(encoding='utf-8'))
     assert next(p for p in region['partitions'] if p['trade_type']=='sale')['refresh']['attempted_at'] is None
 
 
@@ -158,7 +158,7 @@ def test_without_verified_snapshot_stays_unavailable_not_stale_or_zero(tmp_path,
         db.execute("UPDATE jobs SET status=?,error_code=? WHERE snapshot IS NULL",
                    (state,'upstream_timeout' if state=='failed' else None))
     result=publish(root,registry(),tmp_path/'candidates');base=tmp_path/'candidates'/result['release_id']
-    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text())
+    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text(encoding='utf-8'))
     p=next(x for x in region['partitions'] if x['trade_type']=='sale')
     assert p['status']==state and p['source_rows'] is None and p['transactions']==[] and 'refresh' not in p
     assert region['coverage'][state]==region['collection_coverage'][state]==1
@@ -171,7 +171,7 @@ def test_retained_observed_empty_is_distinct_from_failed_without_snapshot(tmp_pa
     with c.db:c.db.execute("UPDATE jobs SET status='failed',pages='[]',error_code='upstream_timeout'")
     c.close()
     result=publish(root,registry(),tmp_path/'candidates');base=tmp_path/'candidates'/result['release_id']
-    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text())
+    region=json.loads((base/f"data/property/{result['release_id']}/regions/11110.json").read_text(encoding='utf-8'))
     assert region['coverage']['empty']==1 and region['coverage']['failed']==1
     assert region['collection_coverage']['failed']==2
     old=next(p for p in region['partitions'] if p['status']=='empty')
@@ -200,7 +200,7 @@ def test_466_retained_and_307_new_snapshots_publish_without_editing_ledger(tmp_p
     assert result['audit']['collection_coverage']['complete']==307
     base=tmp_path/'candidates'/result['release_id'];published=[]
     for path in (base/f"data/property/{result['release_id']}/regions").glob('*.json'):
-        published.extend(json.loads(path.read_text())['partitions'])
+        published.extend(json.loads(path.read_text(encoding='utf-8'))['partitions'])
     visible=[p for p in published if p['status']=='complete']
     assert len(visible)==773 and all(p['retrieved_at']==STAMP and p['source_rows']==1 for p in visible)
     assert sum('refresh' in p for p in visible)==466
