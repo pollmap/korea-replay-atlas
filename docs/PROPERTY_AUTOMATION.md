@@ -6,6 +6,15 @@ publish website data: the successfully audited **private D1 archive head** advan
 Public data still requires normalization, release audit, candidate upload and app
 release pinning. Do not report that the public map auto-updates from this workflow.
 
+The active workflow explicitly uses `--scope priority-nine --require-scope-complete`:
+Gyeonggi → Seoul → Incheon → Cheonan → Asan → Sejong → Cheongju → Daejeon → Busan.
+Its exact allowlist has 112 codes from the checked-in official registry; it does
+not match place-name substrings or silently admit new codes. Missing target codes
+stop before source collection. `expected_region_count`, `region_count` and
+`missing_codes` are reported. Small isolated tests may omit the completeness flag.
+The CLI's default/explicit `nationwide` remains backward compatible, but the
+scheduled collector and default plan workflow now select the nine-area scope.
+
 ## Activation and limits
 
 Configure these repository secrets without logging their values:
@@ -35,12 +44,12 @@ diagnosis. Main branch only, standard `ubuntu-24.04`, read-only GitHub permissio
 00:17/04:17/08:17/12:17/16:17/20:17 (KST 09:17/13:17/17:17/21:17/01:17/05:17); GitHub may delay schedules.
 The workflow must be enabled and present on the default branch.
 
-The bootstrap default is **25 source requests and 16 MiB source response bytes**.
-After a live verification, repository variables `PROPERTY_COLLECTION_MAX_REQUESTS`
-(1–500) and `PROPERTY_COLLECTION_MAX_BYTES` (8–64 MiB, in bytes) can raise the
-budget without code changes. Begin with 100 requests and measure actual archive
-writes/time before raising it further. All bounds are validated before remote reads.
-This is a conservative initial operating limit, not a 10-year completion promise.
+The default matches the verified operating budget: **100 source requests and
+64 MiB source response bytes**. Repository variables `PROPERTY_COLLECTION_MAX_REQUESTS`
+(1–500) and `PROPERTY_COLLECTION_MAX_BYTES` (8–64 MiB, in bytes) can lower or
+adjust the budget without code changes. Measure actual archive writes/time before
+any further increase. All bounds are validated before remote reads. Extending the
+history window does not raise these budgets or promise a 20-year completion date.
 The private archive has additional hydration, verification and upload traffic.
 Existing provider-per-day accounting and D1 free storage/write guards remain in
 force across all runners. A manual trigger does not bypass those guards.
@@ -65,9 +74,17 @@ storage composition and remaining archival work.
 ## Work progression
 
 The latest verified private head is restored selectively into a new UUID directory
-on every run. Existing parent objects remain immutable. The 121-month plan expands
+on every run. Existing parent objects remain immutable. The 241-month plan expands
 when a month changes, preserving every previously planned historical month and
 original source response. Region ordering remains the existing user's priority.
+
+All source selection paths use the same scope: new acquisition, recent/history
+refresh reset, safe-error requeue, stale-pagination preflight and month-completion
+cursor checks. Outside jobs and their originals/last snapshots are preserved and
+never requested by this workflow. The whole ledger still expands rectangularly
+for checkpoint/migration compatibility; no raw/snapshot file is created merely
+for an unselected placeholder. `coverage`/`acquisition` remain whole-ledger
+reports; `scope_coverage`/`scope_acquisition` report the actual selected work.
 
 Three successful runs in four backfill unfinished jobs. Every fourth run revisits
 one of the latest three contract months (minimum seven-day age); every 28th run
@@ -146,7 +163,7 @@ evidence. Original raw pages and snapshots remain preserved throughout.
 
 Logs contain only bounded counts, coverage and allowlisted error codes. Successful
 local fixture tests prove orchestration and failure semantics; they do not prove
-the secrets were provisioned, live APIs responded, schedule ran, ten years were
+the secrets were provisioned, live APIs responded, schedule ran, twenty years were
 collected or the public website was refreshed. Record the actual Actions run URL,
 private checkpoint verification and public release verification separately.
 
@@ -178,3 +195,56 @@ The 2026-09-27 read-only production audit and budget estimates are in
 [PROPERTY_COLLECTION_BUDGET_20260927.md](PROPERTY_COLLECTION_BUDGET_20260927.md).
 This code change does not alter repository variables, cron, source quotas,
 archive operations or the 500-request/64-MiB automation hard limits.
+
+## Continuous 20-year target and source publication periods
+
+The 2026-09-27 target is **240 completed KST contract months plus the provisional
+current month**. `--months 241` is explicit in the scheduled workflow; smaller
+explicit windows, including the older 121-month contract, remain valid. Migration
+adds jobs and retains every prior original, call, snapshot and older month on
+rollover. It never rewinds the archive head or resets acquired history.
+
+`pipeline.real_estate_availability` records the official publication lower bounds
+and evidence URL. The [MOLIT current disclosure guide](https://rt.molit.go.kr/pt/info/info.do?mobileAt=)
+states sale disclosures from January 2006 and fixed-date rent disclosures from
+January 2011, alongside lease reports from June 2021. This includes apartments
+and officetels in the guide; each type retains its own collector checkpoint.
+The [sale API](https://www.data.go.kr/data/15126468/openapi.do) and
+[rent API](https://www.data.go.kr/data/15126474/openapi.do) metadata do not specify
+a complete per-region historical time range. The floor is therefore a publication
+policy, not proof that every later API query returns complete history.
+
+New pre-source jobs use `source_unavailable` / `before_source_start`, with no
+request reservation, raw response or snapshot. They are never `empty` or
+`complete`. Selection and direct HTTP fetch both exclude them. Public partitions
+carry null counts/timestamps, an empty transaction-reference list, and that
+explicit status. `coverage.expected` includes all planned slots;
+`coverage.source_unavailable` is a separate status count (absent means zero for
+older releases). `acquisition.missing_snapshot_jobs` retains its original total
+missing meaning; `eligible_jobs` and `missing_collectable_jobs` exclude unavailable
+slots. `source_unavailable_jobs` makes that subtraction explicit. Refresh failures
+retain their previous verified snapshot and are never reported as empty.
+
+At September 2026, 256 current codes × 241 months × two trades is 123,392 slots:
+13,312 rent slots precede January 2011, leaving 110,080 potentially collectable
+slots. Current codes do not establish historical boundary coverage. This is a
+preserved target ledger, not a collection-complete claim. The active nine-area
+scope is **53,984 slots**, including **5,824 unavailable** and **48,160 potentially
+collectable** slots. Remaining national slots are retained but not requested.
+Officetel live automation remains
+a separate connection task; this apartment workflow does not silently collect it.
+
+Before remote migration, a local copy of the SHA-verified 61,952-slot /
+8,503-acquired-job checkpoint was expanded with zero source or remote calls.
+All 61,952 old jobs and 8,908 calls remained identical. SQLite grew from
+17,059,840 to 23,060,480 bytes, below the existing 256 MiB archive-file cap.
+New changed slices compressed to 2,080,971 bytes. Unavailable slots create no separate
+raw/snapshot files or manifest entries. They are stored once, and retained in
+the checkpoint so coverage and rectangular-window migration stay auditable.
+The scoped baseline has 3,842 acquired jobs and 44,318 potentially collectable
+missing jobs after the 241-month expansion. National acquired jobs remain 8,503;
+they must not be presented as 8,503 jobs within the selected scope.
+This is a local migration measurement, not a remote migration completion claim.
+It does not guarantee space for subsequent derived snapshots or all 20 years.
+Raw-capacity preflight, shard limits, daily quotas and fail-closed recovery remain
+mandatory for the first live 241-month run and every later run.

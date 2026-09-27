@@ -23,8 +23,9 @@ import uuid
 from .real_estate import (RealEstateError, canonical_bytes, sha256, normalize_xml_page,
                           build_partitions, utc_instant, _reject_links, MAX_PAGE_BYTES, validate_property_type)
 from .real_estate_regions import load_registry
-from .real_estate_priority import priority_map, POLICY_ID
+from .real_estate_scope import SCOPES, scope_priority, scope_summary, scope_condition, validate_scope as validate_collection_scope
 from .real_estate_storage import encode_snapshot,decode_snapshot,MAX_SNAPSHOT_BYTES
+from .real_estate_availability import DEFAULT_PLAN_MONTHS, before_source, source_policy, source_start
 
 KST = timezone(timedelta(hours=9))
 ENDPOINTS = {
@@ -42,11 +43,13 @@ def instant():
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def month_sequence(as_of, count=61):
+def month_sequence(as_of, count=DEFAULT_PLAN_MONTHS):
     stamp = utc_instant(as_of).astimezone(KST)
-    if type(count) is not int or not 1 <= count <= 121:
+    if type(count) is not int or not 1 <= count <= DEFAULT_PLAN_MONTHS:
         raise RealEstateError('invalid_month_count')
     current = stamp.year * 12 + stamp.month - 1
+    if current - count + 1 < 12:
+        raise RealEstateError('invalid_plan_window')
     months = [f'{(current-i)//12:04d}{(current-i)%12+1:02d}' for i in range(count)]
     # National latest completed calendar month first; current month remains provisional.
     return [months[1], months[0], *months[2:]] if count > 1 else months
@@ -80,6 +83,8 @@ def fetch_page(key, trade_type, lawd_code, deal_month, page_no, page_size, *, ti
     validate_property_type(property_type)
     if trade_type not in ENDPOINTS:
         raise RealEstateError('invalid_trade_type')
+    if before_source(property_type, trade_type, deal_month):
+        raise RealEstateError('before_source_start')
     connection = http.client.HTTPSConnection('apis.data.go.kr', timeout=timeout)
     deadline = time.monotonic() + timeout
     try:
@@ -149,9 +154,10 @@ def immutable(root, relative, data):
 
 
 class Collector:
-    def __init__(self, root, registry, *, as_of=None, months=61, transport=fetch_page,
-                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False, advance_window=False, property_type='apartment'):
+    def __init__(self, root, registry, *, as_of=None, months=DEFAULT_PLAN_MONTHS, transport=fetch_page,
+                 clock=instant, reserve_bytes=RESERVE_BYTES, extend_window=False, advance_window=False, property_type='apartment', scope='nationwide', require_scope_complete=False):
         self.property_type = validate_property_type(property_type)
+        self.scope = validate_collection_scope(scope)
         if extend_window and advance_window:
             raise RealEstateError('conflicting_window_migration')
         self.root = Path(root).absolute(); _reject_links(self.root)
@@ -162,13 +168,14 @@ class Collector:
         self.transport = partial(fetch_page, property_type=property_type) if transport is fetch_page else transport
         self.reserve_bytes = reserve_bytes
         self._space()
+        self.scope_info = scope_summary(registry['regions'], scope, require_complete=require_scope_complete)
         self.database = self.root / 'checkpoint.sqlite'
         _reject_links(self.database)
         self.db = sqlite3.connect(self.database, timeout=5)
         self.db.row_factory = sqlite3.Row
-        region_order = priority_map(registry['regions'])
+        region_order = scope_priority(registry['regions'], scope)
         self.db.create_function('collection_region_priority', 1,
-                                lambda code: region_order.get(code, 7), deterministic=True)
+                                lambda code: region_order.get(code, 99), deterministic=True)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.executescript('''
           CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -233,6 +240,8 @@ class Collector:
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('registry_sha256',?)", (digest,))
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('historical_coverage',?)",
                             (registry['historical_coverage'],))
+            self.db.execute("INSERT OR IGNORE INTO meta VALUES ('source_publication_policy',?)",
+                            (json.dumps(source_policy(self.property_type), sort_keys=True),))
             self.db.execute("INSERT OR IGNORE INTO meta VALUES ('planning_months',?)",(json.dumps(sequence),))
             if extending:
                 self.db.execute("INSERT OR IGNORE INTO meta VALUES ('planning_previous_months',?)",(json.dumps(old_sequence),))
@@ -243,8 +252,11 @@ class Collector:
                 for region in registry['regions']:
                     for trade in ENDPOINTS:
                         code = region['lawd_code']; job_id = f'{trade}/{code}/{month}'
-                        self.db.execute('INSERT OR IGNORE INTO jobs(id,trade_type,lawd_code,deal_month,priority) VALUES(?,?,?,?,?)',
-                                        (job_id, trade, code, month, priority))
+                        unavailable = before_source(self.property_type, trade, month)
+                        self.db.execute('INSERT OR IGNORE INTO jobs(id,trade_type,lawd_code,deal_month,priority,status,error_code) VALUES(?,?,?,?,?,?,?)',
+                                        (job_id, trade, code, month, priority,
+                                         'source_unavailable' if unavailable else 'pending',
+                                         'before_source_start' if unavailable else None))
 
     def close(self):
         self.db.close()
@@ -253,11 +265,13 @@ class Collector:
         if shutil.disk_usage(self.root).free-required_bytes < self.reserve_bytes:
             raise RealEstateError('disk_reserve')
 
-    def summary(self):
-        counts = {s: 0 for s in ('pending', 'partial', 'complete', 'empty', 'failed')}
-        counts.update({r[0]: r[1] for r in self.db.execute('SELECT status,COUNT(*) FROM jobs GROUP BY status')})
+    def summary(self, *, scoped=False):
+        counts = {s: 0 for s in ('pending', 'partial', 'complete', 'empty', 'failed', 'source_unavailable')}
+        condition = scope_condition(self.scope) if scoped else ''
+        counts.update({r[0]: r[1] for r in self.db.execute('SELECT status,COUNT(*) FROM jobs WHERE 1=1'+condition+' GROUP BY status')})
         return {'expected': sum(counts.values()), **counts,
-                'historical_coverage': self.registry['historical_coverage']}
+                'historical_coverage': self.registry['historical_coverage'],
+                'source_policy': source_policy(self.property_type)}
 
     def _acquire(self):
         owner = uuid.uuid4().hex
@@ -323,7 +337,7 @@ class Collector:
         self._space(5*1024**3 if self.reserve_bytes else 0)
         owner=self._acquire();processed=0
         try:
-            jobs=list(self.db.execute("SELECT * FROM jobs WHERE status IN ('complete','empty') ORDER BY id"))
+            jobs=list(self.db.execute("SELECT * FROM jobs WHERE status IN ('complete','empty')" + scope_condition(self.scope) + ' ORDER BY id'))
             for job in jobs:
                 self._space(MAX_SNAPSHOT_BYTES+1024**2)
                 with self.db:self.db.execute('UPDATE lease SET expires=? WHERE owner=?',(time.time()+180,owner))
@@ -340,7 +354,7 @@ class Collector:
         finally:
             with self.db:self.db.execute('DELETE FROM lease WHERE id=1 AND owner=?',(owner,))
 
-    def collect(self, key, *, max_requests=600, max_bytes=64*1024**2, daily_budget=8000,
+    def collect(self, key, *, max_requests=100, max_bytes=64*1024**2, daily_budget=8000,
                 min_interval=0.3, timeout=60, page_size=1000, retry_failed=False, refresh=False,
                 collect_months=None, first_acquisition_only=False):
         if (not 1 <= max_requests <= 2000 or not 1 <= max_bytes <= 64*1024**2
@@ -349,7 +363,7 @@ class Collector:
             raise RealEstateError('invalid_collection_budget')
         if type(first_acquisition_only) is not bool:
             raise RealEstateError('invalid_acquisition_filter')
-        if collect_months is not None and (not collect_months or len(collect_months)>61
+        if collect_months is not None and (not collect_months or len(collect_months)>DEFAULT_PLAN_MONTHS
                 or any(not isinstance(m,str) or not re.fullmatch(r'[0-9]{4}(?:0[1-9]|1[0-2])',m) for m in collect_months)):
             raise RealEstateError('invalid_month_filter')
         condition=''
@@ -361,6 +375,12 @@ class Collector:
             # A refresh retains its last verified snapshot. Do not let its newer
             # month/priority consume the historical first-acquisition lane.
             condition+=' AND snapshot IS NULL'
+        # Policy values are validated module constants. Evaluate in SQLite rather
+        # than calling Python/date parsing for every queued row on every request.
+        condition += (" AND deal_month >= CASE trade_type WHEN 'sale' THEN '" +
+                      source_start(self.property_type, 'sale') + "' WHEN 'rent' THEN '" +
+                      source_start(self.property_type, 'rent') + "' ELSE '999999' END")
+        condition += scope_condition(self.scope)
         # Operational start margin: default 30 GiB reserve + 5 GiB headroom.
         self._space(5*1024**3 if self.reserve_bytes else 0)
         owner = self._acquire(); used = 0; transferred = 0; stopped = 'work_complete'; failures = 0
@@ -449,7 +469,8 @@ class Collector:
                 'requests':used,'response_bytes':transferred,'stop_reason':stopped,
                 'elapsed_seconds':round(time.monotonic()-start,3),'coverage':self.summary(),
                 'retries':0,'daily_budget_per_source':daily_budget,
-                'region_order':POLICY_ID,
+                'region_order':self.scope_info['policy'], 'scope':self.scope_info,
+                'scope_coverage':self.summary(scoped=True),
                 'budget_scope':'this_checkpoint_root_all_runs_provider_service; other_consumers_not_counted'}
             payload=canonical_bytes(report); immutable(self.root,f'runs/{sha256(payload)}.json',payload)
             return report
@@ -464,10 +485,12 @@ def main():
     parser.add_argument('--regions',required=True,type=Path)
     parser.add_argument('--as-of')
     parser.add_argument('--property-type', choices=('apartment','officetel'), default='apartment')
-    parser.add_argument('--months',type=int,default=61)
+    parser.add_argument('--scope', choices=SCOPES, default='nationwide')
+    parser.add_argument('--require-scope-complete', action='store_true')
+    parser.add_argument('--months',type=int,default=DEFAULT_PLAN_MONTHS)
     parser.add_argument('--extend-window',action='store_true',help='Append older months to this exact checkpoint without resetting jobs or calls')
     parser.add_argument('--advance-window',action='store_true',help='Add newly reached calendar months and retain all historical jobs and source records')
-    parser.add_argument('--max-requests',type=int,default=600)
+    parser.add_argument('--max-requests',type=int,default=100)
     parser.add_argument('--max-bytes',type=int,default=64*1024**2)
     parser.add_argument('--daily-budget',type=int,default=8000)
     parser.add_argument('--min-interval',type=float,default=0.3)
@@ -482,7 +505,7 @@ def main():
     try:
         if args.reprocess and args.execute:raise RealEstateError('conflicting_collection_mode')
         registry=load_registry(args.regions)
-        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window,advance_window=args.advance_window,property_type=args.property_type)
+        collector=Collector(args.root,registry,as_of=args.as_of,months=args.months,extend_window=args.extend_window,advance_window=args.advance_window,property_type=args.property_type,scope=args.scope,require_scope_complete=args.require_scope_complete)
         result=collector.reprocess() if args.reprocess else collector.collect(read_key(args.secret_file),max_requests=args.max_requests,max_bytes=args.max_bytes,
             daily_budget=args.daily_budget,min_interval=args.min_interval,timeout=args.timeout,
             retry_failed=args.retry_failed,refresh=args.refresh,collect_months=args.collect_month) if args.execute else {'status':'planned','coverage':collector.summary()}

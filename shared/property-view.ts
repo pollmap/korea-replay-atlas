@@ -25,11 +25,11 @@ export function moneyLabel(value:number|null):string {
   return `${(value/1e4).toLocaleString('ko-KR',{maximumFractionDigits:1})}만`;
 }
 export function metricCount(metric:RegionMetric):number|null{return ['complete','empty'].includes(metric.status)?metric.eligible_rows:null;}
-export function propertyStatus(status:string):string{return ({complete:'수집 완료',empty:'신고 없음',failed:'조회 실패',partial:'부분 수집',pending:'수집 대기'} as Record<string,string>)[status]??'미확인';}
+export function propertyStatus(status:string):string{return ({complete:'수집 완료',empty:'신고 없음',failed:'조회 실패',partial:'부분 수집',pending:'수집 대기',source_unavailable:'원천 자료 제공 전'} as Record<string,string>)[status]??'미확인';}
 export interface PropertyRowsView {state:'ready'|'loading'|'unavailable'|'error';count:number|null;message:string;}
 /** A filtered zero is meaningful only after the selected partition has been loaded. */
 export function propertyRowsView({status,loading,loaded,error,count}:{status:PropertyStatus|undefined;loading:boolean;loaded:boolean;error:string;count:number}):PropertyRowsView{
-  if(status!=='complete'&&status!=='empty')return {state:'unavailable',count:null,message:status==='pending'?'선택 기간은 수집 대기 중입니다.':status==='partial'?'선택 기간은 부분 수집 상태입니다. 전체 거래를 확인할 수 없습니다.':status==='failed'?'선택 기간의 원천 조회에 실패했습니다.':'선택 기간의 자료가 없습니다.'};
+  if(status!=='complete'&&status!=='empty')return {state:'unavailable',count:null,message:status==='source_unavailable'?'원천 자료 제공 전 기간입니다. 거래 0건을 뜻하지 않습니다.':status==='pending'?'선택 기간은 수집 대기 중입니다.':status==='partial'?'선택 기간은 부분 수집 상태입니다. 전체 거래를 확인할 수 없습니다.':status==='failed'?'선택 기간의 원천 조회에 실패했습니다.':'선택 기간의 자료가 없습니다.'};
   if(error)return {state:'error',count:null,message:'거래 자료를 불러오지 못했습니다. 거래 건수를 확인할 수 없습니다.'};
   if(loading||!loaded)return {state:'loading',count:null,message:'선택 월의 거래를 불러오는 중…'};
   return {state:'ready',count,message:count===0?'선택한 조건에 해당하는 신고 거래가 없습니다.':''};

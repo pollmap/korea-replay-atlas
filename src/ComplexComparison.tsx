@@ -3,6 +3,7 @@ import {pricingSummary} from '../shared/property-pricing';
 import {useEffect,useMemo,useState} from 'react';
 import {summarizePropertyTransactions,type PropertyComplex} from '../shared/property';
 import {HISTORY_RANGES,historyMonths,historyRangeLabel,type HistoryRange} from '../shared/property-history';
+import {historySourceStart,historySourceCoverage} from '../shared/property-source-period';
 import {moneyLabel,monthLabel,propertyAreaOptions} from '../shared/property-view';
 import {loadComparisonHistory} from './property-comparison-loader';
 import {commonHistoryMonths,historyMonthStatus} from './property-history-state';
@@ -20,6 +21,7 @@ export default function ComplexComparison({atlas,items,month,trade,area,onArea,o
     return()=>controller.abort();
   },[atlas,items,month,range,trade,queryKey,attempt]);
   const months=useMemo(()=>historyMonths(month,range),[month,range]);
+  const sourceCoverage=historySourceCoverage(months,historySourceStart(trade,atlas.property.sources));
   const histories=loaded.key===queryKey?loaded.histories:{};
   const common=commonHistoryMonths(months,histories,codes),commonSet=new Set(common);
   const rows=Object.values(histories).flatMap(results=>results.filter(result=>commonSet.has(result.month)).flatMap(result=>result.rows));
@@ -31,8 +33,8 @@ export default function ComplexComparison({atlas,items,month,trade,area,onArea,o
   const end=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(4)),0)).toISOString().slice(0,10),start=`${months[0].slice(0,4)}-${months[0].slice(4)}-01`;
   return <section className="complex-comparison" aria-label="아파트 단지 비교"><h3>단지 비교 <small>{items.length} / 3</small></h3><p className="property-caption">{monthLabel(months[0])}–{monthLabel(month)} · {trade==='sale'?'매매':rentKindLabel(rentKind)} · 같은 전용면적 조건</p>
     <div className="property-table-tools" aria-label="선택한 비교 단지">{items.map(item=><button key={item.id} aria-label={`${item.name} 단지 비교 제외`} onClick={()=>onRemove(item.id)}>{item.name} ×</button>)}</div>
-    <div className="history-controls"><label className="property-search">비교 면적<select value={area} onChange={event=>onArea(event.target.value)}><option value="">같은 전용면적을 선택하세요</option>{propertyAreaOptions(areas,area,!waiting&&!error&&common.length===months.length).map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>{onRange&&<label className="history-period-select"><span className="sr-only">비교 조회 기간</span><select aria-label="비교 조회 기간" value={range} onChange={event=>onRange(Number(event.target.value) as HistoryRange)}>{HISTORY_RANGES.map(value=><option key={value} value={value}>최근 {historyRangeLabel(value)}</option>)}</select></label>}</div>
-    {waiting?<p role="status">비교 자료를 불러오는 중…</p>:error?<p role="alert">{error}</p>:<><p className="history-coverage" role="status">모든 단지 공통 확인 {common.length}/{months.length}개월{common.length<months.length?' · 나머지 월은 비교에서 제외':''}</p><div className="transaction-table"><table><thead><tr><th>단지</th><th>표본</th><th>{trade==='sale'?'거래 중앙값':'보증금 / 월세 중앙값'}</th></tr></thead><tbody>{items.map(item=>{
+    <div className="history-controls"><label className="property-search">비교 면적<select value={area} onChange={event=>onArea(event.target.value)}><option value="">같은 전용면적을 선택하세요</option>{propertyAreaOptions(areas,area,!waiting&&!error&&common.length>0&&common.length===sourceCoverage.eligible).map(option=><option key={option.value} value={option.value}>{option.label}</option>)}</select></label>{onRange&&<label className="history-period-select"><span className="sr-only">비교 조회 기간</span><select aria-label="비교 조회 기간" value={range} onChange={event=>onRange(Number(event.target.value) as HistoryRange)}>{HISTORY_RANGES.map(value=><option key={value} value={value}>최근 {historyRangeLabel(value)}</option>)}</select></label>}</div>
+    {waiting?<p role="status">비교 자료를 불러오는 중…</p>:error?<p role="alert">{error}</p>:<><p className="history-coverage" role="status">모든 단지 공통 확인 {common.length}/{sourceCoverage.eligible}개월{sourceCoverage.before>0?` · 원천 자료 제공 전 ${sourceCoverage.before}개월`:''}{common.length<sourceCoverage.eligible?' · 나머지 월은 비교에서 제외':''}</p><div className="transaction-table"><table><thead><tr><th>단지</th><th>표본</th><th>{trade==='sale'?'거래 중앙값':'보증금 / 월세 중앙값'}</th></tr></thead><tbody>{items.map(item=>{
       const summary=area&&common.length?summarizePropertyTransactions(filteredRows,{complex_id:item.id,trade_type:trade,area_m2:area,from:start,to:end}):null;
       const pricing=summary?pricingSummary(filteredRows.filter(row=>row.contract_date&&row.contract_date>=start&&row.contract_date<=end),{complexId:item.id,trade,area}):null;
       return <tr key={item.id}><th>{item.name}<small>{atlas.regions.regions.find(r=>r.lawd_code===item.lawd_code)?.name}</small></th><td>{summary?`${summary.count}건`:!common.length?'공통 자료 없음':'면적 선택'}</td><td>{summary?.count?moneyLabel(trade==='sale'?summary.median_price_krw:summary.median_deposit_krw):'—'}{!!summary?.count&&<small>전용평당 {moneyLabel(pricing?.perPyeong??null)}원</small>}{trade==='rent'&&!!summary?.count&&<small>월 {moneyLabel(summary.median_monthly_rent_krw)}</small>}</td></tr>;

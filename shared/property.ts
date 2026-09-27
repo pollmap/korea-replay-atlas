@@ -1,11 +1,11 @@
 import {areaMatches,NATIONAL_AREA} from './property-area';
 /** Immutable official-report release. Counts never turn missing/failed queries into zero. */
 export type PropertyTradeType = 'sale' | 'rent';
-export type PropertyStatus = 'complete' | 'empty' | 'failed' | 'pending' | 'partial';
+export type PropertyStatus = 'complete' | 'empty' | 'failed' | 'pending' | 'partial' | 'source_unavailable';
 export interface PropertyAsset { url:string; sha256:string; bytes:number; }
 export interface PropertyPeriod { from:string; to:string; latest_complete_month:string; }
 export interface PropertyCoverage {
-  expected:number; complete:number; empty:number; failed:number; pending:number; partial:number;
+  expected:number; complete:number; empty:number; failed:number; pending:number; partial:number; source_unavailable?:number;
   historical_coverage:'current_codes_only_pending_effective_date_crosswalk';
 }
 export interface PropertySource {
@@ -90,7 +90,7 @@ export interface PropertyTransactions {
 const HASH=/^[a-f0-9]{64}$/;
 const RELEASE=/^property-[a-f0-9]{16}$/;
 const LAWD=/^[0-9]{5}$/;
-const STATUSES=new Set(['complete','empty','failed','pending','partial']);
+const STATUSES=new Set(['complete','empty','failed','pending','partial','source_unavailable']);
 function obj(v:unknown):v is Record<string,unknown>{return !!v&&typeof v==='object'&&!Array.isArray(v);}
 function nat(v:unknown):v is number{return typeof v==='number'&&Number.isSafeInteger(v)&&v>=0;}
 function text(v:unknown):v is string{if(typeof v!=='string'||v.length===0||v.length>512)return false;for(let i=0;i<v.length;i++)if(v.charCodeAt(i)<32)return false;return true;}
@@ -104,9 +104,10 @@ function asset(v:unknown):v is PropertyAsset{return obj(v)&&typeof v.url==='stri
   &&hash(v.sha256)&&nat(v.bytes)&&v.bytes>0&&v.bytes<=24*1024*1024;}
 function coverage(v:unknown):v is PropertyCoverage{return obj(v)
   &&['expected','complete','empty','failed','pending','partial'].every(k=>nat(v[k]))
-  &&v.expected===(v.complete as number)+(v.empty as number)+(v.failed as number)+(v.pending as number)+(v.partial as number)
+  &&(v.source_unavailable===undefined||nat(v.source_unavailable))
+  &&v.expected===(v.complete as number)+(v.empty as number)+(v.failed as number)+(v.pending as number)+(v.partial as number)+((v.source_unavailable as number|undefined)??0)
   &&v.historical_coverage==='current_codes_only_pending_effective_date_crosswalk';}
-/** Stored releases can grow past the UI's 120-month window; retain a finite input bound. */
+/** Stored releases can grow past the UI's 240-month window; retain a finite input bound. */
 export const MAX_PROPERTY_PERIOD_MONTHS=1200;
 function periodMonths(from:string,to:string):number{return (Number(to.slice(0,4))-Number(from.slice(0,4)))*12+Number(to.slice(4))-Number(from.slice(4))+1;}
 function period(v:unknown):v is PropertyPeriod{return obj(v)&&month(v.from)&&month(v.to)&&month(v.latest_complete_month)

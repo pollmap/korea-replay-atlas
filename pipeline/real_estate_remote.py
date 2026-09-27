@@ -14,6 +14,8 @@ import tempfile
 import time
 
 from .real_estate import RealEstateError, sha256, _reject_links
+from .real_estate_availability import DEFAULT_PLAN_MONTHS
+from .real_estate_scope import SCOPES, validate_scope as validate_collection_scope
 from .real_estate_archive import (D1Archive, checked_path,
     audit_checkpoint, MAX_FILE, PREFIXES)
 from .real_estate_fetch import Collector, read_key, fetch_page
@@ -121,15 +123,16 @@ class RemoteCollector(Collector):
         return super()._snapshot(job,pages)
 
 
-def run_remote(root, store, key, *, max_requests=25,max_bytes=16*1024**2,
-               months=121,as_of=None,collect_months=None,transport=fetch_page,reserve_bytes=2*1024**3):
+def run_remote(root, store, key, *, max_requests=100,max_bytes=64*1024**2,
+               months=DEFAULT_PLAN_MONTHS,as_of=None,collect_months=None,transport=fetch_page,reserve_bytes=2*1024**3,scope='nationwide',require_scope_complete=False):
+    validate_collection_scope(scope)
     workspace=RemoteWorkspace(root,store)
     guard=CollectionGuard(store);guard.initialize();lease=guard.acquire(workspace.head)
     collector=None
     try:
         imported=guard.seed_budget(lease,workspace.head,workspace.baseline_counts)
         collector=RemoteCollector(workspace,as_of=as_of,months=months,advance_window=True,
-            reserve_bytes=reserve_bytes,transport=guarded_transport(guard,lease,transport))
+            reserve_bytes=reserve_bytes,transport=guarded_transport(guard,lease,transport),scope=scope,require_scope_complete=require_scope_complete)
         report=collector.collect(key,max_requests=max_requests,max_bytes=max_bytes,collect_months=collect_months)
         collector.close();collector=None
         pending=guard.query("SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? AND phase='reserved' LIMIT 1",[lease['owner'],lease['generation']])['results']
@@ -155,8 +158,11 @@ def main():
     parser.add_argument('--root',required=True,type=Path)
     parser.add_argument('--config',required=True,type=Path)
     parser.add_argument('--secret-file',type=Path)
-    parser.add_argument('--max-requests',type=int,default=25)
-    parser.add_argument('--max-bytes',type=int,default=16*1024**2)
+    parser.add_argument('--months',type=int,default=DEFAULT_PLAN_MONTHS)
+    parser.add_argument('--scope',choices=SCOPES,default='nationwide')
+    parser.add_argument('--require-scope-complete',action='store_true')
+    parser.add_argument('--max-requests',type=int,default=100)
+    parser.add_argument('--max-bytes',type=int,default=64*1024**2)
     parser.add_argument('--collect-month',action='append')
     parser.add_argument('--execute',action='store_true')
     args=parser.parse_args()
@@ -165,7 +171,7 @@ def main():
         key=read_key(args.secret_file)
         _reject_links(args.config.absolute())
         store=D1Archive(json.loads(args.config.read_text(encoding='utf-8-sig')))
-        result=run_remote(args.root,store,key,max_requests=args.max_requests,max_bytes=args.max_bytes,collect_months=args.collect_month)
+        result=run_remote(args.root,store,key,months=args.months,max_requests=args.max_requests,max_bytes=args.max_bytes,collect_months=args.collect_month,scope=args.scope,require_scope_complete=args.require_scope_complete)
         print(json.dumps(result,ensure_ascii=False))
     except (OSError,ValueError,KeyError,TypeError,sqlite3.Error) as error:
         parser.exit(1,'real_estate_remote: '+(error.code if isinstance(error,RealEstateError) else 'invalid_input')+'\n')

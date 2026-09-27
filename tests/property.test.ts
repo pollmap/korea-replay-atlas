@@ -43,6 +43,19 @@ describe('property release source and coverage contract',()=>{
     const changed=manifest();changed.sources[0].page_url='https://example.org';
     expect(()=>parsePropertyRelease(changed)).toThrow();
   });
+  it('supports source-unavailable coverage without reclassifying it as empty or pending',()=>{
+    const original=manifest();expect(parsePropertyRelease(original).coverage.source_unavailable).toBeUndefined();
+    const value={...original,coverage:{...original.coverage,expected:3,source_unavailable:1}};
+    expect(parsePropertyRelease(value).coverage.source_unavailable).toBe(1);
+    for(const extra of [-1,1.5,null])expect(()=>parsePropertyRelease({...value,coverage:{...value.coverage,source_unavailable:extra}})).toThrow();
+    expect(()=>parsePropertyRelease({...value,coverage:{...value.coverage,expected:2}})).toThrow();
+  });
+  it('keeps source-unavailable month metrics null and rejects a fabricated zero',()=>{
+    const unavailable={...pendingMetric,status:'source_unavailable' as const};
+    const value={schema_version:1,kind:'property-regions',release_id:release,regions:[{lawd_code:'11110',legal_code:'1111000000',name:'검증 지역',index:asset,coverage:{...coverage,pending:0,source_unavailable:1},latest:{sale:saleMetric,rent:unavailable}}]};
+    expect(parsePropertyRegions(value).regions[0].latest.rent.status).toBe('source_unavailable');
+    expect(()=>parsePropertyRegions({...value,regions:[{...value.regions[0],latest:{sale:saleMetric,rent:{...unavailable,source_rows:0}}}]})).toThrow();
+  });
   it('keeps missing region metrics null and rejects fabricated zero coverage',()=>{
     const value={schema_version:1,kind:'property-regions',release_id:release,regions:[{lawd_code:'11110',legal_code:'1111000000',
       name:'검증 지역',index:asset,coverage,latest:{sale:saleMetric,rent:pendingMetric}}]};

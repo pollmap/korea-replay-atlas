@@ -25,10 +25,15 @@ it('separates publication coverage from downloaded coverage and keeps holes visi
   expect(historyMonthStatus(result('202606','missing','download_budget'))).toContain('다운로드 한도');
   expect(historyMonthStatus(result('202606','error'))).toContain('재시도');
   expect(historyMonthStatus(result('202607','ready'))).toBe('자료 확인');
+  expect(historyMonthStatus(result('201012','missing','before_source'))).toBe('원천 자료 제공 전');
+  expect(historyMonthStatus(result('201012','missing','source_unavailable'))).toBe('원천 자료 제공 전');
+  expect(historyMonthStatus(result('202607','missing','retention_budget'))).toContain('기록 수 한도');
 });
 it('moves contiguous period windows across year boundaries without timezone drift',()=>{
   expect(shiftHistoryEnd('202601',3,-1)).toBe('202510');
   expect(shiftHistoryEnd('202510',3,1)).toBe('202601');
   expect(shiftHistoryEnd('202608',120,-1)).toBe('201608');
+  expect(shiftHistoryEnd('202608',240,-1)).toBe('200608');
+  expect(shiftHistoryEnd('200608',240,1)).toBe('202608');
   expect(()=>shiftHistoryEnd('202613',3,-1)).toThrow();
 });

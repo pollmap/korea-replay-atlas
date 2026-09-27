@@ -50,15 +50,26 @@ it('keeps comparison removal available before the request succeeds and preserves
   expect(html).not.toContain('<td>0건</td>');
 });
 
-it('shows ten-year detail and comparison periods without claiming ten years are collected',()=>{
+it.each([120,240] as const)('shows %s-month detail and comparison periods without claiming they are collected',range=>{
   const detail={release_id:release,period,partitions:[]} as unknown as PropertyRegionDetail;
   const complex={id:'molit-apt:11110:test',lawd_code:'11110',name:'검증 단지'} as PropertyComplex;
-  const history=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'84-band',onArea:()=>{},range:120,onRange:()=>{},includeReview:false,onMonth:()=>{}}));
-  expect(history).toContain('최근 10년');expect(history).toContain('게시 0/120개월');
+  const history=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'84-band',onArea:()=>{},range,onRange:()=>{},includeReview:false,onMonth:()=>{}}));
+  expect(history).toContain(`최근 ${range/12}년`);expect(history).toContain(`게시 0/${range}개월`);
   expect(history).toContain('이 거래 유형의 게시 자료가 없습니다.');expect(history).toContain('거래 기간 이동');
-  const comparison=renderToStaticMarkup(createElement(ComplexComparison,{atlas:atlas(),items:[complex],month:'202608',range:120,onRange:()=>{},trade:'sale',area:'84-band',onArea:()=>{},onRemove:()=>{}}));
-  expect(comparison).toContain('2016.09–2026.08');expect(comparison).toContain('비교 조회 기간');
+  expect(history.indexOf('history-coverage')).toBeLessThan(history.indexOf('history-chart-toolbar'));
+  expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('history-secondary-tools'));
+  expect(history.indexOf('history-secondary-tools')).toBeLessThan(history.indexOf('거래 기간 이동'));
+  expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('월별 자료 확보 상태'));
+  const comparison=renderToStaticMarkup(createElement(ComplexComparison,{atlas:atlas(),items:[complex],month:'202608',range,onRange:()=>{},trade:'sale',area:'84-band',onArea:()=>{},onRemove:()=>{}}));
+  expect(comparison).toContain(`${range===240?'2006':'2016'}.09–2026.08`);expect(comparison).toContain('비교 조회 기간');
   expect(comparison).not.toContain('0건');
+});
+it('shows the 52 pre-source rent months separately from the 188 eligible months in a twenty-year view',()=>{
+  const sources=[{id:'molit-apt-rent' as const,dataset_id:'15126474' as const,label:'전월세',page_url:'https://www.data.go.kr/data/15126474/openapi.do',evidence_type:'official_report' as const}];
+  const detail={release_id:release,period,partitions:[]} as unknown as PropertyRegionDetail,complex={id:'molit-apt:11110:test'} as PropertyComplex;
+  const history=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,sources,origin:'https://example.com',month:'202608',trade:'rent',area:'84-band',onArea:()=>{},range:240,onRange:()=>{},includeReview:false}));
+  expect(history).toContain('0/188개월 확인');expect(history).toContain('원천 자료 제공 전 52개월');expect(history).toContain('게시 0/188개월');
+  expect(history).not.toContain('확인 0건');
 });
 
 

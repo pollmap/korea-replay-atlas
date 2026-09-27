@@ -15,6 +15,8 @@ import sqlite3
 import uuid
 
 from .real_estate import RealEstateError, utc_instant, _reject_links
+from .real_estate_availability import DEFAULT_PLAN_MONTHS
+from .real_estate_scope import SCOPES, scope_condition, validate_scope as validate_collection_scope
 from .real_estate_archive import D1Archive
 from .real_estate_fetch import fetch_page, instant, month_sequence, read_key, MAX_PAGE_BYTES
 from .real_estate_remote import RemoteWorkspace, RemoteCollector
@@ -38,13 +40,14 @@ def _state(db):
     return value
 
 
-def prepare_lane(db, stamp, *, mode='auto', months=121):
+def prepare_lane(db, stamp, *, mode='auto', months=DEFAULT_PLAN_MONTHS, scope='nationwide'):
     """Continue unfinished months; never restart a refresh on every bounded run.
 
     Three runs in four backfill. Every fourth run checks recent corrections;
     every 28th checks one older month. Cursors live inside the archived checkpoint.
     Existing region priority remains owned by Collector, not this scheduler.
     """
+    validate_collection_scope(scope)
     if mode not in ('auto', 'backfill', 'recent', 'history'):
         raise RealEstateError('automation_mode_invalid')
     state = _state(db)
@@ -66,15 +69,15 @@ def prepare_lane(db, stamp, *, mode='auto', months=121):
                 # a correction is fetched. Never turn an error into an empty result.
                 db.execute("""UPDATE jobs SET status='pending',pages='[]',error_code=NULL
                     WHERE deal_month=? AND status IN ('complete','empty')
-                    AND (updated_at IS NULL OR updated_at<?)""", (selected, cutoff))
+                    AND (updated_at IS NULL OR updated_at<?)""" + scope_condition(scope), (selected, cutoff))
     return state, lane, selected
 
 
-def finish_lane(db, state, lane, selected):
+def finish_lane(db, state, lane, selected, *, scope='nationwide'):
     state = dict(state)
     state['runs'] += 1
     if selected is not None:
-        unfinished = db.execute("SELECT COUNT(*) FROM jobs WHERE deal_month=? AND status IN ('pending','partial','failed')", (selected,)).fetchone()[0]
+        unfinished = db.execute("SELECT COUNT(*) FROM jobs WHERE deal_month=? AND status IN ('pending','partial','failed')" + scope_condition(scope), (selected,)).fetchone()[0]
         if not unfinished:
             state[lane + '_cursor'] += 1
     with db:
@@ -82,7 +85,7 @@ def finish_lane(db, state, lane, selected):
                    (STATE_KEY, json.dumps(state, sort_keys=True)))
 
 
-def requeue_safe_failures(db, stamp, *, limit=5, selected=None, first_acquisition_only=False):
+def requeue_safe_failures(db, stamp, *, limit=5, selected=None, first_acquisition_only=False, scope='nationwide'):
     """Bounded durable retries of known provider failures only.
 
     A requeue consumes one of three attempts per job/KST day even if the run's
@@ -97,6 +100,7 @@ def requeue_safe_failures(db, stamp, *, limit=5, selected=None, first_acquisitio
         job_id TEXT PRIMARY KEY, day TEXT NOT NULL, requeues INTEGER NOT NULL,
         last_retry_at TEXT NOT NULL, error_code TEXT NOT NULL)''')
     condition = ' AND j.deal_month=?' if selected else ''
+    condition += scope_condition(scope, 'j.lawd_code')
     if first_acquisition_only:
         condition += ' AND j.snapshot IS NULL'
     rows = db.execute("""SELECT j.id,j.error_code,j.updated_at,r.day,r.requeues,r.last_retry_at
@@ -138,12 +142,13 @@ def requeue_safe_failures(db, stamp, *, limit=5, selected=None, first_acquisitio
             'next_retry_at': next_retry.strftime('%Y-%m-%dT%H:%M:%SZ') if next_retry else None}
 
 
-def pagination_budget_preflight(db, stamp, *, max_requests, max_bytes, selected=None, first_acquisition_only=False):
+def pagination_budget_preflight(db, stamp, *, max_requests, max_bytes, selected=None, first_acquisition_only=False, scope='nationwide'):
     """Stop proven unfinishable stale jobs before Collector restarts page one."""
     db.execute('''CREATE TABLE IF NOT EXISTS property_automation_pagination (
         job_id TEXT PRIMARY KEY, first_page_sha TEXT NOT NULL,
         required_requests INTEGER NOT NULL, required_bytes INTEGER NOT NULL)''')
     condition = ' AND j.deal_month=?' if selected else ''
+    condition += scope_condition(scope, 'j.lawd_code')
     if first_acquisition_only:
         condition += ' AND j.snapshot IS NULL'
     rows = db.execute("""SELECT j.pages,p.first_page_sha,p.required_requests,p.required_bytes
@@ -160,14 +165,14 @@ def pagination_budget_preflight(db, stamp, *, max_requests, max_bytes, selected=
             raise RealEstateError('automation_pagination_budget_insufficient')
 
 
-def record_pagination_budget(db, since_call, report):
+def record_pagination_budget(db, since_call, report, *, scope='nationwide'):
     """Keep evidence only when this whole run started and served one job.
 
     A job partially served after other jobs may fit the next full run budget;
     that case must not produce a blocking assertion.
     """
     with db:
-        db.execute("DELETE FROM property_automation_pagination WHERE job_id IN (SELECT id FROM jobs WHERE status IN ('complete','empty'))")
+        db.execute("DELETE FROM property_automation_pagination WHERE job_id IN (SELECT id FROM jobs WHERE status IN ('complete','empty')" + scope_condition(scope) + ')')
     if report['stop_reason'] != 'run_budget':
         return
     calls = db.execute('SELECT job_id,page_no,status FROM calls WHERE id>? ORDER BY id', (since_call,)).fetchall()
@@ -192,23 +197,27 @@ def record_pagination_budget(db, since_call, report):
                    (job, first['sha256'], required, sum(p['bytes'] for p in pages) + MAX_PAGE_BYTES))
 
 
-def acquisition_progress(db):
+def acquisition_progress(db, *, scope='nationwide'):
     """Acquired snapshots survive refresh failures; job status is a separate axis."""
     row = db.execute("""SELECT COUNT(*),
         SUM(CASE WHEN snapshot IS NOT NULL THEN 1 ELSE 0 END),
         SUM(CASE WHEN snapshot IS NOT NULL AND status IN ('pending','partial','failed') THEN 1 ELSE 0 END),
         SUM(CASE WHEN snapshot IS NULL AND status='failed' THEN 1 ELSE 0 END),
-        SUM(CASE WHEN snapshot IS NOT NULL AND status='failed' THEN 1 ELSE 0 END)
-        FROM jobs""").fetchone()
-    total, acquired, refresh, first_failed, refresh_failed = (int(value or 0) for value in row)
+        SUM(CASE WHEN snapshot IS NOT NULL AND status='failed' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN status='source_unavailable' THEN 1 ELSE 0 END)
+        FROM jobs WHERE 1=1""" + scope_condition(scope)).fetchone()
+    total, acquired, refresh, first_failed, refresh_failed, unavailable = (int(value or 0) for value in row)
     return {'expected_jobs': total, 'verified_snapshot_jobs': acquired,
             'missing_snapshot_jobs': total - acquired, 'refresh_pending_jobs': refresh,
+            'source_unavailable_jobs': unavailable, 'eligible_jobs': total - unavailable,
+            'missing_collectable_jobs': total - unavailable - acquired,
             'first_acquisition_failed_jobs': first_failed, 'refresh_failed_jobs': refresh_failed}
 
 
-def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
-                   as_of=None, mode='auto', months=121, transport=fetch_page,
-                   reserve_bytes=2*1024**3):
+def run_automation(root, store, key, *, max_requests=100, max_bytes=64*1024**2,
+                   as_of=None, mode='auto', months=DEFAULT_PLAN_MONTHS, transport=fetch_page,
+                   reserve_bytes=2*1024**3, scope='nationwide', require_scope_complete=False):
+    validate_collection_scope(scope)
     if (type(max_requests) is not int or not 1 <= max_requests <= 500
             or type(max_bytes) is not int or not 8*1024**2 <= max_bytes <= 64*1024**2):
         raise RealEstateError('automation_budget_invalid')
@@ -243,13 +252,14 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
                     'finished_at': instant(), 'next_retry_at': None}
         guard.seed_budget(lease, workspace.head, workspace.baseline_counts)
         collector = RemoteCollector(workspace, as_of=stamp, months=months, advance_window=True,
-            reserve_bytes=reserve_bytes, transport=guarded_transport(guard, lease, transport))
-        state, lane, selected = prepare_lane(collector.db, stamp, mode=mode, months=months)
+            reserve_bytes=reserve_bytes, transport=guarded_transport(guard, lease, transport), scope=scope,
+            require_scope_complete=require_scope_complete)
+        state, lane, selected = prepare_lane(collector.db, stamp, mode=mode, months=months, scope=scope)
         first_only = lane == 'backfill'
         retries = requeue_safe_failures(collector.db, stamp, limit=min(5, max_requests), selected=selected,
-                                       first_acquisition_only=first_only)
+                                       first_acquisition_only=first_only, scope=scope)
         pagination_budget_preflight(collector.db, instant(), max_requests=max_requests, max_bytes=max_bytes, selected=selected,
-                                    first_acquisition_only=first_only)
+                                    first_acquisition_only=first_only, scope=scope)
         since_call = collector.db.execute('SELECT COALESCE(MAX(id),0) FROM calls').fetchone()[0]
         report = collector.collect(key, max_requests=max_requests, max_bytes=max_bytes,
                                    timeout=30, collect_months=[selected] if selected else None,
@@ -259,9 +269,10 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
         # A source quota/auth failure is durably recorded, but is not a successful
         # scheduled run and does not advance the correction cursor.
         if report['stop_reason'] in SUCCESS_STOPS:
-            finish_lane(collector.db, state, lane, selected)
-        record_pagination_budget(collector.db, since_call, report)
+            finish_lane(collector.db, state, lane, selected, scope=scope)
+        record_pagination_budget(collector.db, since_call, report, scope=scope)
         acquisition = acquisition_progress(collector.db)
+        scope_acquisition = acquisition_progress(collector.db, scope=scope)
         collector.close()
         collector = None
         pending = guard.query("SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? AND phase='reserved' LIMIT 1",
@@ -276,6 +287,7 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
                 'lane': lane, 'month': selected, 'requests': report['requests'],
                 'response_bytes': report['response_bytes'], 'stop_reason': report['stop_reason'],
                 'coverage': report['coverage'], 'acquisition': acquisition, 'archive_verified': True,
+                'scope': report['scope'], 'scope_coverage': report['scope_coverage'], 'scope_acquisition': scope_acquisition,
                 'retry_policy': retries,
                 'public_release': False, 'finished_at': report['finished_at'],
                 'next_retry_at': retry_at(report['stop_reason'])}
@@ -334,8 +346,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work-parent', type=Path, required=True)
     parser.add_argument('--mode', choices=('auto', 'backfill', 'recent', 'history'), default='auto')
-    parser.add_argument('--max-requests', type=int, default=25)
-    parser.add_argument('--max-bytes', type=int, default=16*1024**2)
+    parser.add_argument('--months', type=int, default=DEFAULT_PLAN_MONTHS)
+    parser.add_argument('--scope', choices=SCOPES, default='nationwide')
+    parser.add_argument('--require-scope-complete', action='store_true')
+    parser.add_argument('--max-requests', type=int, default=100)
+    parser.add_argument('--max-bytes', type=int, default=64*1024**2)
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args(argv)
     try:
@@ -348,7 +363,8 @@ def main(argv=None):
         # A retry always restores the latest verified head in a fresh directory.
         # Failed directories are retained for local diagnosis; no raw GH artifacts.
         root = parent / ('collection-' + uuid.uuid4().hex)
-        result = run_automation(root, store, key, mode=args.mode,
+        result = run_automation(root, store, key, mode=args.mode, months=args.months, scope=args.scope,
+                                require_scope_complete=args.require_scope_complete,
                                 max_requests=args.max_requests, max_bytes=args.max_bytes)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0 if result['status'] in ('collected', 'storage_paused') else 1

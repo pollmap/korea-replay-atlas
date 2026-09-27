@@ -35,11 +35,11 @@ jobs:
           PROPERTY_ARCHIVE_BROKER_URL: ${{ secrets.PROPERTY_ARCHIVE_BROKER_URL }}
           PROPERTY_ARCHIVE_CONFIG_JSON: ${{ secrets.PROPERTY_ARCHIVE_CONFIG }}
           COLLECTION_MODE: ${{ inputs.mode || 'auto' }}
-          COLLECTION_REQUESTS: ${{ vars.PROPERTY_COLLECTION_MAX_REQUESTS || '25' }}
-          COLLECTION_BYTES: ${{ vars.PROPERTY_COLLECTION_MAX_BYTES || '16777216' }}
+          COLLECTION_REQUESTS: ${{ vars.PROPERTY_COLLECTION_MAX_REQUESTS || '100' }}
+          COLLECTION_BYTES: ${{ vars.PROPERTY_COLLECTION_MAX_BYTES || '67108864' }}
         run: |
           python -B -m pipeline.property_automation --execute \
             --work-parent "$RUNNER_TEMP/property-collection" \
-            --mode "$COLLECTION_MODE" --max-requests "$COLLECTION_REQUESTS" --max-bytes "$COLLECTION_BYTES"
+            --months 241 --scope priority-nine --require-scope-complete --mode "$COLLECTION_MODE" --max-requests "$COLLECTION_REQUESTS" --max-bytes "$COLLECTION_BYTES"
       # Intentionally no upload-artifact, cache, public data upload or deployment.
       # Raw responses and checkpoints belong only in the private D1 archive.

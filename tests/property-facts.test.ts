@@ -22,7 +22,15 @@ it('renders the actual official Helio City counts and retains unknown vs zero',(
   expect(parkingPerHousehold({...row,parking:0})).toBe(0);
   const html=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:row.complex_id,release:data.property_release_id}));
   expect(html).toContain('9,510세대');expect(html).toContain('12,096대');expect(html).toContain('사용승인일');
-  expect(renderToStaticMarkup(createElement(ApartmentFacts,{complexId:row.complex_id,release:'property-0000000000000000'}))).toBe('');
+  const unavailable=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:row.complex_id,release:'property-0000000000000000'}));
+  expect(unavailable).toContain('자료 연결 전');expect(unavailable).toContain('세대수');expect(unavailable).toContain('사용승인일');
+  expect(unavailable).not.toContain('9,510세대');expect(unavailable).not.toContain('12,096대');expect(unavailable).not.toContain('공식 자료');
+});
+it('keeps information slots for an unlinked complex without borrowing a same-release neighbour',()=>{
+  const html=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:'molit-apt:28110:28110-unknown',release:data.property_release_id}));
+  for(const label of ['세대수','동수','주차','건물·관리','도로명주소','사용승인일','난방','복도 유형','시공사','관리 방식'])expect(html).toContain(label);
+  expect(html).toContain('이 단지의 기본정보는 아직 연결되지 않았습니다.');
+  expect(html).not.toMatch(/0세대|0대|aria-busy|서울시 공동주택 아파트 정보/);
 });
 it('rejects duplicate identity, numeric coercion, and invalid source dates',()=>{
   for(const rows of [[data.rows[0],data.rows[0]],[{...data.rows[0],households:'12'}],[{...data.rows[0],approved_on:'2026-02-31'}]])expect(()=>apartmentFactsIndex({...data,rows})).toThrow();

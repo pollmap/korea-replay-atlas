@@ -8,9 +8,14 @@ on:
         default: 'config/molit-legal-region-registry.json'
         type: string
       months:
-        description: Total months including current month, maximum 121
-        default: '121'
+        description: Total months including current month, maximum 241 (240 completed plus current provisional)
+        default: '241'
         type: string
+      scope:
+        description: Acquisition scope (existing nationwide data remains preserved)
+        default: priority-nine
+        type: choice
+        options: [priority-nine, nationwide]
 permissions:
   contents: read
 concurrency:
@@ -32,10 +37,11 @@ jobs:
         env:
           REGISTRY_INPUT: ${{ inputs.regions }}
           MONTHS_INPUT: ${{ inputs.months }}
+          SCOPE_INPUT: ${{ inputs.scope || 'priority-nine' }}
         run: |
           python - <<'PY'
           import os
           from pipeline.real_estate_plan import main
-          main(['--regions', os.environ['REGISTRY_INPUT'], '--months', os.environ['MONTHS_INPUT']])
+          main(['--regions', os.environ['REGISTRY_INPUT'], '--months', os.environ['MONTHS_INPUT'], '--scope', os.environ['SCOPE_INPUT'], '--require-scope-complete'])
           # Stdlib only: no --execute mode, key, network, SQLite, publication or raw upload.
           PY

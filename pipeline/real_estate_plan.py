@@ -15,7 +15,8 @@ import shutil
 import tempfile
 
 from .real_estate import RealEstateError, _reject_links, canonical_bytes, sha256, utc_instant
-from .real_estate_priority import priority_map, POLICY_ID
+from .real_estate_scope import SCOPES, selected_regions, scope_priority, scope_policy, scope_summary
+from .real_estate_availability import DEFAULT_PLAN_MONTHS, before_source, source_policy
 
 DEFAULT_REGISTRY = 'config/molit-legal-region-registry.json'
 REGISTRY_KIND = 'molit-legal-region-plan-registry'
@@ -162,11 +163,11 @@ def load_plan_registry(root, relative=DEFAULT_REGISTRY):
     return value, sha256(payload)
 
 
-def build_plan(registry, *, registry_sha256, as_of, months=61):
+def build_plan(registry, *, registry_sha256, as_of, months=DEFAULT_PLAN_MONTHS, scope='nationwide', require_scope_complete=False):
     validate_plan_registry(registry)
     if not _hash(registry_sha256):
         raise RealEstateError('invalid_plan_registry_reference')
-    if type(months) is not int or not 1 <= months <= 121:
+    if type(months) is not int or not 1 <= months <= DEFAULT_PLAN_MONTHS:
         raise RealEstateError('invalid_month_count')
     stamp = utc_instant(as_of).astimezone(KST)
     current = stamp.year * 12 + stamp.month - 1
@@ -174,9 +175,16 @@ def build_plan(registry, *, registry_sha256, as_of, months=61):
         raise RealEstateError('invalid_plan_window')
     sequence = [f'{(current-i)//12:04d}{(current-i)%12+1:02d}' for i in range(months)]
     sequence = [sequence[1], sequence[0], *sequence[2:]] if months > 1 else sequence
+    regions = selected_regions(registry['regions'], scope)
+    scope_info = scope_summary(registry['regions'], scope, require_complete=require_scope_complete)
     jobs = [{'trade_type': trade, 'lawd_code': row['lawd_code'], 'deal_month': month}
-            for month in sequence for row in registry['regions'] for trade in ('sale', 'rent')]
-    region_order = priority_map(registry['regions'])
+            for month in sequence for row in regions for trade in ('sale', 'rent')]
+    unavailable = 0
+    for job in jobs:
+        if before_source('apartment', job['trade_type'], job['deal_month']):
+            job['status'] = 'source_unavailable'
+            unavailable += 1
+    region_order = scope_priority(regions, scope)
     month_order = {month: index for index, month in enumerate(sequence)}
     jobs.sort(key=lambda row: (region_order[row['lawd_code']], month_order[row['deal_month']],
                               row['lawd_code'], row['trade_type']))
@@ -187,8 +195,10 @@ def build_plan(registry, *, registry_sha256, as_of, months=61):
         'regions_sha256': registry['audit']['regions_sha256'],
         'historical_coverage': HISTORY_SCOPE,
         'month_order': 'latest_completed_then_current_then_older', 'months': sequence,
-        'region_order': POLICY_ID,
-        'region_count': len(registry['regions']), 'job_count': len(jobs),
+        'region_order': scope_policy(scope), 'scope': scope_info,
+        'region_count': len(regions), 'job_count': len(jobs),
+        'source_unavailable_job_count': unavailable, 'eligible_job_count': len(jobs)-unavailable,
+        'source_policy': source_policy(),
         'job_status': 'planned_not_requested', 'source_calls': 0, 'reserved_calls': 0,
         'is_collection_checkpoint': False, 'data_acquired': False,
         'jobs': jobs,
@@ -196,12 +206,12 @@ def build_plan(registry, *, registry_sha256, as_of, months=61):
 
 
 def write_plan(*, repo_root, registry_path=DEFAULT_REGISTRY,
-               output='.local/property-plan-ci/plan.json', as_of, months=61):
+               output='.local/property-plan-ci/plan.json', as_of, months=DEFAULT_PLAN_MONTHS, scope='nationwide', require_scope_complete=False):
     root = Path(repo_root).absolute()
     _reject_links(root)
     root = root.resolve()
     registry, registry_digest = load_plan_registry(root, registry_path)
-    plan = build_plan(registry, registry_sha256=registry_digest, as_of=as_of, months=months)
+    plan = build_plan(registry, registry_sha256=registry_digest, as_of=as_of, months=months, scope=scope, require_scope_complete=require_scope_complete)
     payload = canonical_bytes(plan)
     if len(payload) > MAX_PLAN_BYTES:
         raise RealEstateError('plan_size_limit')
@@ -227,6 +237,8 @@ def write_plan(*, repo_root, registry_path=DEFAULT_REGISTRY,
             temporary.unlink(missing_ok=True)
     return {'status': 'planned', 'planning_only': True, 'regions': plan['region_count'],
             'months': len(plan['months']), 'jobs': plan['job_count'], 'source_calls': 0,
+            'scope': plan['scope'], 'eligible_jobs': plan['eligible_job_count'],
+            'source_unavailable_jobs': plan['source_unavailable_job_count'],
             'reserved_calls': 0, 'bytes': len(payload), 'sha256': sha256(payload),
             'registry_sha256': registry_digest}
 
@@ -236,12 +248,15 @@ def main(argv=None):
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
     parser.add_argument('--regions', default=DEFAULT_REGISTRY)
     parser.add_argument('--output', default='.local/property-plan-ci/plan.json')
-    parser.add_argument('--months', type=int, default=61)
+    parser.add_argument('--months', type=int, default=DEFAULT_PLAN_MONTHS)
+    parser.add_argument('--scope', choices=SCOPES, default='nationwide')
+    parser.add_argument('--require-scope-complete', action='store_true')
     parser.add_argument('--as-of', default=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
     args = parser.parse_args(argv)
     try:
         result = write_plan(repo_root=args.repo_root, registry_path=args.regions,
-                            output=args.output, as_of=args.as_of, months=args.months)
+                            output=args.output, as_of=args.as_of, months=args.months, scope=args.scope,
+                            require_scope_complete=args.require_scope_complete)
         print(json.dumps(result, ensure_ascii=False))
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, 'real_estate_plan: '

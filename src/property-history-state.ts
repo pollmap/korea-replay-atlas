@@ -8,6 +8,9 @@ export function historyMonthStatus(result:HistoryResult|undefined):string {
   if(result.status==='ready')return '자료 확인';
   if(result.status==='error')return '조회 실패 · 재시도 가능';
   if(result.reason==='download_budget')return '다운로드 한도 · 기간을 나눠 조회';
+  if(result.reason==='request_budget')return '요청 수 한도 · 기간을 나눠 조회';
+  if(result.reason==='retention_budget')return '기록 수 한도 · 기간을 나눠 조회';
+  if(result.reason==='before_source'||result.reason==='source_unavailable')return '원천 자료 제공 전';
   if(result.reason==='failed')return '원천 수집 실패';
   if(result.reason==='partial')return '일부만 수집';
   if(result.reason==='outside_release')return '이 버전에 미게시';

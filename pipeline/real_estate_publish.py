@@ -19,18 +19,20 @@ from .real_estate_storage import decode_snapshot
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
+# 241 months x 256 current regions x two trades, with room for additive rollover.
+MAX_LEDGER_JOBS = 256_000
 SOURCES = [
     {'id':'molit-apt-sale-detail','dataset_id':'15126468','label':'국토교통부 아파트 매매 신고상세',
      'page_url':'https://www.data.go.kr/data/15126468/openapi.do','evidence_type':'official_report'},
     {'id':'molit-apt-rent','dataset_id':'15126474','label':'국토교통부 아파트 전월세 신고·확정일자 자료',
      'page_url':'https://www.data.go.kr/data/15126474/openapi.do','evidence_type':'official_report'},
 ]
-POLICY = 'property-publication-v2-transaction-and-location-quality'
+POLICY = 'property-publication-v3-source-publication-periods'
 
 
 def coverage(jobs):
     counts=Counter(j['status'] for j in jobs)
-    return {'expected':len(jobs),**{s:counts[s] for s in ('complete','empty','failed','pending','partial')},
+    return {'expected':len(jobs),**{s:counts[s] for s in ('complete','empty','failed','pending','partial','source_unavailable')},
             'historical_coverage':'current_codes_only_pending_effective_date_crosswalk'}
 
 
@@ -162,7 +164,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
     finally:connection.close()
     registry_hash=sha256(canonical_bytes(registry))
     if meta.get('registry_sha256')!=registry_hash:raise RealEstateError('registry_hash_mismatch')
-    if not jobs or len(jobs)>122_000:raise RealEstateError('invalid_job_ledger')
+    if not jobs or len(jobs)>MAX_LEDGER_JOBS:raise RealEstateError('invalid_job_ledger')
     official={r['lawd_code']:r for r in registry['regions']}
     if any(j['lawd_code'] not in official for j in jobs):raise RealEstateError('unknown_legal_region')
     fingerprint={'policy':POLICY,'registry_sha256':registry_hash,
