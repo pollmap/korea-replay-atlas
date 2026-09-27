@@ -155,6 +155,30 @@ describe('2D movement framebuffer resolution',()=>{
     move(false);expect(controller.restore()).toBe(true);expect(controller.restore()).toBe(false);
     expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.5]]);
   });
+  it('lowers resolution before native button navigation despite its originalEvent and repeated clicks',()=>{
+    const {map,move,controller}=target();
+    controller.beforeNavigation();expect(map.getPixelRatio()).toBe(1);
+    move(true);controller.moveStart({type:'click'});
+    for(let i=0;i<20;i++){controller.beforeNavigation();controller.moveStart({type:'click'});}
+    expect(controller.restore()).toBe(false);expect(map.setPixelRatio.mock.calls).toEqual([[1]]);
+    move(false);expect(controller.restore()).toBe(true);
+    expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.5]]);
+  });
+  it('does not interrupt an uncaptured drag/wheel or a held pointer when a navigation control is clicked',()=>{
+    const {map,move,controller}=target();
+    move(true);controller.beforeNavigation();controller.pointerDown(9);
+    expect(map.setPixelRatio).not.toHaveBeenCalled();
+    move(false);controller.beforeNavigation();expect(map.setPixelRatio).not.toHaveBeenCalled();
+    controller.pointerUp(9);controller.beforeNavigation();expect(map.setPixelRatio.mock.calls).toEqual([[1]]);
+  });
+  it('restores a no-op north-button click at rest without requiring a moveend',()=>{
+    const {map,controller}=target();
+    controller.beforeNavigation();expect(map.getPixelRatio()).toBe(1);
+    // The shared settle callback also handles a button that changes no camera value.
+    expect(controller.restore()).toBe(true);expect(map.getPixelRatio()).toBe(1.5);
+    controller.dispose();controller.beforeNavigation();
+    expect(map.setPixelRatio.mock.calls).toEqual([[1],[1.5]]);
+  });
   it('resizes before native input and never resizes a running drag',()=>{
     const {map,move,controller}=target();
     controller.pointerDown(5);expect(map.setPixelRatio.mock.calls).toEqual([[1]]);
@@ -173,7 +197,7 @@ describe('2D movement framebuffer resolution',()=>{
   it('avoids every allocation on devices already at DPR one or below',()=>{
     for(const dpr of [1,.8]){
       const {map,move,controller}=target(dpr);
-      controller.beforeWheel();controller.pointerDown(1);controller.pointerUp(1);move(true);controller.moveStart();
+      controller.beforeWheel();controller.beforeNavigation();controller.pointerDown(1);controller.pointerUp(1);move(true);controller.moveStart();
       move(false);controller.restore();controller.restore();expect(map.setPixelRatio).not.toHaveBeenCalled();
     }
   });
@@ -183,7 +207,7 @@ describe('2D movement framebuffer resolution',()=>{
       ratio=value;during.push(controller.applying);
       // Public setPixelRatio emits resize/movement events synchronously. Even
       // a direct callback must not re-enter it or undo the current transition.
-      controller.moveStart();controller.restore();
+      controller.moveStart();controller.beforeNavigation();controller.restore();
     })};
     const controller=createMap2DPixelRatioController(map,()=>2);
     controller.moveStart();moving=false;controller.restore();

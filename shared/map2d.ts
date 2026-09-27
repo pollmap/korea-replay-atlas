@@ -30,6 +30,7 @@ export function createMap2DPixelRatioController(map:Map2DPixelRatioTarget,device
     applying=true;
     try{map.setPixelRatio(next);return true;}finally{applying=false;}
   };
+  const beforeInput=()=>{if(!disposed&&!pointers.size&&!map.isMoving())apply(true);};
   return {
     get applying(){return applying;},
     get inputHeld(){return pointers.size>0;},
@@ -39,7 +40,10 @@ export function createMap2DPixelRatioController(map:Map2DPixelRatioTarget,device
       if(first&&!map.isMoving())apply(true);
     },
     pointerUp:(id:number):boolean=>pointers.delete(id),
-    beforeWheel:()=>{if(!disposed&&!pointers.size&&!map.isMoving())apply(true);},
+    beforeWheel:beforeInput,
+    // Capture-click runs before NavigationControl starts its native animation,
+    // including the browser-generated click from Enter/Space activation.
+    beforeNavigation:beforeInput,
     // Native movement that missed the capture listener stays at its current
     // ratio: setPixelRatio/resize may stop native MapLibre gesture handlers.
     moveStart:(originalEvent?:unknown)=>{if(!disposed&&!originalEvent&&map.isMoving())apply(true);},
