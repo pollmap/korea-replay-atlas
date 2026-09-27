@@ -2,6 +2,7 @@ import {atlasFetch} from './atlas-client';
 import {parsePropertyMapPoints,type PropertyMapPoint} from '../shared/property-map-point';
 import manifest from './data/property-navigation-manifest.json';
 import historyManifest from './data/property-navigation-manifest-54bf1817fdcc7bd9.json';
+import refreshedManifest from './data/property-navigation-manifest-87d1c67336e97209.json';
 
 interface NavigationSource {
   manifest:{release_id:string;sha256:string;bytes:number;source_sha256:string};
@@ -48,6 +49,7 @@ export function createPropertyMapPointLookup(sources:readonly NavigationSource[]
 const lookup=createPropertyMapPointLookup([
   {manifest,url:new URL('./data/seoul-property-navigation.json',import.meta.url).href},
   {manifest:historyManifest,url:new URL('./data/seoul-property-navigation-54bf1817fdcc7bd9.json',import.meta.url).href},
+  {manifest:refreshedManifest,url:new URL('./data/seoul-property-navigation-87d1c67336e97209.json',import.meta.url).href},
 ]);
 export const supportsPropertyMapPoint=lookup.supports;
 export const findPropertyMapPoint=lookup.find;

@@ -185,8 +185,8 @@ def test_mismatched_region_period_cannot_reuse_stale_markers(tmp_path):
 
 def checkpoint_jobs(tmp_path, jobs):
     with sqlite3.connect(tmp_path / 'checkpoint.sqlite') as db:
-        db.execute('CREATE TABLE jobs (lawd_code TEXT, deal_month TEXT, trade_type TEXT, status TEXT, pages TEXT)')
-        db.executemany('INSERT INTO jobs VALUES (?, ?, ?, ?, ?)', jobs)
+        db.execute('CREATE TABLE jobs (lawd_code TEXT, deal_month TEXT, trade_type TEXT, status TEXT, pages TEXT, snapshot TEXT)')
+        db.executemany('INSERT INTO jobs VALUES (?, ?, ?, ?, ?, ?)', [(*job, None) for job in jobs])
 
 
 def test_raw_sale_window_rejects_missing_month_even_when_job_count_is_300(tmp_path):
@@ -206,3 +206,90 @@ def test_raw_sale_window_uses_same_rolling_year_and_ignores_old_jobs(tmp_path):
             for code in SEOUL_CODES for month in months]
     checkpoint_jobs(tmp_path, jobs)
     assert _sale_rows(tmp_path, start='202510', end='202609', district_codes=set(SEOUL_CODES)) == ([], [])
+
+
+def retained_checkpoint(tmp_path, status, *, empty=False):
+    from pipeline.property_point_join import _twelve_months
+    from pipeline.real_estate import build_partitions, canonical_bytes, normalize_xml_page
+    from test_real_estate_fetch import xml, STAMP
+
+    months = _twelve_months('202609')
+    checkpoint_jobs(tmp_path, [(code, month, 'sale', 'complete', '[]')
+                              for code in SEOUL_CODES for month in months])
+    item = {**sale(seq='11110-99999'), 'sggCd': '11110', 'roadNmSggCd': '11110',
+            'umdNm': '검증동', 'jibun': '1-2', 'excluUseAr': '84.99',
+            'dealYear': '2026', 'dealMonth': '9', 'dealDay': '1',
+            'dealAmount': '20,000', 'floor': '4', 'buildYear': '2000'}
+    body = xml([] if empty else [item])
+    digest = hashlib.sha256(body).hexdigest()
+    raw = tmp_path / f'raw/sale/11110/202609/{digest}.xml'
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(body)
+    partition = build_partitions([normalize_xml_page(body, lawd_code='11110', deal_month='202609',
+                                                    retrieved_at=STAMP, trade_type='sale')])[0]
+    recorded = canonical_bytes(partition)
+    snapshot = tmp_path / 'snapshots/retained.json'
+    snapshot.parent.mkdir()
+    snapshot.write_bytes(recorded)
+    descriptor = {'path': 'snapshots/retained.json', 'bytes': len(recorded),
+                  'sha256': hashlib.sha256(recorded).hexdigest()}
+    with sqlite3.connect(tmp_path / 'checkpoint.sqlite') as db:
+        # Deliberately unusable refresh pages must never replace retained evidence.
+        db.execute("UPDATE jobs SET status=?,pages=?,snapshot=? WHERE lawd_code='11110' AND deal_month='202609'",
+                   (status, '[{"path":"refresh-must-not-be-read.xml"}]', json.dumps(descriptor)))
+        original = list(db.execute('SELECT * FROM jobs'))
+    return raw, digest, item, original
+
+
+@pytest.mark.parametrize('status', ['pending', 'partial', 'failed'])
+def test_retained_verified_snapshot_preserves_address_rows_without_changing_ledger(tmp_path, status):
+    _, digest, item, original = retained_checkpoint(tmp_path, status)
+    assert _sale_rows(tmp_path, start='202510', end='202609', district_codes=set(SEOUL_CODES)) == (
+        [('11110', item)], [digest])
+    with sqlite3.connect(tmp_path / 'checkpoint.sqlite') as db:
+        assert list(db.execute('SELECT * FROM jobs')) == original
+
+
+@pytest.mark.parametrize('status', ['empty', 'pending', 'partial', 'failed'])
+def test_verified_empty_snapshot_is_observed_empty_not_missing_month(tmp_path, status):
+    _, digest, _, _ = retained_checkpoint(tmp_path, status, empty=True)
+    if status == 'empty':
+        # A completed empty observation uses its completed page descriptors.
+        from pipeline.real_estate_publish import snapshot_sources
+        with sqlite3.connect(tmp_path / 'checkpoint.sqlite') as db:
+            sources = snapshot_sources({'trade_type': 'sale', 'lawd_code': '11110', 'deal_month': '202609'},
+                                       (tmp_path / 'snapshots/retained.json').read_bytes())
+            db.execute("UPDATE jobs SET pages=? WHERE status='empty'", (json.dumps(sources),))
+    assert _sale_rows(tmp_path, start='202510', end='202609', district_codes=set(SEOUL_CODES)) == ([], [digest])
+
+
+def test_retained_snapshot_requires_original_hash(tmp_path):
+    raw, _, _, _ = retained_checkpoint(tmp_path, 'partial')
+    raw.write_bytes(raw.read_bytes().replace(b'20,000', b'21,000'))
+    with pytest.raises(ValueError, match='checkpoint_hash_mismatch'):
+        _sale_rows(tmp_path, start='202510', end='202609', district_codes=set(SEOUL_CODES))
+
+
+def test_retained_snapshot_must_reproduce_even_if_snapshot_hash_matches(tmp_path):
+    from pipeline.real_estate import canonical_bytes
+
+    retained_checkpoint(tmp_path, 'pending')
+    snapshot = tmp_path / 'snapshots/retained.json'
+    value = json.loads(snapshot.read_bytes())
+    value['retrieved_at'] = '2026-09-21T00:00:00Z'
+    recorded = canonical_bytes(value)
+    snapshot.write_bytes(recorded)
+    descriptor = {'path': 'snapshots/retained.json', 'bytes': len(recorded),
+                  'sha256': hashlib.sha256(recorded).hexdigest()}
+    with sqlite3.connect(tmp_path / 'checkpoint.sqlite') as db:
+        db.execute("UPDATE jobs SET snapshot=? WHERE status='pending'", (json.dumps(descriptor),))
+    with pytest.raises(ValueError, match='snapshot_not_reproducible'):
+        _sale_rows(tmp_path, start='202510', end='202609', district_codes=set(SEOUL_CODES))
+
+
+def test_unverified_retained_month_cannot_complete_twelve_month_window(tmp_path):
+    retained_checkpoint(tmp_path, 'pending')
+    with sqlite3.connect(tmp_path / 'checkpoint.sqlite') as db:
+        db.execute("UPDATE jobs SET snapshot=NULL WHERE status='pending'")
+    with pytest.raises(ValueError, match='incomplete_seoul_sale_window'):
+        _sale_rows(tmp_path, start='202510', end='202609', district_codes=set(SEOUL_CODES))

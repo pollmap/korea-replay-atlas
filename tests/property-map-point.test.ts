@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {parsePropertyMapPoints} from '../shared/property-map-point';
 import manifest from '../src/data/property-navigation-manifest.json';
+import refreshedManifest from '../src/data/property-navigation-manifest-87d1c67336e97209.json';
 const request=vi.hoisted(()=>vi.fn());
 vi.mock('../src/atlas-client',()=>({atlasFetch:request}));
 const raw=readFileSync(new URL('../src/data/seoul-property-navigation.json',import.meta.url),'utf8');
@@ -10,6 +11,22 @@ const source=JSON.parse(readFileSync(new URL('../src/data/seoul-kapt-points-b63b
 const helio='molit-apt:11710:11710-8865';
 beforeEach(()=>{vi.resetModules();request.mockReset();});
 afterEach(()=>vi.useRealTimers());
+it('loads the new audited release and preserves all old identities and provisional coordinates',async()=>{
+  const body=readFileSync(new URL('../src/data/seoul-property-navigation-87d1c67336e97209.json',import.meta.url),'utf8');
+  const pointsBody=readFileSync(new URL('../src/data/seoul-kapt-points-7843533a17275616.geojson',import.meta.url));
+  expect(createHash('sha256').update(pointsBody).digest('hex')).toBe(refreshedManifest.source_sha256);
+  expect(createHash('sha256').update(body).digest('hex')).toBe(refreshedManifest.sha256);
+  expect(Buffer.byteLength(body)).toBe(refreshedManifest.bytes);
+  const old=parsePropertyMapPoints(JSON.parse(raw),manifest.release_id,manifest.source_sha256);
+  const next=parsePropertyMapPoints(JSON.parse(body),refreshedManifest.release_id,refreshedManifest.source_sha256);
+  expect(next.size).toBe(848);
+  for(const [id,point] of old)expect(next.get(id)).toEqual({...point,releaseId:refreshedManifest.release_id});
+  request.mockResolvedValue(new Response(body));
+  const {findPropertyMapPoint}=await import('../src/property-map-points');
+  expect((await findPropertyMapPoint(helio,refreshedManifest.release_id))?.kaptCode).toBe('A10025850');
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(String(request.mock.calls[0][0])).toContain('seoul-property-navigation-87d1c67336e97209.json');
+});
 it('preserves every linked source coordinate exactly, with separate provisional geometry status',()=>{
   expect(createHash('sha256').update(raw).digest('hex')).toBe(manifest.sha256);
   expect(Buffer.byteLength(raw)).toBe(manifest.bytes);expect(manifest.bytes).toBeLessThan(64*1024);

@@ -41,6 +41,7 @@ SEOUL_KAPT_ASSET_HASHES = {
     '33058dae0a1d86c3': SEOUL_KAPT_JOINED_SHA,
     'b63b62af834062de': SEOUL_KAPT_RECENT_SHA,
     '14916a799c24a49e': '14916a799c24a49e0bd2c91311dfc8e98ff287fb4ce8d09a958bad75f1208c35',
+    '7843533a17275616': '7843533a172756165fbe4c8ad9e5eb479915b349d8d2d91de47a7a38476f6187',
 }
 SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
 PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-(?:[a-f0-9]{16}-)?[A-Za-z0-9_-]{8}\.json\Z')
@@ -48,6 +49,7 @@ PROPERTY_NAVIGATION_SHA = 'b93cbc63ea3e74836f349ed11dc73742ee2095f9ba258a13b9812
 PROPERTY_NAVIGATION_ASSETS = {
     (PROPERTY_NAVIGATION_SHA, 55929),
     ('9ee094b267838e30d2f5117c027444d16fedc8b5348f1214011a265e93432e7c', 55930),
+    ('7d1758f5552a4e0d0d20119f97813624b0bad9d30f5684cca245910580132112', 55930),
 }
 REGION_ASSET = re.compile(r'assets/(boundary-(?:[0-9]{2}|[0-9]{5})|dongs-[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
 REGION_SOURCE_ROOT = Path(__file__).resolve().parents[1] / 'src/data'

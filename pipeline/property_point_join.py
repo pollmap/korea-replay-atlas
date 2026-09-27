@@ -17,6 +17,8 @@ import xml.etree.ElementTree as ET
 from datetime import date
 
 from .seoul_apartments import SOURCE, canonical
+from .real_estate import canonical_bytes
+from .real_estate_publish import snapshot_sources, verify_snapshot
 
 OLD_POINTS_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c26622debe82'
 ROAD_NUMBER = re.compile(r'(\d+)(?:-(\d+))?\Z')
@@ -225,17 +227,26 @@ def _sale_rows(checkpoint: Path, *, start: str, end: str, district_codes: set[st
     db.row_factory = sqlite3.Row
     try:
         jobs = [dict(row) for row in db.execute(
-            "SELECT lawd_code,deal_month,status,pages FROM jobs WHERE lawd_code LIKE '11%' "
+            "SELECT lawd_code,deal_month,trade_type,status,pages,snapshot FROM jobs WHERE lawd_code LIKE '11%' "
             "AND trade_type='sale' AND deal_month BETWEEN ? AND ? ORDER BY lawd_code,deal_month", (start, end))]
     finally:
         db.close()
     expected = {(code, month) for code in district_codes for month in months}
-    if (len(jobs) != len(expected) or any(job['status'] != 'complete' for job in jobs)
+    if (len(jobs) != len(expected)
             or {(job['lawd_code'], job['deal_month']) for job in jobs} != expected):
         raise ValueError('incomplete_seoul_sale_window')
     rows, hashes = [], []
     for job in jobs:
-        for page in json.loads(job['pages']):
+        if job['status'] == 'complete':
+            sources = json.loads(job['pages'])
+        else:
+            # An in-progress refresh must not erase the last verified release's
+            # address evidence or mix it with the refresh's incomplete pages.
+            partition = verify_snapshot(checkpoint, job)
+            if partition is None:
+                raise ValueError('incomplete_seoul_sale_window')
+            sources = snapshot_sources(job, canonical_bytes(partition))
+        for page in sources:
             if page.get('path') != f"raw/sale/{job['lawd_code']}/{job['deal_month']}/{page.get('sha256')}.xml":
                 raise ValueError('invalid_molit_page_path')
             body = _read_hash(checkpoint / page['path'], page['sha256'], 8 * 1024**2)
