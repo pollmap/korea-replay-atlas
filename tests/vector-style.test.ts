@@ -2,18 +2,27 @@ import {describe,expect,it} from 'vitest';
 import {vectorLayers} from '../src/vector-style';
 import {mapCoverageLabel,validateMapCatalog2D,type MapTileTopic,type MapCatalog2D} from '../shared/map-tiles';
 import {validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
-import {map2DRailColorExpression} from '../shared/map2d-rail-style';
+import {map2DRailColorExpression,map2DRailLabelColorExpression,map2DRailLabelFilter} from '../shared/map2d-rail-style';
 
 const topic=(id:string):MapTileTopic=>({id,source_layer:id,minzoom:14,maxzoom:14,
   feature_count:1,bounds:[126,37,128,38],chunks:[],details:[],description:'test',geometry_precision:'display'});
 
 describe('2D rail presentation',()=>{
-  it('uses one route colour expression for lines, station borders and labels',()=>{
+  it('preserves official track/border colours while giving labels a contrast-safe palette',()=>{
     const layers=vectorLayers(topic('rail'),'rail');
     expect(layers.find(l=>l.type==='line')?.paint).toMatchObject({'line-color':map2DRailColorExpression()});
     expect(layers.find(l=>l.type==='circle')?.paint).toMatchObject({'circle-color':'#ffffff','circle-stroke-color':map2DRailColorExpression()});
-    expect(layers.find(l=>l.type==='symbol')?.paint).toMatchObject({'text-color':map2DRailColorExpression()});
+    for(const label of layers.filter(l=>l.type==='symbol'))expect(label.paint).toMatchObject({'text-color':map2DRailLabelColorExpression(),'text-halo-color':'#ffffff','text-halo-width':1.3});
     expect(validateStyleMin({version:8,glyphs:'https://example.com/{fontstack}/{range}.pbf',sources:{rail:{type:'vector',tiles:['https://example.com/{z}/{x}/{y}.mvt']}},layers})).toEqual([]);
+  });
+  it('separates route centres from stations without sending lines to point placement',()=>{
+    const layers=vectorLayers(topic('rail'),'rail');
+    const labels=layers.filter(l=>l.type==='symbol');
+    expect(labels).toHaveLength(2);
+    expect(labels[0]).toMatchObject({id:'vector-rail-label',filter:['all',['==',['geometry-type'],'LineString'],['has','name'],['!=',['get','name'],''],map2DRailLabelFilter()],layout:{'symbol-placement':'line-center','text-field':['get','name']}});
+    expect(labels[1]).toMatchObject({id:'vector-rail-station-label',filter:['all',['==',['geometry-type'],'Point'],['has','name'],['!=',['get','name'],''],map2DRailLabelFilter()],layout:{'symbol-placement':'point','text-field':['get','name']}});
+    expect(new Set(layers.map(layer=>layer.id)).size).toBe(layers.length);
+    expect(layers.every(layer=>'source' in layer&&layer.source==='rail'&&'source-layer' in layer&&layer['source-layer']==='rail')).toBe(true);
   });
 });
 
