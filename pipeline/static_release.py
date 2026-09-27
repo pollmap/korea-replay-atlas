@@ -372,6 +372,19 @@ def _same_volume(source, device):
     return source.stat().st_dev==device
 
 
+def _checked_parallel_reads(check, entries):
+    """Observe every independent read; keep results and failures in input order."""
+    results=[];first_error=None
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures=[pool.submit(check,entry) for entry in entries]
+        for future in futures:
+            try:results.append(future.result())
+            except Exception as error:
+                if first_error is None:first_error=error
+    if first_error is not None:raise first_error
+    return results
+
+
 def _verified_reuse_bundle(path):
     """Validate a completed immutable bundle, never public or build inputs."""
     bundle=Path(path).absolute();no_links(bundle)
@@ -487,13 +500,15 @@ def stage(plan, *, output=LOCAL/'deploy', worker_dir=ROOT/'dist'/'korea_replay',
     generated=[(client/'_headers',header_bytes),(client/'404.html',not_found_bytes),
                (destination/'wrangler.json',_json_bytes(config)),
                (destination/'asset-manifest.json',_json_bytes(verification))]
-    planned_copy_bytes=0
-    for entry in plan['files']:
-        if _existing_file(client/entry['target'],entry['bytes'],entry['sha256']):continue
+    def planned_asset_bytes(entry):
+        # Read-only preflight: every target was validated above. Retain complete
+        # resumed-file hashes and ancestor link checks, without serial disk I/O.
+        if _existing_file(client/entry['target'],entry['bytes'],entry['sha256']):return 0
         previous=old_assets.get(entry['target'])
         if (previous and previous['sha256']==entry['sha256'] and previous['bytes']==entry['bytes']
-            and _same_volume(reused/'client'/entry['target'],device)):continue
-        planned_copy_bytes+=entry['bytes']
+            and _same_volume(reused/'client'/entry['target'],device)):return 0
+        return entry['bytes']
+    planned_copy_bytes=sum(_checked_parallel_reads(planned_asset_bytes,plan['files']))
     for source,target,size,sha in [(catalog_source,client/'data/catalog.json',catalog_size,plan['catalog_hash']),
         *[(Path(e['path']),destination/e['target'],Path(e['path']).stat().st_size,e['sha256']) for e in worker_entries]]:
         if not _existing_file(target,size,sha):planned_copy_bytes+=size

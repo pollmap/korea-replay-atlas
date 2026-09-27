@@ -555,3 +555,41 @@ def test_concurrently_grown_source_cannot_write_beyond_checked_copy_size(tmp_pat
     with pytest.raises(ValueError,match='Source changed while copying'):
         release._copy_new(source,target,3,'0'*64)
     assert target.read_bytes()==b'012' and source.read_bytes()==b'0123456789'
+
+
+@pytest.mark.parametrize('fail', [False, True])
+def test_parallel_reads_are_bounded_ordered_and_observe_every_result(fail):
+    barrier=Barrier(4);lock=Lock();state={'active':0,'maximum':0};seen=[]
+    def check(index):
+        with lock:
+            state['active']+=1;state['maximum']=max(state['maximum'],state['active'])
+        try:
+            barrier.wait(timeout=5)
+            if fail and index in (1,2):raise ValueError('failure '+str(index))
+            return index*2
+        finally:
+            with lock:state['active']-=1;seen.append(index)
+    if fail:
+        with pytest.raises(ValueError,match='failure 1'):
+            release._checked_parallel_reads(check,range(8))
+    else:
+        assert release._checked_parallel_reads(check,range(8))==list(range(0,16,2))
+    assert sorted(seen)==list(range(8))
+    assert state=={'active':0,'maximum':4}
+
+
+def test_parallel_preflight_failure_checks_all_assets_before_any_write(fixture,monkeypatch):
+    base,input_path,client,worker,output=fixture
+    plan=release.prepare(input_path,client_dir=client,base=base,output=output)
+    first=plan['files'][0]['target'];last=plan['files'][-1]['target'];seen=[];lock=Lock()
+    def inspect(path,size,sha):
+        name=path.as_posix().split('/client/',1)[1]
+        with lock:seen.append(name)
+        if name in (first,last):raise ValueError('preflight rejected '+name)
+        return False
+    monkeypatch.setattr(release,'_existing_file',inspect)
+    with pytest.raises(ValueError,match='preflight rejected '+first):
+        release.stage(plan,output=output,worker_dir=worker)
+    assert sorted(seen)==sorted(entry['target'] for entry in plan['files'])
+    assert not (output/'bundles').exists()
+    assert not (output/'static-stage.json').exists()

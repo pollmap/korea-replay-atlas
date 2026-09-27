@@ -309,6 +309,10 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     const pointerUp=(event:PointerEvent)=>{if(resolution.pointerUp(event.pointerId))settle();};
     const wheel=()=>{resolution.beforeWheel();settle();};
     const blur=()=>{resolution.releasePointers();settle();};
+    const navigationClick=(event:MouseEvent)=>{
+      if(disposed||event.defaultPrevented||(event.currentTarget as HTMLButtonElement).disabled)return;
+      resolution.beforeNavigation();settle();report();
+    };
     // The delayed fetch-settle flag remains true after camera motion ends. Do not
     // count idle tile-arrival gaps as animation frames in the moving-frame metric.
     const onRender=()=>{frames++;if(map.isMoving()&&!document.hidden){const now=performance.now();if(lastMovingFrame!==null){frameSamples.push(now-lastMovingFrame);if(frameSamples.length>600)frameSamples.shift();}lastMovingFrame=now;}else lastMovingFrame=null;};
@@ -399,11 +403,17 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     map.on('mouseleave',REGION_MAP_LAYER,()=>{map.getCanvas().style.cursor=(latest.current.measurement?.mode??'none')==='none'?'':'crosshair';});
     map.on('mouseenter',PROVINCE_MAP_LAYER,()=>{if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';});
     map.on('mouseleave',PROVINCE_MAP_LAYER,()=>{map.getCanvas().style.cursor=(latest.current.measurement?.mode??'none')==='none'?'':'crosshair';});
+    // Only these controls: canvas measurement clicks and unrelated controls keep
+    // their existing behavior. Capture precedes MapLibre's target click listener;
+    // it neither cancels the event nor changes keyboard focus.
+    const navigationButtons=node.querySelectorAll<HTMLButtonElement>('button.maplibregl-ctrl-zoom-in,button.maplibregl-ctrl-zoom-out,button.maplibregl-ctrl-compass');
+    for(const button of navigationButtons)button.addEventListener('click',navigationClick,{capture:true,passive:true});
     const canvas=map.getCanvas();canvas.addEventListener('pointerdown',pointerDown,{capture:true,passive:true});canvas.addEventListener('wheel',wheel,{capture:true,passive:true});
     window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
       disposed=true;diagnostics.dispose();selectDongRef.current=null;boundaryController?.abort();clearRegionBoundaryCache();refreshBoundaryRef.current=null;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
+      for(const button of navigationButtons)button.removeEventListener('click',navigationClick,true);
       canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('wheel',wheel,true);window.removeEventListener('pointerup',pointerUp,true);window.removeEventListener('pointercancel',pointerUp,true);window.removeEventListener('blur',blur);resolution.dispose();
       indexController?.abort();pickController?.abort();for(const job of jobs.values())job.controller.abort();for(const waiter of [...waiters])waiter.reject();downloads.dispose();
       for(const task of pending.values()){task.detach();task.reject(abortError());}pending.clear();worker.terminate();document.removeEventListener('visibilitychange',visibility);
