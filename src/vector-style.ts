@@ -1,6 +1,6 @@
 import type {LayerSpecification} from 'maplibre-gl';
 import type {MapTileTopic} from '../shared/map-tiles';
-import {map2DRailColorExpression} from '../shared/map2d-rail-style';
+import {map2DRailColorExpression,map2DRailLabelColorExpression,map2DRailLabelFilter} from '../shared/map2d-rail-style';
 
 /** Fixed layer count per semantic topic, independent of archive count. */
 export function vectorLayers(topic:MapTileTopic,source:string):LayerSpecification[]{
@@ -13,6 +13,11 @@ export function vectorLayers(topic:MapTileTopic,source:string):LayerSpecificatio
   if(['land','water','buildings','facilities'].includes(kind))rows.push({...base,id:`${id}-fill`,type:'fill',filter:['==',['geometry-type'],'Polygon'],paint:{'fill-color':kind==='water'?'#9fd5e8':kind==='buildings'?'#e0ddd4':kind==='land'?'#f5f1e8':'#d3e9da','fill-outline-color':kind==='buildings'?'#cac6bb':kind==='water'?'#9fd5e8':'#e0e8ed','fill-opacity':.95}});
   if(['roads','rail','water'].includes(kind))rows.push({...base,id:`${id}-line`,type:'line',filter:['==',['geometry-type'],'LineString'],layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':kind==='rail'?map2DRailColorExpression():kind==='water'?'#8ccddd':['match',['coalesce',['get','highway'],['get','class'],'other'],['motorway','motorway_link'],'#d89577',['trunk','trunk_link'],'#e2b875',['primary','primary_link'],'#e7ce89','#fffdf4'],'line-width':['interpolate',['linear'],['zoom'],4,.5,9,1.2,13,2.6,17,6],'line-opacity':kind==='rail'?.8:1}});
   rows.push({...base,id:`${id}-point`,type:'circle',minzoom:8,filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':['interpolate',['linear'],['zoom'],8,1.2,16,3],'circle-color':kind==='rail'?'#ffffff':kind==='water'?'#8ccddd':'#91a7b6','circle-stroke-color':kind==='rail'?map2DRailColorExpression():'#ffffff','circle-stroke-width':kind==='rail'?1.5:0}});
-  if(['roads','rail','facilities'].includes(kind))rows.push({...base,id:`${id}-label`,type:'symbol',minzoom:kind==='roads'?13:11,filter:['all',['has','name'],['!=',['get','name'],'']],layout:{'symbol-placement':kind==='roads'?'line':'point','text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-max-width':8,'text-padding':12,'text-allow-overlap':false},paint:{'text-color':kind==='rail'?map2DRailColorExpression():'#728297','text-halo-color':'#ffffff','text-halo-width':1.3}});
+  if(kind==='rail'){
+    // Keep station names on points and route names at line centres. Point placement
+    // on a line dereferences its first subdivided vertex in MapLibre; line-centre
+    // placement also guards short line parts before trying to place a label.
+    for(const geometry of ['LineString','Point'] as const)rows.push({...base,id:`${id}-${geometry==='Point'?'station-label':'label'}`,type:'symbol',minzoom:11,filter:['all',['==',['geometry-type'],geometry],['has','name'],['!=',['get','name'],''],map2DRailLabelFilter()],layout:{'symbol-placement':geometry==='LineString'?'line-center':'point','text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-max-width':8,'text-padding':12,'text-allow-overlap':false},paint:{'text-color':map2DRailLabelColorExpression(),'text-halo-color':'#ffffff','text-halo-width':1.3}});
+  }else if(['roads','facilities'].includes(kind))rows.push({...base,id:`${id}-label`,type:'symbol',minzoom:kind==='roads'?13:11,filter:['all',['has','name'],['!=',['get','name'],'']],layout:{'symbol-placement':kind==='roads'?'line':'point','text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':11,'text-max-width':8,'text-padding':12,'text-allow-overlap':false},paint:{'text-color':'#728297','text-halo-color':'#ffffff','text-halo-width':1.3}});
   return buildingOverview?rows.map(layer=>({...layer,minzoom:12,maxzoom:14})):rows;
 }

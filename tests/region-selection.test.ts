@@ -99,7 +99,9 @@ describe('selected administrative area geometry', () => {
       expect(regionBoundaryCacheSnapshot().bytes).toBeLessThanOrEqual(4 * 1024 * 1024);
     }
     clearRegionBoundaryCache(); expect(regionBoundaryCacheSnapshot().bytes).toBe(0);
-  });
+    // This exhaustively decodes every regional fixture to assert memory bounds,
+    // not latency. Allow slower disks/parallel data builds without racing cleanup.
+  }, 30_000);
   it('does not fetch a selection that has already been cancelled', async () => {
     const controller = new AbortController(); controller.abort();
     await expect(selectedRegionBoundary('서울특별시 서대문구', date, controller.signal)).rejects.toMatchObject({name: 'AbortError'});
