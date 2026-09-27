@@ -82,7 +82,7 @@ def finish_lane(db, state, lane, selected):
                    (STATE_KEY, json.dumps(state, sort_keys=True)))
 
 
-def requeue_safe_failures(db, stamp, *, limit=5, selected=None):
+def requeue_safe_failures(db, stamp, *, limit=5, selected=None, first_acquisition_only=False):
     """Bounded durable retries of known provider failures only.
 
     A requeue consumes one of three attempts per job/KST day even if the run's
@@ -97,6 +97,8 @@ def requeue_safe_failures(db, stamp, *, limit=5, selected=None):
         job_id TEXT PRIMARY KEY, day TEXT NOT NULL, requeues INTEGER NOT NULL,
         last_retry_at TEXT NOT NULL, error_code TEXT NOT NULL)''')
     condition = ' AND j.deal_month=?' if selected else ''
+    if first_acquisition_only:
+        condition += ' AND j.snapshot IS NULL'
     rows = db.execute("""SELECT j.id,j.error_code,j.updated_at,r.day,r.requeues,r.last_retry_at
         FROM jobs j LEFT JOIN property_automation_retries r ON r.job_id=j.id
         WHERE j.status='failed' AND j.error_code IN (?,?,?,?)""" + condition +
@@ -136,12 +138,14 @@ def requeue_safe_failures(db, stamp, *, limit=5, selected=None):
             'next_retry_at': next_retry.strftime('%Y-%m-%dT%H:%M:%SZ') if next_retry else None}
 
 
-def pagination_budget_preflight(db, stamp, *, max_requests, max_bytes, selected=None):
+def pagination_budget_preflight(db, stamp, *, max_requests, max_bytes, selected=None, first_acquisition_only=False):
     """Stop proven unfinishable stale jobs before Collector restarts page one."""
     db.execute('''CREATE TABLE IF NOT EXISTS property_automation_pagination (
         job_id TEXT PRIMARY KEY, first_page_sha TEXT NOT NULL,
         required_requests INTEGER NOT NULL, required_bytes INTEGER NOT NULL)''')
     condition = ' AND j.deal_month=?' if selected else ''
+    if first_acquisition_only:
+        condition += ' AND j.snapshot IS NULL'
     rows = db.execute("""SELECT j.pages,p.first_page_sha,p.required_requests,p.required_bytes
         FROM jobs j JOIN property_automation_pagination p ON p.job_id=j.id
         WHERE j.status IN ('partial','pending')""" + condition, (selected,) if selected else ()).fetchall()
@@ -188,6 +192,20 @@ def record_pagination_budget(db, since_call, report):
                    (job, first['sha256'], required, sum(p['bytes'] for p in pages) + MAX_PAGE_BYTES))
 
 
+def acquisition_progress(db):
+    """Acquired snapshots survive refresh failures; job status is a separate axis."""
+    row = db.execute("""SELECT COUNT(*),
+        SUM(CASE WHEN snapshot IS NOT NULL THEN 1 ELSE 0 END),
+        SUM(CASE WHEN snapshot IS NOT NULL AND status IN ('pending','partial','failed') THEN 1 ELSE 0 END),
+        SUM(CASE WHEN snapshot IS NULL AND status='failed' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN snapshot IS NOT NULL AND status='failed' THEN 1 ELSE 0 END)
+        FROM jobs""").fetchone()
+    total, acquired, refresh, first_failed, refresh_failed = (int(value or 0) for value in row)
+    return {'expected_jobs': total, 'verified_snapshot_jobs': acquired,
+            'missing_snapshot_jobs': total - acquired, 'refresh_pending_jobs': refresh,
+            'first_acquisition_failed_jobs': first_failed, 'refresh_failed_jobs': refresh_failed}
+
+
 def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
                    as_of=None, mode='auto', months=121, transport=fetch_page,
                    reserve_bytes=2*1024**3):
@@ -217,11 +235,15 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
         collector = RemoteCollector(workspace, as_of=stamp, months=months, advance_window=True,
             reserve_bytes=reserve_bytes, transport=guarded_transport(guard, lease, transport))
         state, lane, selected = prepare_lane(collector.db, stamp, mode=mode, months=months)
-        retries = requeue_safe_failures(collector.db, stamp, limit=min(5, max_requests), selected=selected)
-        pagination_budget_preflight(collector.db, instant(), max_requests=max_requests, max_bytes=max_bytes, selected=selected)
+        first_only = lane == 'backfill'
+        retries = requeue_safe_failures(collector.db, stamp, limit=min(5, max_requests), selected=selected,
+                                       first_acquisition_only=first_only)
+        pagination_budget_preflight(collector.db, instant(), max_requests=max_requests, max_bytes=max_bytes, selected=selected,
+                                    first_acquisition_only=first_only)
         since_call = collector.db.execute('SELECT COALESCE(MAX(id),0) FROM calls').fetchone()[0]
         report = collector.collect(key, max_requests=max_requests, max_bytes=max_bytes,
-                                   timeout=30, collect_months=[selected] if selected else None)
+                                   timeout=30, collect_months=[selected] if selected else None,
+                                   first_acquisition_only=first_only)
         if report['stop_reason'] in UNCERTAIN_STOPS:
             raise RealEstateError('automation_recovery_required')
         # A source quota/auth failure is durably recorded, but is not a successful
@@ -229,6 +251,7 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
         if report['stop_reason'] in SUCCESS_STOPS:
             finish_lane(collector.db, state, lane, selected)
         record_pagination_budget(collector.db, since_call, report)
+        acquisition = acquisition_progress(collector.db)
         collector.close()
         collector = None
         pending = guard.query("SELECT 1 FROM collection_reservations WHERE owner=? AND generation=? AND phase='reserved' LIMIT 1",
@@ -242,7 +265,7 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
                 'status': 'collected' if report['stop_reason'] in SUCCESS_STOPS else 'source_stopped',
                 'lane': lane, 'month': selected, 'requests': report['requests'],
                 'response_bytes': report['response_bytes'], 'stop_reason': report['stop_reason'],
-                'coverage': report['coverage'], 'archive_verified': True,
+                'coverage': report['coverage'], 'acquisition': acquisition, 'archive_verified': True,
                 'retry_policy': retries,
                 'public_release': False, 'finished_at': report['finished_at'],
                 'next_retry_at': retry_at(report['stop_reason'])}

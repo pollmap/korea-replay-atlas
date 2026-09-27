@@ -65,6 +65,26 @@ def test_ten_year_window_covers_120_completed_months_plus_current():
         month_sequence(STAMP,122)
 
 
+def test_first_acquisition_filter_requires_boolean_and_preserves_refresh_queue(tmp_path):
+    calls = []
+    def fetch(*args, **kwargs):
+        calls.append(args[1]); return xml()
+    c = collector(tmp_path, fetch)
+    c.collect(KEY, max_requests=2, min_interval=0)
+    saved = [tuple(r) for r in c.db.execute('SELECT id,pages,snapshot FROM jobs ORDER BY id')]
+    with c.db:
+        c.db.execute("UPDATE jobs SET status='pending'")
+    with pytest.raises(RealEstateError, match='invalid_acquisition_filter'):
+        c.collect(KEY, max_requests=1, first_acquisition_only='false')
+    result = c.collect(KEY, max_requests=1, min_interval=0, first_acquisition_only=True)
+    assert result['requests'] == 0 and result['stop_reason'] == 'work_complete'
+    assert len(calls) == 2
+    assert [tuple(r) for r in c.db.execute('SELECT id,pages,snapshot FROM jobs ORDER BY id')] == saved
+    # Existing callers keep the default refresh-inclusive selection contract.
+    assert c.collect(KEY, max_requests=1, min_interval=0)['requests'] == 1
+    c.close()
+
+
 def test_calendar_advance_keeps_more_than_ten_years_and_all_old_records(tmp_path):
     c=Collector(tmp_path,registry(),months=121,clock=lambda:STAMP,reserve_bytes=0,
         transport=lambda *a,**kw:xml())
