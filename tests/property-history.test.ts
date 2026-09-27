@@ -164,3 +164,49 @@ it('retains other comparison regions when one region lookup fails and does not p
   const aborted=await loadComparisonHistory({atlas,items:items.slice(0,1),month:'202608',range:1,trade:'sale',signal:controller.signal,fetchJson:async()=>{controller.abort();return source;}});
   expect(aborted).toEqual({});
 });
+
+
+it('reuses validated selected-complex months after detail tabs remount without rereading regional packets',async()=>{
+  let calls=0;const fetchJson=async()=>{calls++;return packet([row(),row({id:`molit-sale:${'2'.repeat(64)}:1`,complex_id:'molit-apt:11110:other'})]);};
+  const results:HistoryResult[]=[];
+  const args={detail:detail([partition('202608',{source_rows:2,eligible_rows:2})]),end:'202608',count:1 as const,trade:'sale' as const,complex,origin:'https://example.com',signal:new AbortController().signal,onMonth:(r:HistoryResult)=>results.push(r),fetchJson};
+  await loadPropertyHistory(args);await loadPropertyHistory(args);
+  expect(calls).toBe(1);expect(results).toHaveLength(2);expect(results[1]).toEqual(results[0]);
+  expect(results[1].rows).toEqual([row()]);
+  results[1].rows.length=0;await loadPropertyHistory(args);expect(results[2].rows).toEqual([row()]);
+  expect(()=>{results[2].rows[0].issues.push({field:'test',code:'changed'});}).toThrow();
+});
+it('never reuses cached months across origins, releases, selected complexes or source hashes',async()=>{
+  let calls=0;const fetchJson=async()=>{calls++;return packet([row()]);};
+  const args={detail:detail([partition()]),end:'202608',count:1 as const,trade:'sale' as const,complex,origin:'https://example.com',signal:new AbortController().signal,onMonth:()=>{},fetchJson};
+  await loadPropertyHistory(args);
+  await loadPropertyHistory({...args,origin:'https://other.example'});
+  await loadPropertyHistory({...args,complex:'molit-apt:11110:other'});
+  await loadPropertyHistory({...args,detail:{...args.detail,release_id:'property-ffffffffffffffff'}});
+  await loadPropertyHistory({...args,detail:detail([partition('202608',{transactions:[{...partition().transactions[0],sha256:'c'.repeat(64)}]})])});
+  expect(calls).toBe(5);
+});
+it('does not promote failed or cancelled reads into a cached successful month',async()=>{
+  let calls=0,fail=true;const fetchJson=async()=>{calls++;if(fail)throw new Error('offline');return packet([row()]);};
+  const results:HistoryResult[]=[];
+  const args={detail:detail([partition()]),end:'202608',count:1 as const,trade:'sale' as const,complex,origin:'https://example.com',signal:new AbortController().signal,onMonth:(r:HistoryResult)=>results.push(r),fetchJson};
+  await loadPropertyHistory(args);fail=false;await loadPropertyHistory(args);await loadPropertyHistory(args);
+  expect(calls).toBe(2);expect(results.map(r=>r.status)).toEqual(['error','ready','ready']);
+  const controller=new AbortController();controller.abort();await loadPropertyHistory({...args,signal:controller.signal});
+  expect(results).toHaveLength(3);
+  let cancelledCalls=0;const cancelled=new AbortController();
+  const cancelledFetch=async()=>{cancelledCalls++;if(cancelledCalls===1)cancelled.abort();return packet([row()]);};
+  await loadPropertyHistory({...args,fetchJson:cancelledFetch,signal:cancelled.signal});
+  await loadPropertyHistory({...args,fetchJson:cancelledFetch});expect(cancelledCalls).toBe(2);
+});
+it('applies the same source and retained-row budgets on warm and cold history requests',async()=>{
+  let calls=0;const fetchJson=async()=>{calls++;return packet([row(),row({id:`molit-sale:${'2'.repeat(64)}:1`})]);};
+  const results:HistoryResult[]=[];
+  const args={detail:detail([partition('202608',{source_rows:2,eligible_rows:2})]),end:'202608',count:1 as const,trade:'sale' as const,complex,origin:'https://example.com',signal:new AbortController().signal,onMonth:(r:HistoryResult)=>results.push(r),fetchJson};
+  await loadPropertyHistory(args);
+  await loadPropertyHistory({...args,budget:{remaining:1000,rowsRemaining:1}});
+  await loadPropertyHistory({...args,budget:{remaining:999}});
+  await loadPropertyHistory({...args,budget:{remaining:1000,requestsRemaining:0}});
+  expect(calls).toBe(1);expect(results.slice(1).map(r=>r.reason)).toEqual(['retention_budget','download_budget','request_budget']);
+  expect(results.slice(1).every(r=>r.status==='missing'&&r.rows.length===0)).toBe(true);
+});

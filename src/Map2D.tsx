@@ -3,7 +3,7 @@ import {regionSelectionLayers,SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED
 import {MAP2D_RAIL_NEUTRAL} from '../shared/map2d-rail-style';
 import type {PropertyMapPoint} from '../shared/property-map-point';
 import {forwardRef,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
-import {Map as LibreMap,NavigationControl,ScaleControl,AttributionControl,setWorkerUrl,addProtocol,removeProtocol,type MapMouseEvent,type LayerSpecification,type GeoJSONSource} from 'maplibre-gl';
+import {Map as LibreMap,Marker,NavigationControl,ScaleControl,AttributionControl,setWorkerUrl,addProtocol,removeProtocol,type MapMouseEvent,type LayerSpecification,type GeoJSONSource} from 'maplibre-gl';
 import libreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type {Asset,BBox,Catalog,LayerId,Place} from '../shared/contracts';
@@ -39,6 +39,7 @@ const SEOUL_KAPT_SOURCE='seoul-kapt-provider-points';
 const SEOUL_KAPT_SOURCES:Readonly<Record<string,string>>={
   'property-eea48453a819f517':new URL('./data/seoul-kapt-points-b63b62af834062de.geojson',import.meta.url).href,
   'property-54bf1817fdcc7bd9':new URL('./data/seoul-kapt-points-14916a799c24a49e.geojson',import.meta.url).href,
+  'property-87d1c67336e97209':new URL('./data/seoul-kapt-points-7843533a17275616.geojson',import.meta.url).href,
 };
 const SEOUL_KAPT_BASE=new URL('./data/seoul-kapt-points-8360eb2d88be0ab4.geojson',import.meta.url).href;
 const seoulKaptUrl=(release:string)=>SEOUL_KAPT_SOURCES[release]??SEOUL_KAPT_BASE;
@@ -56,6 +57,7 @@ export const map2DSourceLayers=(source:string,asset:Asset):{layer:LayerSpecifica
 
 const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const element=useRef<HTMLDivElement>(null),mapRef=useRef<LibreMap|null>(null),refreshRef=useRef<(()=>void)|null>(null);
+  const facilityMarker=useRef<Marker|null>(null);
   const latest=useRef(props);latest.current=props;
   const [selectedDong,setSelectedDong]=useState('');
   const [dongOptions,setDongOptions]=useState<{id:string;name:string}[]>([]);
@@ -69,6 +71,8 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   useImperativeHandle(ref,()=>({
     flyTo:(place:Place,options)=>{
       const map=mapRef.current;if(!map)return;
+      facilityMarker.current?.remove();facilityMarker.current=null;
+      if(place.id.startsWith('poi:')){const label=document.createElement('div');label.className='property-poi-marker';label.textContent=place.name;label.setAttribute('role','img');label.setAttribute('aria-label',`${place.name} 지도 위치`);facilityMarker.current=new Marker({element:label,anchor:'bottom'}).setLngLat([place.lon,place.lat]).addTo(map);}
       const node=map.getContainer(),padding=map2DOverviewPadding(node.clientWidth,node.clientHeight,options?.overviewPanelVisible??!!latest.current.overviewPanelVisible,options?.focused??latest.current.focused);
       if(place.id==='korea')map.fitBounds(NATIONAL_OVERVIEW,{padding,duration:700});
       // Offset the target into the unobscured viewport without persisting camera
@@ -412,6 +416,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     window.addEventListener('pointerup',pointerUp,true);window.addEventListener('pointercancel',pointerUp,true);window.addEventListener('blur',blur);
     map.on('idle',onIdle);document.addEventListener('visibilitychange',visibility);refreshRef.current=()=>{if(!moving)refresh();};report();
     return()=>{
+      facilityMarker.current?.remove();facilityMarker.current=null;
       disposed=true;diagnostics.dispose();selectDongRef.current=null;boundaryController?.abort();clearRegionBoundaryCache();refreshBoundaryRef.current=null;refreshSelectedPointRef.current=null;refreshRef.current=null;refreshRegionsRef.current=null;mapRef.current=null;clearTimeout(settleTimer);clearInterval(liveTimer);if(commitFrame!==undefined)cancelAnimationFrame(commitFrame);
       for(const button of navigationButtons)button.removeEventListener('click',navigationClick,true);
       canvas.removeEventListener('pointerdown',pointerDown,true);canvas.removeEventListener('wheel',wheel,true);window.removeEventListener('pointerup',pointerUp,true);window.removeEventListener('pointercancel',pointerUp,true);window.removeEventListener('blur',blur);resolution.dispose();

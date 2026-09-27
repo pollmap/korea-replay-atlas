@@ -1,7 +1,17 @@
 import {createHash} from 'node:crypto';
 import {afterEach,expect,it,vi} from 'vitest';
-import {fetchPinnedJson,atlasNetworkStats} from '../src/atlas-client';
+import {fetchPinnedJson,fetchPinnedPoiJson,atlasNetworkStats} from '../src/atlas-client';
 afterEach(()=>vi.unstubAllGlobals());
+it('shares hash-verified facility assets without widening the data URL contract',async()=>{
+  vi.stubGlobal('location',{origin:'https://example.com'});
+  const body='{"case":"facilities"}',sha256=createHash('sha256').update(body).digest('hex'),ref={sha256,bytes:Buffer.byteLength(body)};
+  const url=`/assets/poi-${sha256}-abcdefgh.json`,fetcher=vi.fn(async()=>new Response(body));vi.stubGlobal('fetch',fetcher);
+  expect(await fetchPinnedPoiJson(url,ref,new AbortController().signal)).toEqual({case:'facilities'});
+  expect(await fetchPinnedPoiJson(url,ref,new AbortController().signal)).toEqual({case:'facilities'});expect(fetcher).toHaveBeenCalledTimes(1);
+  await expect(fetchPinnedPoiJson(url,{...ref,bytes:ref.bytes+1},new AbortController().signal)).rejects.toThrow('크기');
+  for(const invalid of ['https://other.example'+url,url+'?x=1','/assets/unlisted.json'])await expect(fetchPinnedPoiJson(invalid,ref,new AbortController().signal)).rejects.toThrow('참조');
+  await expect(fetchPinnedJson({...ref,url},'https://example.com',new AbortController().signal)).rejects.toThrow('참조');
+});
 const reference=(body:string,path:string)=>({url:`/data/${path}.json`,sha256:createHash('sha256').update(body).digest('hex'),bytes:Buffer.byteLength(body)});
 it('shares one verified response and preserves the request when one subscriber leaves',async()=>{
   const body='{"case":"shared"}',ref=reference(body,'shared');let finish!:(value:Response)=>void;

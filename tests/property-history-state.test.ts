@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest';
-import {commonHistoryMonths,historyMonthStatus,publishedHistoryCoverage,shiftHistoryEnd} from '../src/property-history-state';
+import {commonHistoryMonths,historyMonthStatus,historyRefreshSummary,publishedHistoryCoverage,shiftHistoryEnd} from '../src/property-history-state';
 import type {HistoryResult} from '../src/property-history-loader';
 import type {PropertyRegionDetail} from '../shared/property';
 
@@ -36,4 +36,21 @@ it('moves contiguous period windows across year boundaries without timezone drif
   expect(shiftHistoryEnd('202608',240,-1)).toBe('200608');
   expect(shiftHistoryEnd('200608',240,1)).toBe('202608');
   expect(()=>shiftHistoryEnd('202613',3,-1)).toThrow();
+});
+
+it('labels refreshed snapshots separately from download status and only summarizes the selected trade and period',()=>{
+  const detail={partitions:[
+    {deal_month:'202608',trade_type:'sale',status:'complete',retrieved_at:'2026-09-19T00:00:00Z',refresh:{status:'failed',error_code:'upstream_timeout',attempted_at:'2026-09-22T00:00:00Z'}},
+    {deal_month:'202607',trade_type:'sale',status:'empty',retrieved_at:'2026-09-20T00:00:00Z',refresh:{status:'pending',error_code:null,attempted_at:null}},
+    {deal_month:'202606',trade_type:'sale',status:'pending',retrieved_at:null},
+    {deal_month:'202608',trade_type:'rent',status:'complete',retrieved_at:'2026-09-21T00:00:00Z',refresh:{status:'partial',error_code:null,attempted_at:null}},
+  ]} as PropertyRegionDetail;
+  expect(historyRefreshSummary(detail,'sale',['202607','202608'])).toEqual({count:2,firstSuccess:'2026-09-19',lastSuccess:'2026-09-20'});
+  expect(historyRefreshSummary(detail,'sale',['202606'])).toEqual({count:0,firstSuccess:null,lastSuccess:null});
+  expect(historyMonthStatus(result('202608','ready'),detail.partitions[0])).toContain('자료 확인 · 갱신 실패 · 이전 확인본 유지');
+  expect(historyMonthStatus(result('202608','error'),detail.partitions[0])).toContain('조회 실패 · 재시도 가능 · 갱신 실패');
+  expect(historyMonthStatus(result('202607','ready'),detail.partitions[1])).toContain('갱신 대기');
+  expect(historyMonthStatus(result('202608','ready'),detail.partitions[3])).toContain('갱신 일부 확인');
+  expect(historyMonthStatus(result('202608','ready'),detail.partitions[0])).toContain('2026-09-19');
+  expect(historyMonthStatus(result('202608','ready'),detail.partitions[0])).not.toContain('2026-09-22');
 });

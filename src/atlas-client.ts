@@ -38,15 +38,26 @@ export interface PinnedJson {path?:string;url?:string;sha256:string;bytes?:numbe
 export async function fetchPinnedJson(reference:PinnedJson,origin:string,signal:AbortSignal):Promise<unknown>{
   const path=reference.path??reference.url;
   if(!safeDataPath(path)||!/^[a-f0-9]{64}$/.test(reference.sha256))throw new Error('자료의 고정 참조를 확인하지 못했습니다.');
+  return fetchVerifiedJson(new URL(path,origin).href,reference,signal);
+}
+/** Vite-published, source-audited POI assets use the same download slots and bounded cache. */
+export async function fetchPinnedPoiJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
+  const parsed=new URL(url,location.origin);
+  const production=/^\/assets\/poi-[a-f0-9]{64}-[A-Za-z0-9_-]{8}\.json$/;
+  const development=/^\/src\/data\/property-poi\/poi-[a-f0-9]{64}\.json$/;
+  if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256))throw new Error('시설 자료의 고정 참조를 확인하지 못했습니다.');
+  return fetchVerifiedJson(parsed.href,reference,signal);
+}
+async function fetchVerifiedJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
-  const key=new URL(path,origin).href+':'+reference.sha256,expected=reference.byte_length??reference.bytes,cached=jsonCache.get(key);
+  const key=url+':'+reference.sha256,expected=reference.byte_length??reference.bytes,cached=jsonCache.get(key);
   if(cached){if(expected!==undefined&&cached.bytes!==expected)throw new Error('자료의 크기가 검증된 목록과 다릅니다.');jsonCache.delete(key);jsonCache.set(key,cached);return cached.data;}
   let request=jsonRequests.get(key);
   if(request?.controller.signal.aborted){jsonRequests.delete(key);request=undefined;}
   if(!request){
     if(jsonRequests.size>=128)throw new Error('자료 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
     const controller=new AbortController();
-    request={controller,promise:loadPinnedJson(new URL(path,origin).href,reference.sha256,key,controller.signal),subscribers:0};
+    request={controller,promise:loadPinnedJson(url,reference.sha256,key,controller.signal),subscribers:0};
     jsonRequests.set(key,request);
     const current=request;
     const settled=()=>{if(jsonRequests.get(key)===current)jsonRequests.delete(key);};

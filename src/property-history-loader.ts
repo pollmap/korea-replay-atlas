@@ -2,12 +2,16 @@ import {parsePropertyTransactions,type PropertyRegionDetail,type PropertySource,
 import {historyPlan,type HistoryRange} from '../shared/property-history';
 import {historySourceStart} from '../shared/property-source-period';
 import {fetchPinnedJson} from './atlas-client';
+import {HistoryMonthCache,historyMonthCacheKey} from './property-history-cache';
+
+const historyCaches=new WeakMap<typeof fetchPinnedJson,HistoryMonthCache>();
 
 export interface HistoryResult {month:string;status:'ready'|'missing'|'error';rows:PropertyTransaction[];reason?:string;}
 export const HISTORY_LIMITS={bytes:24*1024*1024,requests:512,rows:20_000} as const;
 export interface HistoryBudget {remaining:number;requestsRemaining?:number;rowsRemaining?:number;}
 /** Two month jobs at a time; the shared network gate still enforces four global slots. */
 export async function loadPropertyHistory({detail,end,count,trade,complex,origin,signal,onMonth,fetchJson=fetchPinnedJson,budget={remaining:HISTORY_LIMITS.bytes},sources}:{detail:PropertyRegionDetail;end:string;count:HistoryRange;trade:'sale'|'rent';complex:string|readonly string[];origin:string;signal:AbortSignal;onMonth:(result:HistoryResult)=>void;fetchJson?:typeof fetchPinnedJson;budget?:HistoryBudget;sources?:readonly PropertySource[]}){
+  let cache=historyCaches.get(fetchJson);if(!cache){cache=new HistoryMonthCache();historyCaches.set(fetchJson,cache);}
   const plan=historyPlan(detail,end,count,trade).reverse();
   const sourceStart=historySourceStart(trade,sources);
   budget.requestsRemaining??=HISTORY_LIMITS.requests;budget.rowsRemaining??=HISTORY_LIMITS.rows;
@@ -23,6 +27,11 @@ export async function loadPropertyHistory({detail,end,count,trade,complex,origin
     budget.remaining-=bytes;
     budget.requestsRemaining!-=partition.transactions.length;
     try{
+      const cacheKey=historyMonthCacheKey(origin,detail.release_id,detail.lawd_code,partition,complexIds),cached=cache.get(cacheKey);
+      if(cached){
+        if(cached.length>budget.rowsRemaining!)throw new Error('retention_budget');
+        budget.rowsRemaining!-=cached.length;onMonth({month,status:'ready',rows:cached});continue;
+      }
       const kept:PropertyTransaction[]=[];let sourceCount=0;const ids=new Set<string>();
       for(const ref of partition.transactions){
         const data=parsePropertyTransactions(await fetchJson(ref,origin,signal));
@@ -32,7 +41,7 @@ export async function loadPropertyHistory({detail,end,count,trade,complex,origin
       }
       if(sourceCount!==partition.source_rows)throw new Error('history_row_count_mismatch');
       if(kept.length>budget.rowsRemaining!)throw new Error('retention_budget');
-      if(!signal.aborted){budget.rowsRemaining!-=kept.length;onMonth({month,status:'ready',rows:kept});}
+      if(!signal.aborted){cache.set(cacheKey,kept);budget.rowsRemaining!-=kept.length;onMonth({month,status:'ready',rows:kept});}
     }catch(error){if(signal.aborted)return;const reason=error instanceof Error?error.message:'history_load_error';onMonth({month,status:reason==='retention_budget'?'missing':'error',rows:[],reason});}
   }};
   await Promise.all([run(),run()]);

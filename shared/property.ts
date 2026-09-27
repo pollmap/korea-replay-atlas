@@ -2,6 +2,7 @@ import {areaMatches,NATIONAL_AREA} from './property-area';
 /** Immutable official-report release. Counts never turn missing/failed queries into zero. */
 export type PropertyTradeType = 'sale' | 'rent';
 export type PropertyStatus = 'complete' | 'empty' | 'failed' | 'pending' | 'partial' | 'source_unavailable';
+export interface PropertyRefresh {status:'pending'|'partial'|'failed';error_code:string|null;attempted_at:string|null;}
 export interface PropertyAsset { url:string; sha256:string; bytes:number; }
 export interface PropertyPeriod { from:string; to:string; latest_complete_month:string; }
 export interface PropertyCoverage {
@@ -14,7 +15,7 @@ export interface PropertySource {
 }
 export interface PropertyRelease {
   schema_version:1; kind:'property-release'; release_id:string; generated_at:string;
-  period:PropertyPeriod; coverage:PropertyCoverage; sources:PropertySource[];
+  period:PropertyPeriod; coverage:PropertyCoverage; collection_coverage?:PropertyCoverage; sources:PropertySource[];
   code_registry:{source_url:string; retrieved_at:string; sha256:string; current_region_count:number};
   /** Small nationwide list; each region points to its own 61-month work/index file. */
   regions:PropertyAsset;
@@ -22,6 +23,7 @@ export interface PropertyRelease {
   caveats:string[];
 }
 export interface RegionMetric {
+  refresh?:PropertyRefresh;
   lawd_code:string; deal_month:string; trade_type:PropertyTradeType; status:PropertyStatus;
   source_rows:number|null; eligible_rows:number|null; cancelled_rows:number|null;
   invalid_rows:number|null; statistics_excluded_rows:number|null; complex_count:number|null; retrieved_at:string|null;
@@ -32,13 +34,14 @@ export interface RegionMetric {
 }
 export interface PropertyRegion {
   lawd_code:string; name:string; legal_code:string;
-  index:PropertyAsset; coverage:PropertyCoverage;
+  index:PropertyAsset; coverage:PropertyCoverage; collection_coverage?:PropertyCoverage;
   latest:{sale:RegionMetric;rent:RegionMetric};
 }
 export interface PropertyRegions {
   schema_version:1; kind:'property-regions'; release_id:string; regions:PropertyRegion[];
 }
 export interface PropertyPartition {
+  refresh?:PropertyRefresh;
   lawd_code:string; deal_month:string; trade_type:PropertyTradeType; status:PropertyStatus;
   source_rows:number|null; eligible_rows:number|null; retrieved_at:string|null;
   /** Same physical month asset may hold sale and rent. Filter trade_type after decoding. */
@@ -46,7 +49,7 @@ export interface PropertyPartition {
 }
 export interface PropertyRegionDetail {
   schema_version:1; kind:'property-region'; release_id:string;
-  lawd_code:string; name:string; period:PropertyPeriod; coverage:PropertyCoverage;
+  lawd_code:string; name:string; period:PropertyPeriod; coverage:PropertyCoverage; collection_coverage?:PropertyCoverage;
   metrics:RegionMetric[]; partitions:PropertyPartition[]; complexes:PropertyAsset|null;
 }
 export interface VerifiedPropertyPosition {
@@ -107,6 +110,24 @@ function coverage(v:unknown):v is PropertyCoverage{return obj(v)
   &&(v.source_unavailable===undefined||nat(v.source_unavailable))
   &&v.expected===(v.complete as number)+(v.empty as number)+(v.failed as number)+(v.pending as number)+(v.partial as number)+((v.source_unavailable as number|undefined)??0)
   &&v.historical_coverage==='current_codes_only_pending_effective_date_crosswalk';}
+function collectionCoverage(v:Record<string,unknown>):boolean {
+  if(v.collection_coverage===undefined)return true;
+  const c=v.collection_coverage;
+  return coverage(c)&&coverage(v.coverage)&&c.expected===v.coverage.expected
+    &&Object.keys(c).every(key=>['expected','complete','empty','failed','pending','partial','source_unavailable','historical_coverage'].includes(key));
+}
+function refreshValid(v:Record<string,unknown>):boolean {
+  if(v.refresh===undefined)return true;
+  const r=v.refresh;
+  return obj(r)&&Object.keys(r).length===3&&['status','error_code','attempted_at'].every(key=>Object.hasOwn(r,key))
+    &&(v.status==='complete'||v.status==='empty')&&stamp(v.retrieved_at)
+    &&typeof r.status==='string'&&['pending','partial','failed'].includes(r.status)
+    &&(r.error_code===null||typeof r.error_code==='string'&&/^[a-z_]{1,80}$/.test(r.error_code))
+    &&(r.attempted_at===null||stamp(r.attempted_at)&&r.attempted_at>=v.retrieved_at);
+}
+function refreshEqual(a:PropertyRefresh|undefined,b:PropertyRefresh|undefined):boolean {
+  return a===undefined||b===undefined?a===b:a.status===b.status&&a.error_code===b.error_code&&a.attempted_at===b.attempted_at;
+}
 /** Stored releases can grow past the UI's 240-month window; retain a finite input bound. */
 export const MAX_PROPERTY_PERIOD_MONTHS=1200;
 function periodMonths(from:string,to:string):number{return (Number(to.slice(0,4))-Number(from.slice(0,4)))*12+Number(to.slice(4))-Number(from.slice(4))+1;}
@@ -118,7 +139,7 @@ function base(v:unknown,kind:string):v is Record<string,unknown>{return obj(v)&&
 function nullableNat(v:unknown):boolean{return v===null||nat(v);}
 function nullableText(v:unknown):boolean{return v===null||text(v);}
 function metric(v:unknown):v is RegionMetric{
-  if(!obj(v)||!code(v.lawd_code)||!month(v.deal_month)||!['sale','rent'].includes(String(v.trade_type))
+  if(!obj(v)||!refreshValid(v)||!code(v.lawd_code)||!month(v.deal_month)||!['sale','rent'].includes(String(v.trade_type))
     ||!STATUSES.has(String(v.status))||!['source_rows','eligible_rows','cancelled_rows','invalid_rows','statistics_excluded_rows','complex_count','median_price_per_m2_krw'].every(k=>nullableNat(v[k]))
     ||!(v.retrieved_at===null||stamp(v.retrieved_at))||v.statistic!=='reported-row-median-price-per-m2'
     ||v.cancellation_policy!==(v.trade_type==='sale'?'exclude_cancelled_and_unknown':'source_not_provided'))return false;
@@ -135,7 +156,7 @@ function fail():never{throw new Error('invalid_property_data');}
 function ownAsset(v:PropertyAsset,release:unknown){return v.url.startsWith(`/data/property/${String(release)}/`);}
 
 export function parsePropertyRelease(v:unknown):PropertyRelease{
-  if(!base(v,'property-release')||!stamp(v.generated_at)||!period(v.period)||!coverage(v.coverage)
+  if(!base(v,'property-release')||!stamp(v.generated_at)||!period(v.period)||!coverage(v.coverage)||!collectionCoverage(v)
     ||!asset(v.regions)||!ownAsset(v.regions,v.release_id)||!obj(v.code_registry)
     ||v.code_registry.source_url!=='https://www.code.go.kr/stdcodesrch/codeAllDownloadL.do'
     ||!stamp(v.code_registry.retrieved_at)||!hash(v.code_registry.sha256)||!nat(v.code_registry.current_region_count)
@@ -153,13 +174,13 @@ export function parsePropertyRegions(v:unknown):PropertyRegions{
   const seen=new Set<string>();
   for(const r of v.regions){if(!obj(r)||!code(r.lawd_code)||seen.has(r.lawd_code)||!text(r.name)
     ||r.legal_code!==r.lawd_code+'00000'||!asset(r.index)||!ownAsset(r.index,v.release_id)
-    ||!coverage(r.coverage)||!obj(r.latest)||!metric(r.latest.sale)||!metric(r.latest.rent)
+    ||!coverage(r.coverage)||!collectionCoverage(r)||!obj(r.latest)||!metric(r.latest.sale)||!metric(r.latest.rent)
     ||r.latest.sale.trade_type!=='sale'||r.latest.rent.trade_type!=='rent'||r.latest.sale.deal_month!==r.latest.rent.deal_month
     ||r.latest.sale.lawd_code!==r.lawd_code||r.latest.rent.lawd_code!==r.lawd_code)return fail();seen.add(r.lawd_code);}
   return v as unknown as PropertyRegions;
 }
 export function parsePropertyRegionDetail(v:unknown):PropertyRegionDetail{
-  if(!base(v,'property-region')||!code(v.lawd_code)||!text(v.name)||!period(v.period)||!coverage(v.coverage)
+  if(!base(v,'property-region')||!code(v.lawd_code)||!text(v.name)||!period(v.period)||!coverage(v.coverage)||!collectionCoverage(v)
     ||!(v.complexes===null||asset(v.complexes)&&ownAsset(v.complexes,v.release_id))
     ||!Array.isArray(v.metrics)||!v.metrics.every(m=>metric(m)&&m.lawd_code===v.lawd_code)
     ||!Array.isArray(v.partitions)||v.partitions.length>periodMonths(v.period.from,v.period.to)*2||v.partitions.length!==v.metrics.length)return fail();
@@ -167,13 +188,20 @@ export function parsePropertyRegionDetail(v:unknown):PropertyRegionDetail{
   for(const m of v.metrics as RegionMetric[]){const key=`${m.deal_month}/${m.trade_type}`;
     if(metrics.has(key)||m.deal_month<v.period.from||m.deal_month>v.period.to)return fail();metrics.set(key,m);}
   if(v.coverage.expected!==v.partitions.length)return fail();
-  for(const p of v.partitions){if(!obj(p)||p.lawd_code!==v.lawd_code||!month(p.deal_month)||!['sale','rent'].includes(String(p.trade_type))
+  for(const p of v.partitions){if(!obj(p)||!refreshValid(p)||p.lawd_code!==v.lawd_code||!month(p.deal_month)||!['sale','rent'].includes(String(p.trade_type))
     ||!STATUSES.has(String(p.status))||!nullableNat(p.source_rows)||!nullableNat(p.eligible_rows)
     ||!(p.retrieved_at===null||stamp(p.retrieved_at))||!Array.isArray(p.transactions)
     ||!p.transactions.every(a=>asset(a)&&ownAsset(a,v.release_id))||!(p.error_code===null||typeof p.error_code==='string'&&/^[a-z_]{1,80}$/.test(p.error_code)))return fail();
     const key=`${p.deal_month}/${String(p.trade_type)}`;if(seen.has(key))return fail();seen.add(key);
     const m=metrics.get(key);if(!m||['status','source_rows','eligible_rows','retrieved_at'].some(k=>p[k]!==m[k as keyof RegionMetric]))return fail();
+    if(!refreshEqual(p.refresh as PropertyRefresh|undefined,m.refresh))return fail();
+    if(p.refresh!==undefined&&p.error_code!==null)return fail();
     if(!['complete','empty'].includes(String(p.status))&&(p.source_rows!==null||p.eligible_rows!==null||p.transactions.length!==0))return fail();
+  }
+  if(v.collection_coverage!==undefined){
+    const collected=v.collection_coverage as PropertyCoverage,counts=new Map<string,number>();
+    for(const p of v.partitions as PropertyPartition[]){const status=p.refresh?.status??p.status;counts.set(status,(counts.get(status)??0)+1);}
+    for(const status of STATUSES)if((collected[status as keyof PropertyCoverage]??0)!==(counts.get(status)??0))return fail();
   }
   return v as unknown as PropertyRegionDetail;
 }

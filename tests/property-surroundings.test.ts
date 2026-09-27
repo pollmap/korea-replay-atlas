@@ -21,7 +21,7 @@ it('provides category, radius, subtype and order controls before connecting data
   const html=render();
   for(const text of ['교통','학교','생활','개발계획','500m','1km','3km','가까운순','이름순','교통 목록','자료 연결 전','반경 1km'])expect(html).toContain(text);
   expect(html).not.toContain('0곳');expect(html).not.toContain('불러오는 중');expect(html).not.toContain('가역');
-  expect(html).toContain('단지 외부 지도');expect(html).toContain('네이버');
+  expect(html).toContain('단지 외부 지도');expect(html).toContain('네이버');expect(html).not.toContain('<option value="road">');
 });
 
 it('filters the actual distance and subtype and orders the selected records',()=>{
@@ -67,4 +67,11 @@ it('does not count duplicate or mismatched-category records as complete coverage
   const school:SurroundingsRecord={id:'school',category:'school',type:'elementary',name:'검증학교',distanceMeters:400,source};
   expect(surroundingsView(ready({records:[school]}),scope,DEFAULT_SURROUNDINGS_FILTER)).toMatchObject({state:'error',count:null});
   expect(surroundingsView(ready({category:'school',records:[school]}),scope,surroundingsFilterChange(DEFAULT_SURROUNDINGS_FILTER,{category:'school'}))).toMatchObject({state:'ready',count:1,records:[school]});
+});
+it('bounds dense facility lists to twenty rows without dropping source records',()=>{
+  const many=Array.from({length:85},(_,i)=>({...records[0],id:`facility-${i}`,name:`시설 ${i}`}));
+  const html=render(ready({records:many,complete:false}));
+  expect(html.match(/<li>/g)).toHaveLength(20);
+  expect(html).toContain('지도기록 85개');expect(html).toContain('시설 목록 페이지');
+  expect(html).toContain('다음 시설');expect(html).not.toContain('시설 84');
 });

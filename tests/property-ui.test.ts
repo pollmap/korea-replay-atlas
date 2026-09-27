@@ -106,3 +106,12 @@ it('keeps compact-list controls out of 3D, officetel and pending apartment-detai
     expect(html).not.toContain('class="property-mobile-list-context"');
   }
 });
+
+it('discloses retained last-success snapshots without calling the new refresh successful or inventing zero transactions',()=>{
+  const detail={release_id:release,period,partitions:[{deal_month:'202608',trade_type:'sale',status:'complete',source_rows:1,eligible_rows:1,
+    retrieved_at:'2026-09-19T00:00:00Z',transactions:[],error_code:null,refresh:{status:'failed',error_code:'upstream_timeout',attempted_at:'2026-09-22T00:00:00Z'}}]} as unknown as PropertyRegionDetail;
+  const complex={id:'molit-apt:11110:test'} as PropertyComplex;
+  const html=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'',onArea:()=>{},range:3,onRange:()=>{},includeReview:false}));
+  expect(html).toContain('이전 확인본 유지 1개월');expect(html).toContain('월별 마지막 성공(UTC) 2026-09-19');
+  expect(html).toContain('갱신 실패');expect(html).not.toContain('2026-09-22');expect(html).not.toContain('확인 0건');
+});

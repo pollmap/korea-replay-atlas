@@ -41,3 +41,9 @@
 `shared/data/map2d-rail-colors.json`은 OSM 노선 관계에서 추출한 파생 식별표이며 ODbL 1.0이 적용됩니다. 자체 코드의 MIT 라이선스와 별개입니다. 원본 버전·SHA와 노선별 관계 근거는 해당 JSON 및 `docs/MAP2D_RAIL_COLORS.md`에 보존합니다.
 
 `src/data/region-selection*.json`과 경계 자산 폴더는 SGIS 2025-06-30 행정구역 원본의 표시용 파생자료입니다. 원천 공개 조건(이용허락범위 제한 없음), 원본 SHA·기준일·표시 오차는 `docs/SELECTED_REGION_BOUNDARIES.md`에 기록하며 자체 코드 MIT와 구분합니다.
+
+## 주변 시설 파생 데이터베이스
+
+`src/data/property-poi/`는 © OpenStreetMap contributors의 2026-09-15T20:20:37Z 한국 스냅샷에서 추출한 파생 데이터베이스입니다. **ODbL 1.0**으로 제공하며 루트 MIT는 이 데이터에 적용되지 않습니다. 원본은 Geofabrik 한국 PBF이며 SHA, 출처 URL, 시설 원본 ID, 위치 산정 방식 및 분류 근거를 manifest와 각 레코드에 보존합니다. 이 폴더의 JSON 및 `pipeline/property_poi.py`가 공개된 파생 데이터와 재생성 방법입니다. [라이선스 전문](https://opendatacommons.org/licenses/odbl/1-0/), [출처 표시 안내](https://www.openstreetmap.org/copyright).
+
+경기·서울·인천·천안·아산·세종·청주·대전·부산의 SGIS 표시 경계로 범위를 선택했습니다. 완전한 시설 명부, 최신 영업 상태, 통학 배정 또는 도보 경로를 보증하지 않습니다. 점은 원천 노드, 면 내부 대표점 또는 선의 중간점으로 구분하며 단지 연결이 불확실하면 사용자가 선택한 지도 기준점의 직선거리를 표시합니다.

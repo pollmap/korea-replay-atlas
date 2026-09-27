@@ -3,8 +3,22 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import data from '../src/data/seoul-apartment-facts.json';
 import navigation from '../src/data/seoul-property-navigation.json';
+import refreshedData from '../src/data/seoul-apartment-facts-87d1c67336e97209.json';
+import refreshedNavigation from '../src/data/seoul-property-navigation-87d1c67336e97209.json';
 import {apartmentFactsIndex,parkingPerHousehold} from '../shared/property-facts';
 import ApartmentFacts,{createApartmentFactsLookup} from '../src/ApartmentFacts';
+
+it('preserves every audited fact under the newly published transaction release',()=>{
+  const index=apartmentFactsIndex(refreshedData),ids=new Map(refreshedNavigation.points.map(row=>[row[0],row[1]]));
+  expect(index.property_release_id).toBe('property-87d1c67336e97209');
+  expect(index.rows).toEqual(apartmentFactsIndex(data).rows);
+  expect(index.rows).toHaveLength(842);
+  for(const row of index.rows)expect(ids.get(row.complex_id)).toBe(row.kapt_code);
+  expect(refreshedData.coordinate_verification).toBe('not_performed');
+  const html=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:'molit-apt:11710:11710-8865',release:index.property_release_id}));
+  expect(html).toContain('9,510세대');expect(html).toContain('12,096대');
+  expect(html).not.toContain('자료 연결 전');
+});
 
 it('ties every published fact to exactly the existing audited identity without upgrading coordinates',()=>{
   const index=apartmentFactsIndex(data),ids=new Map(navigation.points.map(row=>[row[0],row[1]]));
