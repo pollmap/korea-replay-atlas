@@ -7,7 +7,7 @@ import pytest
 
 from pipeline.real_estate import RealEstateError, sha256
 from pipeline.real_estate_archive import (D1Archive, backup, restore, audit_checkpoint,
-    checked_path, decode_object, validate_manifest, raw_storage_allowance, SHARD_CAP, CHUNK)
+    checked_path, decode_object, validate_manifest, raw_storage_allowance, SHARD_CAP, CHUNK, xz_object_key)
 from test_real_estate_fetch import collector, xml, rent
 
 
@@ -51,8 +51,10 @@ def test_real_collector_roundtrip_preserves_jobs_raw_snapshots_and_calls(tmp_pat
 
 def test_missing_chunk_or_tampered_payload_never_restores_as_success(tmp_path):
     root=source(tmp_path); store=LocalD1(); backup(root,store)
-    head=store.head(); db=store.databases[store.database(head['sha256'])]
-    db.execute('DELETE FROM archive_chunks WHERE digest=?',[head['sha256']]); db.commit()
+    head=store.head()
+    for key in [head['sha256'], xz_object_key(head['sha256'])]:
+        db=store.databases[store.database(key)]
+        db.execute('DELETE FROM archive_chunks WHERE digest=?',[key]); db.commit()
     with pytest.raises(RealEstateError,match='missing_chunk'):
         restore(tmp_path/'restored',store)
     assert not (tmp_path/'restored').exists()
@@ -168,8 +170,9 @@ def test_long_object_crosses_remote_query_page_without_losing_chunks():
     raw=random.Random(4).randbytes(48*1024*33+17)
     store=LocalD1();ref=store.put(raw)
     assert store.get(ref['sha256'],ref['bytes'])==raw
-    db=store.databases[store.database(ref['sha256'])]
-    db.execute('DELETE FROM archive_chunks WHERE digest=? AND part=2',[ref['sha256']]);db.commit()
+    for key in [ref['sha256'], xz_object_key(ref['sha256'])]:
+        db=store.databases[store.database(key)]
+        db.execute('DELETE FROM archive_chunks WHERE digest=? AND part=2',[key]);db.commit()
     with pytest.raises(RealEstateError,match='missing_chunk'):store.get(ref['sha256'],ref['bytes'])
 
 

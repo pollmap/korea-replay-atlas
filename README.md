@@ -8,7 +8,7 @@
 
 2026-09-27 확인한 공개판은 서울·인천·경기·대전·세종·충남·충북의 상세 2D 건물·도로와 기존 아파트 실거래 자료를 제공합니다. 지역 선택·경계 강조·국평 필터·전용 평당가·단지 비교·관심 저장·외부 길찾기·지도 집중을 지원합니다. 3D 코드와 원본은 보존하며 새 개발의 대상으로 삼지 않습니다.
 
-최신 검증된 앱 artifact는 `ae5577aa1e5ae71f8053eed2473d5a483b8b0dc64e4fb9cedc9e91ac9647be16`, snapshot은 `https://fe60ae5f.korea-replay.pages.dev`입니다. [PR #48](https://github.com/pollmap/korea-replay-atlas/pull/48)까지 병합·공개 검증됐습니다. 이후 변경은 후보·병합·공개를 별도로 기록합니다. [상세 지도 검증](docs/CAPITAL_DETAIL_RELEASE_20260927.md), [Pages 운영](docs/PAGES_DEPLOYMENT.md).
+2026-09-28 최신 검증된 앱 artifact는 `1f4d796c585e6fd2bc2a031685ad3cfad4e176fa5143e8146f59ce8ecb2886c2`, snapshot은 `https://7d55c901.korea-replay.pages.dev`입니다. [PR #50](https://github.com/pollmap/korea-replay-atlas/pull/50)까지 병합·공개 검증됐습니다. 지정 9개 권역의 주변 시설 기록과 `property-87d1c67336e97209`의 2,276,757개 거래 행을 제공하며, 자료 누락·미확인 단지 위치는 별도로 표시합니다. 이후 서버 수집 성공과 공개 게시를 혼동하지 않습니다. [주변 시설·거래 보존](docs/NEARBY_FACILITIES_RELEASE_20260928.md), [상세 지도 검증](docs/CAPITAL_DETAIL_RELEASE_20260927.md), [Pages 운영](docs/PAGES_DEPLOYMENT.md).
 
 **전체 제품 완료 또는 경쟁 서비스와 모든 기능이 동등하다는 판정은 아직 아닙니다.** 거래 이력은 게시된 지역·월만 보여주며, 20년 선택 기능이 수집 완료를 뜻하지 않습니다. 매매는 공식 공개체계 2006-01 이후, 전월세 확정일자는 2011-01 이후입니다. 원천 제공 전·미수집·실패·실제 0건을 구분합니다. [원천과 이용조건](docs/PROPERTY_SOURCE_RIGHTS_20260927.md). 오피스텔 공개 연결, 단지 좌표와 상세정보의 전국 검증, 공급·인구·학군 및 연속 장기 이력은 남은 인수 항목으로 관리합니다.
 

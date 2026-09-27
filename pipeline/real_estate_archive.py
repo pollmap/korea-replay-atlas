@@ -10,6 +10,7 @@ import base64
 from contextlib import closing
 import http.client
 import json
+import lzma
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -28,11 +29,44 @@ PACK_BYTES = 8 * 1024**2
 SHARD_CAP = 380 * 1024**2
 HASH = re.compile(r'[a-f0-9]{64}\Z')
 PREFIXES = {'raw', 'snapshots', 'registry', 'runs', 'changes', 'history-windows'}
+XZ_OBJECT_HEADER = b'KRAR\x01XZ3\x00'
+XZ_MEMORY_LIMIT = 64 * 1024**2
+
+
+def encode_object(raw, *, codec=None):
+    """Versioned new objects; adaptive storage never exceeds the legacy zlib size.
+
+    A forced codec is only for resuming an existing object's immutable chunks.
+    No existing digest is rewritten or silently migrated to another encoding.
+    """
+    if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_FILE:
+        raise RealEstateError('archive_file_limit')
+    if codec not in (None, 'zlib', 'xz3-v1'):
+        raise RealEstateError('archive_object_encoding')
+    if codec == 'xz3-v1':
+        stream = lzma.compress(raw, format=lzma.FORMAT_XZ,
+                               check=lzma.CHECK_CRC64, preset=3)
+        # The first immutable chunk commits to the whole compressed stream,
+        # including when different library versions encode the same raw bytes.
+        return XZ_OBJECT_HEADER + bytes.fromhex(sha256(stream)) + stream
+    legacy = zlib.compress(raw, 6)
+    if codec == 'zlib':
+        return legacy
+    candidate = encode_object(raw, codec='xz3-v1')
+    return candidate if len(candidate) < len(legacy) else legacy
+
+
+def xz_object_key(digest):
+    """Separate storage address: an old zlib-only writer cannot mix our chunks."""
+    if not isinstance(digest, str) or not HASH.fullmatch(digest):
+        raise RealEstateError('archive_digest')
+    return sha256(b'korea-replay:archive:xz3-v1:' + digest.encode('ascii'))
 
 
 def raw_storage_allowance(max_bytes, max_requests):
     """Upper bound for raw payload charging under put(), without assuming compression.
 
+    Adaptive XZ (including its header) is selected only below the zlib size.
     Sum zlib's default compressBound formula over at most max_requests objects.
     Each object can add a partial base64 group and a partial archive chunk.
     This covers put's payload + 512/row allowance, not future derived snapshots
@@ -61,15 +95,32 @@ def checked_path(value):
 
 
 def decode_object(encoded, digest, size):
-    if type(size) is not int or not 0 < size <= MAX_FILE or not HASH.fullmatch(digest):
+    if (type(size) is not int or not 0 < size <= MAX_FILE
+            or not isinstance(digest, str) or not HASH.fullmatch(digest)):
         raise RealEstateError('archive_descriptor')
+    if not isinstance(encoded, bytes) or not encoded:
+        raise RealEstateError('archive_object_encoding')
     try:
-        d = zlib.decompressobj()
-        raw = d.decompress(encoded, size + 1)
-        if len(raw) != size or not d.eof or d.unused_data or d.unconsumed_tail or sha256(raw) != digest:
+        if encoded.startswith(XZ_OBJECT_HEADER):
+            offset = len(XZ_OBJECT_HEADER)
+            stream = encoded[offset+32:]
+            if not stream or encoded[offset:offset+32].hex() != sha256(stream):
+                raise RealEstateError('archive_object_encoding')
+            d = lzma.LZMADecompressor(format=lzma.FORMAT_XZ, memlimit=XZ_MEMORY_LIMIT)
+            raw = d.decompress(stream, max_length=size + 1)
+            if d.check != lzma.CHECK_CRC64:
+                raise RealEstateError('archive_object_encoding')
+            tail = False
+        else:
+            if encoded.startswith(b'KRAR'):
+                raise RealEstateError('archive_object_encoding')
+            d = zlib.decompressobj()
+            raw = d.decompress(encoded, size + 1)
+            tail = d.unconsumed_tail
+        if len(raw) != size or not d.eof or d.unused_data or tail or sha256(raw) != digest:
             raise RealEstateError('archive_object_hash')
         return raw
-    except zlib.error:
+    except (zlib.error, lzma.LZMAError):
         raise RealEstateError('archive_object_encoding') from None
 
 
@@ -214,7 +265,7 @@ class D1Archive:
             self.query(database, 'CREATE TABLE IF NOT EXISTS archive_chunks (digest TEXT NOT NULL, part INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(digest,part))')
 
     def database(self, digest):
-        if not HASH.fullmatch(digest): raise RealEstateError('archive_digest')
+        if not isinstance(digest, str) or not HASH.fullmatch(digest): raise RealEstateError('archive_digest')
         return self.shards[int(digest[:2], 16) % len(self.shards)]
 
     def raw_capacity(self, max_bytes, max_requests):
@@ -238,41 +289,132 @@ class D1Archive:
                 'fits': all(size + required <= SHARD_CAP for size in sizes)}
 
     def put(self, raw):
-        if not 0 < len(raw) <= MAX_FILE: raise RealEstateError('archive_file_limit')
-        digest = sha256(raw); database = self.database(digest)
-        encoded = zlib.compress(raw, 6)
-        chunks = [base64.b64encode(encoded[i:i+CHUNK]).decode() for i in range(0, len(encoded), CHUNK)]
-        existing = self.query(database, 'SELECT part FROM archive_chunks WHERE digest=? ORDER BY part', [digest])
+        if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_FILE: raise RealEstateError('archive_file_limit')
+        digest = sha256(raw)
+        key = digest
+        legacy = self.query(self.database(key), 'SELECT part FROM archive_chunks WHERE digest=? ORDER BY part', [key])
+        existing = legacy
+        if not existing['results']:
+            key = xz_object_key(digest)
+            existing = self.query(self.database(key), 'SELECT part FROM archive_chunks WHERE digest=? ORDER BY part', [key])
         rows = existing['results']
+        stored = []
+        codec = None
+        if rows:
+            stored = self._read_chunks(key)
+            try:
+                # A complete prior object is reused byte-for-byte, even if an
+                # encoder version now produces different compressed bytes.
+                if self._decode_chunks(stored, digest, len(raw), xz=key != digest) == raw:
+                    return {'sha256': digest, 'bytes': len(raw)}
+            except RealEstateError:
+                pass
+            if key == digest:
+                # A legacy writer can leave a partial copy after our namespaced
+                # XZ object completed. Reuse the verified copy without filling
+                # or replacing the older writer's unrelated partial chunks.
+                other = self._read_chunks(xz_object_key(digest))
+                if other:
+                    try:
+                        if self._decode_chunks(other, digest, len(raw), xz=True) == raw:
+                            return {'sha256': digest, 'bytes': len(raw)}
+                    except RealEstateError:
+                        pass
+            # Interrupted puts retain their first chunk's codec. Verify every
+            # existing chunk before writing any missing part; never mix codecs.
+            if not stored or stored[0]['part'] != 0:
+                raise RealEstateError('archive_immutable_conflict')
+            first = self._chunk_bytes(stored[0]['payload'])
+            if key != digest and first.startswith(XZ_OBJECT_HEADER):
+                codec = 'xz3-v1'
+            elif key != digest or first.startswith(b'KRAR'):
+                raise RealEstateError('archive_object_encoding')
+            else:
+                codec = 'zlib'
+        encoded = encode_object(raw, codec=codec)
+        if not rows and not encoded.startswith(XZ_OBJECT_HEADER):
+            key = digest
+            existing = legacy
+        database = self.database(key)
+        chunks = [base64.b64encode(encoded[i:i+CHUNK]).decode() for i in range(0, len(encoded), CHUNK)]
+        if stored:
+            for row in stored:
+                part = row['part']
+                if part >= len(chunks) or row['payload'] != chunks[part]:
+                    raise RealEstateError('archive_object_conflict')
+            rows = stored
         for row in rows:
-            if not 0 <= row['part'] < len(chunks):
+            if type(row['part']) is not int or not 0 <= row['part'] < len(chunks):
                 raise RealEstateError('archive_immutable_conflict')
         have = {r['part'] for r in rows}
         size = existing.get('meta', {}).get('size_after')
         if type(size) is not int or size + sum(len(v) + 512 for i,v in enumerate(chunks) if i not in have) > SHARD_CAP:
             raise RealEstateError('archive_free_storage_limit')
-        missing = [(digest,i,chunk) for i,chunk in enumerate(chunks) if i not in have]
+        # Claim and read back part zero before any later write. Its envelope
+        # pins the stream SHA, preventing cross-encoder interrupted-put mixing.
+        if not have:
+            self.query(database, 'INSERT OR IGNORE INTO archive_chunks(digest,part,payload) VALUES (?,?,?)', [key,0,chunks[0]])
+            claimed = self.query(database, f'SELECT part,payload FROM archive_chunks WHERE digest=? AND part>=? ORDER BY part LIMIT {self.READ_BATCH}', [key,0])['results']
+            if not claimed or claimed[0]['part'] != 0 or claimed[0]['payload'] != chunks[0]:
+                raise RealEstateError('archive_immutable_conflict')
+            for row in claimed:
+                part = row['part']
+                if type(part) is not int or not 0 <= part < len(chunks) or row['payload'] != chunks[part]:
+                    raise RealEstateError('archive_immutable_conflict')
+            have.update(row['part'] for row in claimed)
+        missing = [(key,i,chunk) for i,chunk in enumerate(chunks) if i not in have]
         for start in range(0,len(missing),self.WRITE_BATCH):
             group = missing[start:start+self.WRITE_BATCH]
             self.query(database,'INSERT OR IGNORE INTO archive_chunks(digest,part,payload) VALUES '+','.join('(?,?,?)' for _ in group),[v for row in group for v in row])
         # Every newly uploaded object is read back; interrupted puts never become heads.
-        if self.get(digest, len(raw)) != raw: raise RealEstateError('archive_readback')
+        if self._decode_chunks(self._read_chunks(key), digest, len(raw), xz=key != digest) != raw:
+            raise RealEstateError('archive_readback')
         return {'sha256': digest, 'bytes': len(raw)}
 
-    def get(self, digest, size):
+    @staticmethod
+    def _chunk_bytes(payload):
+        if not isinstance(payload, str) or not 0 < len(payload) <= 4 * ((CHUNK + 2)//3):
+            raise RealEstateError('archive_chunk_encoding')
+        try: return base64.b64decode(payload, validate=True)
+        except (ValueError, TypeError): raise RealEstateError('archive_chunk_encoding') from None
+
+    def _read_chunks(self, digest):
         database = self.database(digest); rows = []
+        cursor = 0
         while True:
-            batch = self.query(database, f'SELECT part,payload FROM archive_chunks WHERE digest=? AND part>=? ORDER BY part LIMIT {self.READ_BATCH}', [digest,len(rows)])['results']
-            if [r['part'] for r in batch] != list(range(len(rows),len(rows)+len(batch))):
+            batch = self.query(database, f'SELECT part,payload FROM archive_chunks WHERE digest=? AND part>=? ORDER BY part LIMIT {self.READ_BATCH}', [digest,cursor])['results']
+            parts = [r['part'] for r in batch]
+            if (any(type(part) is not int or not cursor <= part < MAX_FILE//CHUNK+100 for part in parts)
+                    or parts != sorted(set(parts))):
                 raise RealEstateError('archive_missing_chunk')
             rows.extend(batch)
             if len(rows) > MAX_FILE//CHUNK+100: raise RealEstateError('archive_chunk_limit')
             if len(batch)<self.READ_BATCH: break
+            cursor = parts[-1] + 1
+        return rows
+
+    def _decode_chunks(self, rows, digest, size, *, xz=False):
         if not rows or [r['part'] for r in rows] != list(range(len(rows))):
             raise RealEstateError('archive_missing_chunk')
-        try: encoded = b''.join(base64.b64decode(r['payload'], validate=True) for r in rows)
-        except (ValueError, TypeError): raise RealEstateError('archive_chunk_encoding') from None
+        encoded = b''.join(self._chunk_bytes(r['payload']) for r in rows)
+        if encoded.startswith(XZ_OBJECT_HEADER) != xz:
+            raise RealEstateError('archive_object_encoding')
         return decode_object(encoded, digest, size)
+
+    def get(self, digest, size):
+        if type(size) is not int or not 0 < size <= MAX_FILE:
+            raise RealEstateError('archive_descriptor')
+        error = None
+        for key, xz in ((digest, False), (xz_object_key(digest), True)):
+            rows = self._read_chunks(key)
+            if rows:
+                try:
+                    return self._decode_chunks(rows, digest, size, xz=xz)
+                except RealEstateError as invalid:
+                    error = error or invalid
+        # Neither partial namespace may hide a complete, independently verified
+        # copy. Corruption is still an error when no valid copy exists.
+        raise error or RealEstateError('archive_missing_chunk')
 
     def head(self):
         rows = self.query(self.control, "SELECT digest,bytes FROM backup_heads WHERE name='collector'")['results']
