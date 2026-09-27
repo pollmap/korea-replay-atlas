@@ -43,6 +43,10 @@ DETAIL_SOURCES = (
 OVERVIEW_PARTITIONS = 4
 DISPLAY_ZOOMS = {**{f'buildings-overview-{i}': 12 for i in range(OVERVIEW_PARTITIONS)}, 'detail-roads': 13}
 V2_INGEST_TRANSFORM = '485e7253cb56cbff20e84b99c54f4b97fc46992fdba1b78729b40e0513024549'
+# Audited completed capital/Chungcheong donor; the same v2 record contract.
+# Keep exact hashes: arbitrary future ingestion transforms must be reviewed.
+CAPITAL_INGEST_TRANSFORM = '75d5a69e3c24f5aa28440867ecf2e9d4dc6af1872bb28b1db6ae93ad6057b7a0'
+DISPLAY_DONOR_TRANSFORMS = frozenset((V2_INGEST_TRANSFORM, CAPITAL_INGEST_TRANSFORM))
 
 
 def extend_display_zooms(baseline, output):
@@ -56,7 +60,7 @@ def extend_display_zooms(baseline, output):
     require(output != baseline and not output.is_relative_to(baseline), 'Output must be separate from baseline')
     publication, catalog = load_baseline(baseline)
     old = json.loads((baseline / 'inputs.json').read_bytes())
-    require(old.get('version') == 'regional-detail-2' and old.get('transform_sha256') == V2_INGEST_TRANSFORM,
+    require(old.get('version') == 'regional-detail-2' and old.get('transform_sha256') in DISPLAY_DONOR_TRANSFORMS,
             'Unapproved regional geometry donor')
     require(old.get('tile_transform_sha256') == digest(Path(__file__).with_name('map_tiles.py')), 'Tile renderer differs from donor')
     require(old.get('zooms') == {t: [14, 14] for t in ZOOMS}, 'Unexpected donor zooms')

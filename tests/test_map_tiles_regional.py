@@ -163,17 +163,21 @@ def test_known_tile_transform_change_reuses_records_but_not_old_tiles_or_zoom_co
     target.close()
 
 
-def test_broader_display_preserves_donor_and_every_source_identity(tmp_path):
+@pytest.mark.parametrize('donor_transform', [
+    '485e7253cb56cbff20e84b99c54f4b97fc46992fdba1b78729b40e0513024549',
+    '75d5a69e3c24f5aa28440867ecf2e9d4dc6af1872bb28b1db6ae93ad6057b7a0',
+])
+def test_broader_display_preserves_donor_and_every_source_identity(tmp_path, donor_transform):
     from pathlib import Path
     import sqlite3
     from pipeline.core import digest
     from pipeline.map_tiles import pack_archives
-    from pipeline.map_tiles_regional import extend_display_zooms, V2_INGEST_TRANSFORM
+    from pipeline.map_tiles_regional import extend_display_zooms
     base = tmp_path / 'base'; base.mkdir()
     mask = box(127, 37.5, 127.01, 37.51)
     assets = [source(tmp_path, 'building', 'buildings', [feature('tiny', box(127.001, 37.501, 127.00101, 37.50101)), feature('large', mask)]),
               source(tmp_path, 'road', 'infrastructure', [feature('way/1', LineString([(127, 37.505), (127.01, 37.505)]), {'highway': 'residential'})])]
-    old = {'version': 'regional-detail-2', 'transform_sha256': V2_INGEST_TRANSFORM,
+    old = {'version': 'regional-detail-2', 'transform_sha256': donor_transform,
            'tile_transform_sha256': digest(Path('pipeline/map_tiles.py')),
            'zooms': {'buildings': [14, 14], 'detail-roads': [14, 14]}}
     (base / 'inputs.json').write_bytes(encoded(old))
@@ -212,3 +216,14 @@ def test_broader_display_preserves_donor_and_every_source_identity(tmp_path):
         assert old_hashes.issubset({r['sha256'] for r in topic['chunks']})
     # Resuming only consumes committed new zooms and leaves the donor unchanged.
     assert extend_display_zooms(base, tmp_path / 'new')['map_catalog'] == result['map_catalog']
+
+    for key, value, message in [
+        ('transform_sha256', 'f' * 64, 'Unapproved regional geometry donor'),
+        ('version', 'regional-detail-unknown', 'Unapproved regional geometry donor'),
+        ('tile_transform_sha256', 'f' * 64, 'Tile renderer differs from donor'),
+        ('zooms', {'buildings': [13, 14], 'detail-roads': [14, 14]}, 'Unexpected donor zooms'),
+    ]:
+        (base / 'inputs.json').write_bytes(encoded({**old, key: value}))
+        with pytest.raises(ValueError, match=message):
+            extend_display_zooms(base, tmp_path / 'rejected')
+        assert not (tmp_path / 'rejected').exists()
