@@ -7,7 +7,7 @@ import pytest
 
 from pipeline.real_estate import RealEstateError, sha256
 from pipeline.real_estate_archive import (D1Archive, backup, restore, audit_checkpoint,
-    checked_path, decode_object, validate_manifest, SHARD_CAP)
+    checked_path, decode_object, validate_manifest, raw_storage_allowance, SHARD_CAP, CHUNK)
 from test_real_estate_fetch import collector, xml, rent
 
 
@@ -83,6 +83,43 @@ def test_shard_cap_and_corruption_are_fail_closed():
     db=store.databases[store.database(ref['sha256'])]
     db.execute('UPDATE archive_chunks SET payload=? WHERE digest=?',['eA==',ref['sha256']]);db.commit()
     with pytest.raises(RealEstateError,match='archive_object'):store.put(b'restore me')
+
+
+def test_raw_allowance_covers_incompressible_fragmented_objects():
+    import random
+    randomizer = random.Random(173)
+    bodies = [randomizer.randbytes(n) for n in (1, 2, 3, 49151, 49152, 49153, 1048576)]
+    charged = 0
+    for raw in bodies:
+        encoded = zlib.compress(raw, 6)
+        import base64
+        chunks = [encoded[i:i+CHUNK] for i in range(0, len(encoded), CHUNK)]
+        charged += sum(len(base64.b64encode(chunk)) + 512 for chunk in chunks)
+    assert raw_storage_allowance(sum(map(len, bodies)), len(bodies)) >= charged
+
+
+def test_raw_preflight_checks_each_shard_and_current_100_request_budget():
+    store = LocalD1()
+    query = store.query
+    sizes = [176123904, 136126464, 169009152, 139194368]
+    def measured(database, sql, params=()):
+        result = query(database, sql, params)
+        if database in store.shards:
+            result['meta']['size_after'] = sizes[store.shards.index(database)]
+        return result
+    store.query = measured
+    capacity = store.raw_capacity(64 * 1024**2, 100)
+    assert capacity['fits'] is True
+    assert capacity['scope'] == 'raw_payload_only'
+    sizes[2] = SHARD_CAP - capacity['required_per_shard_bytes'] + 1
+    assert store.raw_capacity(64 * 1024**2, 100)['fits'] is False
+
+
+def test_raw_preflight_unknown_size_fails_closed():
+    store = LocalD1()
+    store.size = None
+    with pytest.raises(RealEstateError, match='archive_capacity_unknown'):
+        store.raw_capacity(64 * 1024**2, 100)
 
 
 @pytest.mark.parametrize('path',['../secret','/raw/a.xml','C:/secret','raw/../secret','raw\\a.xml','.env','auth/'+64*'a'+'.json','raw//'+64*'a'+'.xml'])

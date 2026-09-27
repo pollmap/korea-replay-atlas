@@ -45,6 +45,23 @@ The private archive has additional hydration, verification and upload traffic.
 Existing provider-per-day accounting and D1 free storage/write guards remain in
 force across all runners. A manual trigger does not bypass those guards.
 
+Before any source reservation, the leased run checks `raw_budget_preflight` on
+every object shard. The bound uses the configured maximum response bytes,
+zlib's worst-case expansion, base64/chunk rounding and the existing per-row
+storage allowance; it assumes all hashes could land on one shard. It does not
+extrapolate previously observed bytes per job. If any shard lacks this raw budget,
+the report is `storage_paused`, with zero requests, unchanged head, normally
+released lease and no invented retry time. The command exits successfully for
+this deliberate pause, but it is not a collected/published result. A new run can
+resume after capacity or the configured budget changes. No data is deleted.
+
+This check covers raw payload allowance only: it does **not** reserve space for
+future normalized snapshots, checkpoint/manifest growth, exact SQLite page
+allocation, other writers or shared daily quotas. Those still use the existing
+put-time checks and fail-closed recovery. Unknown shard sizes stop instead of
+assuming empty storage. See `PROPERTY_STORAGE_AUDIT_20260927.md` for the measured
+storage composition and remaining archival work.
+
 ## Work progression
 
 The latest verified private head is restored selectively into a new UUID directory
