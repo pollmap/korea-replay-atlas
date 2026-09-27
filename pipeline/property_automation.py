@@ -231,6 +231,16 @@ def run_automation(root, store, key, *, max_requests=25, max_bytes=16*1024**2,
     lease = guard.acquire(workspace.head)
     collector = None
     try:
+        capacity = store.raw_capacity(max_bytes, max_requests)
+        if not capacity['fits']:
+            # No source reservation or local lane/window change has happened.
+            # Release through the normal fenced zero-request path only.
+            guard.release(lease, workspace.head)
+            return {'schema_version': 1, 'kind': 'private-property-collection',
+                    'status': 'storage_paused', 'stop_reason': 'raw_storage_capacity',
+                    'requests': 0, 'response_bytes': 0, 'public_release': False,
+                    'head_unchanged': True, 'raw_budget_preflight': capacity,
+                    'finished_at': instant(), 'next_retry_at': None}
         guard.seed_budget(lease, workspace.head, workspace.baseline_counts)
         collector = RemoteCollector(workspace, as_of=stamp, months=months, advance_window=True,
             reserve_bytes=reserve_bytes, transport=guarded_transport(guard, lease, transport))
@@ -341,7 +351,7 @@ def main(argv=None):
         result = run_automation(root, store, key, mode=args.mode,
                                 max_requests=args.max_requests, max_bytes=args.max_bytes)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-        return 0 if result['status'] == 'collected' else 1
+        return 0 if result['status'] in ('collected', 'storage_paused') else 1
     except Exception as error:
         code = error.code if isinstance(error, RealEstateError) else 'automation_invalid_or_unavailable'
         # Do not print exception strings, tracebacks, config, response bodies or URLs.

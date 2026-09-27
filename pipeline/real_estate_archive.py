@@ -30,6 +30,24 @@ HASH = re.compile(r'[a-f0-9]{64}\Z')
 PREFIXES = {'raw', 'snapshots', 'registry', 'runs', 'changes', 'history-windows'}
 
 
+def raw_storage_allowance(max_bytes, max_requests):
+    """Upper bound for raw payload charging under put(), without assuming compression.
+
+    Sum zlib's default compressBound formula over at most max_requests objects.
+    Each object can add a partial base64 group and a partial archive chunk.
+    This covers put's payload + 512/row allowance, not future derived snapshots
+    or an exact SQLite page allocation guarantee.
+    """
+    if (type(max_bytes) is not int or not 1 <= max_bytes <= 64 * 1024**2
+            or type(max_requests) is not int or not 1 <= max_requests <= 500):
+        raise RealEstateError('archive_capacity_budget')
+    compressed = (max_bytes + (max_bytes >> 12) + (max_bytes >> 14)
+                  + (max_bytes >> 25) + 13 * max_requests)
+    payload = 4 * ((compressed + 2) // 3 + max_requests - 1)
+    rows = (compressed + CHUNK - 1) // CHUNK + max_requests - 1
+    return payload + 512 * rows
+
+
 def checked_path(value):
     if not isinstance(value, str) or '\\' in value or ':' in value:
         raise RealEstateError('archive_path')
@@ -198,6 +216,26 @@ class D1Archive:
     def database(self, digest):
         if not HASH.fullmatch(digest): raise RealEstateError('archive_digest')
         return self.shards[int(digest[:2], 16) % len(self.shards)]
+
+    def raw_capacity(self, max_bytes, max_requests):
+        """Read-only preflight; every new raw hash could choose the same shard.
+
+        Call while holding the collector lease, before reserving any source call.
+        Other account writers and derived publication costs are not reserved here.
+        Existing put-time checks and uncertain-write recovery remain mandatory.
+        """
+        required = raw_storage_allowance(max_bytes, max_requests)
+        sizes = []
+        for database in self.shards:
+            result = self.query(database, 'SELECT part FROM archive_chunks WHERE digest=? ORDER BY part',
+                                [sha256(b'archive-raw-capacity-preflight')])
+            size = result.get('meta', {}).get('size_after')
+            if type(size) is not int or size < 0:
+                raise RealEstateError('archive_capacity_unknown')
+            sizes.append(size)
+        return {'scope': 'raw_payload_only', 'required_per_shard_bytes': required,
+                'minimum_remaining_bytes': min(SHARD_CAP - size for size in sizes),
+                'fits': all(size + required <= SHARD_CAP for size in sizes)}
 
     def put(self, raw):
         if not 0 < len(raw) <= MAX_FILE: raise RealEstateError('archive_file_limit')

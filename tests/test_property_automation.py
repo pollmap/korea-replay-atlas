@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from pipeline.real_estate import RealEstateError
-from pipeline.real_estate_archive import backup, restore
+from pipeline.real_estate_archive import backup, restore, SHARD_CAP, raw_storage_allowance
 from pipeline.real_estate_run_guard import CollectionGuard
 from pipeline.property_automation import (STATE_KEY, finish_lane, main,
     acquisition_progress, pagination_budget_preflight, prepare_lane, record_pagination_budget,
@@ -36,6 +36,38 @@ def test_real_remote_roundtrip_and_new_month_preserve_old_jobs(tmp_path):
         state = json.loads(db.execute('SELECT value FROM meta WHERE key=?', (STATE_KEY,)).fetchone()[0])
         assert state['runs'] == 1
         assert db.execute('SELECT COUNT(*) FROM calls').fetchone()[0] == 2
+
+
+def test_raw_storage_pause_preserves_head_releases_lease_and_can_resume(tmp_path):
+    store = parent(tmp_path)
+    before = store.head()
+    snapshots_before = [tuple(row) for row in store.databases['control'].execute('SELECT * FROM backup_heads')]
+    store.size = SHARD_CAP - raw_storage_allowance(64 * 1024**2, 100) + 1
+    calls = []
+    def source(*args, **kwargs):
+        calls.append(1)
+        return xml()
+    report = run_automation(tmp_path / 'paused', store, 'fixture-key', as_of=STAMP,
+                            months=2, max_requests=100, max_bytes=64 * 1024**2,
+                            reserve_bytes=0, transport=source)
+    assert report['status'] == 'storage_paused'
+    assert report['requests'] == 0 and calls == []
+    assert report['head_unchanged'] is True and report['next_retry_at'] is None
+    assert report['raw_budget_preflight']['scope'] == 'raw_payload_only'
+    assert store.head() == before
+    assert CollectionGuard(store).status()['owner'][0]['occupied'] == 0
+    assert store.databases['control'].execute('SELECT COUNT(*) FROM collection_reservations').fetchone()[0] == 0
+    assert [tuple(row) for row in store.databases['control'].execute('SELECT * FROM backup_heads')] == snapshots_before
+    with sqlite3.connect(tmp_path / 'paused/checkpoint.sqlite') as db:
+        assert db.execute('SELECT COUNT(*) FROM calls').fetchone()[0] == 1
+        assert db.execute('SELECT value FROM meta WHERE key=?', (STATE_KEY,)).fetchone() is None
+    # Capacity returns (fixture only): a fresh run can acquire normally, without
+    # resetting or stealing the previous owner and without replacing its head.
+    store.size = 0
+    resumed = run_automation(tmp_path / 'resumed', store, 'fixture-key', as_of=STAMP,
+                             months=2, max_requests=1, reserve_bytes=0, transport=source)
+    assert resumed['status'] == 'collected' and len(calls) == 1
+    assert CollectionGuard(store).status()['owner'][0]['occupied'] == 0
 
 
 def test_persistence_failure_preserves_head_and_requires_recovery(tmp_path):
