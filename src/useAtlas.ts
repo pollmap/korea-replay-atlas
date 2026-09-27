@@ -1,11 +1,10 @@
 import {useEffect,useState} from 'react';
-import {validateMapCatalog2D,type MapCatalog2D} from '../shared/map-tiles';
-import {parsePropertyRelease,parsePropertyRegions,type PropertyRelease,type PropertyRegions} from '../shared/property';
 import {assertPinnedDeploymentV2,type RuntimeV2} from '../shared/runtime-v2';
-import {fetchAtlas,fetchPinnedJson} from './atlas-client';
+import {fetchAtlas} from './atlas-client';
+import {loadAtlasContent,type AtlasContent} from './atlas-loader';
 import {observeAtlasSelection,type AtlasSelection} from './atlas-selection';
 
-export interface AtlasContent {origin:string;map:MapCatalog2D;property:PropertyRelease;regions:PropertyRegions;}
+export type {AtlasContent} from './atlas-loader';
 export function useAtlas(runtime:RuntimeV2|null,checked:boolean,runtimeError=''){
   const [result,setResult]=useState<AtlasSelection<AtlasContent>>({state:'loading',content:null,error:''});
   useEffect(()=>{
@@ -17,12 +16,7 @@ export function useAtlas(runtime:RuntimeV2|null,checked:boolean,runtimeError='')
     },load:async signal=>{
       const atlas=await fetchAtlas(runtime,signal);
       if(!atlas)return null;
-      const [rawMap,rawProperty]=await Promise.all([fetchPinnedJson(atlas.manifest.map_catalog,atlas.origin,signal),fetchPinnedJson(atlas.manifest.property_release,atlas.origin,signal)]);
-      const map=validateMapCatalog2D(rawMap),property=parsePropertyRelease(rawProperty);
-      if(map.release_id!==atlas.manifest.map_catalog.release_id||property.release_id!==atlas.manifest.property_release.release_id)throw new Error('지도·부동산 자료의 버전이 일치하지 않습니다.');
-      const regions=parsePropertyRegions(await fetchPinnedJson(property.regions,atlas.origin,signal));
-      if(regions.release_id!==property.release_id)throw new Error('지역 목록의 자료 버전이 다릅니다.');
-      return {origin:atlas.origin,map,property,regions};
+      return loadAtlasContent(atlas,signal);
     }});
   },[runtime,checked,runtimeError]);
   return result;
