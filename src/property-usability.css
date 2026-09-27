@@ -83,3 +83,51 @@
 @media(max-width:780px){.selected-region-caption,.has-property .selected-region-caption{top:76px;left:12px;max-width:calc(100% - 82px);flex-wrap:wrap;gap:3px 8px;padding:8px 11px}.selected-region-caption strong{font-size:12px}.selected-region-caption small{display:block;font-size:9px}.selected-region-caption button{min-width:44px;min-height:44px}}
 
 .selected-region-caption select{min-height:36px;max-width:150px;background:#faf7ff;border:1px solid #dfd1ef;border-radius:6px;padding:0 8px;color:#59318c;font-family:inherit;font-size:12px}.selected-region-caption select:focus-visible{outline:2px solid #7140c7;outline-offset:2px}@media(max-width:780px){.selected-region-caption select{min-height:44px;max-width:132px}}
+
+/* The half-height 2D list prioritizes results; the full sheet keeps every tool visible. */
+.property-mobile-tools-toggle,.property-mobile-list-context,.property-back-icon{display:none}
+@media(max-width:780px){
+ .atlas-shell.is-2d.is-exploring .property-panel.mobile-list.sheet-half{--mobile-list-header:52px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half>.sheet-handle{order:0}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half>.property-header{order:1;min-height:var(--mobile-list-header);padding:4px 12px;gap:4px;box-sizing:border-box}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half>.property-region-picker{order:2}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half>.dashboard-nav{order:3}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half>.watchlist-message{order:4}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half>.property-body{order:5;flex:1;scroll-padding-top:8px;padding:0 12px 16px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-header>div{display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:0;min-width:0}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-header>div:has(.property-back){grid-template-columns:44px minmax(0,1fr)}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-header .property-back{width:44px;min-height:44px;text-align:center}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-back-label{display:none}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-back-icon{display:inline;font-size:20px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-header h2{font-size:16px;line-height:22px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-type-switch{grid-column:1/-1}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .property-header>.property-mobile-tools-toggle{display:block;flex:0 0 76px;width:76px;min-height:44px;padding:0 6px;border:1px solid #d8ccec;border-radius:7px;color:#62428f;font-size:12px;font-weight:650;background:#f6f1ff}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .sheet-handle button{gap:2px;padding:5px 0}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half .sheet-handle small{display:block;font-size:10px;line-height:12px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) :is(.property-region-picker,.property-type-switch,.dashboard-nav,.property-querybar,.property-rent-kinds,.region-inline-stat){display:none}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .property-body>.property-caption{display:none}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .property-mobile-list-context{display:block;margin:0;padding:3px 0;color:#79688d;font-size:11px;line-height:18px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .property-discovery>:is(.property-saved-filters,.discovery-search,.discovery-filter-chips,.discovery-selects,.quick-filter-panel,.discovery-trade-only,.discovery-source-note){display:none}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-active-filters{flex-wrap:nowrap;overflow-x:auto;margin:0;max-width:100%}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-active-filters button{flex:0 0 auto;white-space:nowrap}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-result-heading{margin:0;min-height:30px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-open{padding:10px 2px;gap:3px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-name strong{font-size:15px;line-height:21px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) :is(.discovery-name>span,.discovery-unit-price,.discovery-count){display:none}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-price{margin:0;line-height:23px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-price strong{font-size:18px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-address{font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half:not(.mobile-tools-open) .discovery-contract{font-size:11px;line-height:17px}
+ /* One scroll surface when tools are open prevents the fixed controls from squeezing them away. */
+ .atlas-shell.is-2d.is-exploring .property-panel.mobile-list.sheet-half.mobile-tools-open{overflow-y:auto;overscroll-behavior:contain;scroll-padding-top:150px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half.mobile-tools-open>.sheet-handle{position:sticky;top:0;z-index:5;flex:0 0 44px}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half.mobile-tools-open>.property-header{position:sticky;top:44px;z-index:4;flex:0 0 auto}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half.mobile-tools-open>.property-body{overflow:visible;flex:0 0 auto;min-height:auto}
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half.mobile-tools-open .property-querybar{position:static}
+}
+
+@media(max-width:780px) and (max-height:600px){
+ /* A short viewport or on-screen keyboard must not leave only sticky controls visible. */
+ .atlas-shell.is-2d.is-exploring .mobile-list.sheet-half.mobile-tools-open>.property-header{position:static}
+ .atlas-shell.is-2d.is-exploring .property-panel.mobile-list.sheet-half.mobile-tools-open{scroll-padding-top:44px}
+}

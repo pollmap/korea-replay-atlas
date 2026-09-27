@@ -69,3 +69,29 @@ it('identifies the selected legal-dong list and its district parent before regio
   expect(html).toContain('← 검증 지역 전체');
   expect(html).not.toContain('← 전국 지역 목록');
 });
+
+
+it('provides a compact 2D list control without removing existing region, trade or filter navigation',()=>{
+  vi.stubGlobal('location',{hash:'#regionCode=11110&legalDong='+encodeURIComponent('청운동')+'&trade=rent&rentKind=jeonse&month=202608'});
+  const html=renderToStaticMarkup(createElement(PropertyExplorer,{atlas:atlas(),hidden:false,mapLayout:true,onClose:()=>{},onLocate:()=>{},onViewState:()=>{}}));
+  expect(html).toContain('showing-region mobile-list');
+  expect(html).toMatch(/class="property-mobile-tools-toggle" aria-expanded="false" aria-controls="([^"]+)"/);
+  const controlled=html.match(/class="property-mobile-tools-toggle" aria-expanded="false" aria-controls="([^"]+)"/)![1];
+  expect(html).toContain(`class="property-body" id="${controlled}"`);
+  expect(html).toContain('검색·조건</button>');expect(html).toContain('전세 · 2026.08 계약');
+  expect(html).toContain('aria-label="← 검증 지역 전체"');
+  expect(html).toContain('aria-label="시도 선택"');expect(html).toContain('aria-label="시군구 선택"');
+  expect(html).toContain('aria-label="아파트 대시보드"');expect(html).toContain('aria-label="주거 유형"');
+});
+it('keeps compact-list controls out of 3D, officetel and pending apartment-detail views',()=>{
+  for(const sample of [
+    {mapLayout:false,hash:'#regionCode=11110'},
+    {mapLayout:true,hash:'#propertyType=officetel'},
+    {mapLayout:true,hash:'#regionCode=11110&complex=molit-apt:11110:test'},
+  ]){
+    vi.stubGlobal('location',{hash:sample.hash});
+    const html=renderToStaticMarkup(createElement(PropertyExplorer,{atlas:atlas(),hidden:false,mapLayout:sample.mapLayout,onClose:()=>{},onLocate:()=>{},onViewState:()=>{}}));
+    expect(html).not.toContain(' mobile-list');expect(html).not.toContain('class="property-mobile-tools-toggle"');
+    expect(html).not.toContain('class="property-mobile-list-context"');
+  }
+});
