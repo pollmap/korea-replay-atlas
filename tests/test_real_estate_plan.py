@@ -59,8 +59,8 @@ def test_official_public_subset_is_pinned_and_cannot_be_used_as_collection_regis
 
 def test_full_plan_has_31232_unique_jobs_and_preserves_collector_month_order():
     value, digest = load_plan_registry(ROOT)
-    first = build_plan(value, registry_sha256=digest, as_of=STAMP)
-    second = build_plan(deepcopy(value), registry_sha256=digest, as_of=STAMP)
+    first = build_plan(value, registry_sha256=digest, as_of=STAMP, months=61)
+    second = build_plan(deepcopy(value), registry_sha256=digest, as_of=STAMP, months=61)
     assert canonical_bytes(first) == canonical_bytes(second)
     assert first['job_count'] == 31232 == len(first['jobs'])
     assert first['months'] == month_sequence(STAMP, 61)
@@ -83,7 +83,7 @@ def test_kst_month_boundary_matches_actual_collection_contract(stamp, count):
     assert plan['job_count'] == 2 * count
 
 
-@pytest.mark.parametrize('count', [0, 122, -1, True, 1.5, '61'])
+@pytest.mark.parametrize('count', [0, 242, -1, True, 1.5, '61'])
 def test_invalid_count_is_not_a_collectable_plan(count):
     with pytest.raises(RealEstateError, match='invalid_month_count'):
         build_plan(one_region(), registry_sha256=REGISTRY_SHA, as_of=STAMP, months=count)
@@ -175,7 +175,7 @@ def test_offline_plan_succeeds_at_14gb_without_keys_network_or_sqlite(tmp_path, 
     result = write_plan(repo_root=tmp_path, as_of=STAMP)
     payload = (tmp_path / '.local/property-plan-ci/plan.json').read_bytes()
     assert sha256(payload) == result['sha256']
-    assert result['jobs'] == 122 and result['source_calls'] == result['reserved_calls'] == 0
+    assert result['jobs'] == 482 and result['source_calls'] == result['reserved_calls'] == 0
     assert len(list((tmp_path / '.local').rglob('*.*'))) == 1
     # Real data collection retains its existing 30 GiB lower bound on the same disk.
     with pytest.raises(RealEstateError, match='disk_reserve'):
@@ -222,7 +222,7 @@ def test_small_plan_disk_reserve_and_cli_failure_do_not_print_supplied_input(tmp
 def test_checked_in_workflow_step_runs_with_default_input_and_no_package_install(tmp_path, monkeypatch, capsys):
     workflow = (ROOT / '.github/workflows/property-plan.yml').read_text(encoding='utf-8')
     assert "default: 'config/molit-legal-region-registry.json'" in workflow
-    assert "default: '121'" in workflow
+    assert "default: '241'" in workflow
     assert 'pip install' not in workflow and 'secrets.' not in workflow
     assert 'schedule:' not in workflow and 'contents: read' in workflow
     # Execute the exact checked-in Python heredoc, with only the two dispatch inputs.
@@ -231,14 +231,15 @@ def test_checked_in_workflow_step_runs_with_default_input_and_no_package_install
     local_registry(tmp_path, checked_registry())
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv('REGISTRY_INPUT', DEFAULT_REGISTRY)
-    monkeypatch.setenv('MONTHS_INPUT', '121')
+    monkeypatch.setenv('MONTHS_INPUT', '241')
+    monkeypatch.setenv('SCOPE_INPUT', 'priority-nine')
     def forbidden(*args, **kwargs):
         raise AssertionError('Planning workflow attempted a source call or database access')
     monkeypatch.setattr(http.client, 'HTTPSConnection', forbidden)
     monkeypatch.setattr(sqlite3, 'connect', forbidden)
     exec(compile(script, '<property-plan-workflow>', 'exec'), {})
     report = json.loads(capsys.readouterr().out)
-    assert report['jobs'] == 61952 and report['planning_only'] is True
+    assert report['jobs'] == 53984 and report['planning_only'] is True
     assert report['source_calls'] == 0
     plan = json.loads((tmp_path / '.local/property-plan-ci/plan.json').read_bytes())
-    assert plan['months'] == month_sequence(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 121)
+    assert plan['months'] == month_sequence(datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 241)

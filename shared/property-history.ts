@@ -1,6 +1,6 @@
 import type {PropertyRegionDetail,PropertyTransaction} from './property';
 
-export const HISTORY_RANGES=[1,3,6,12,36,60,120] as const;
+export const HISTORY_RANGES=[1,3,6,12,36,60,120,240] as const;
 export type HistoryRange=typeof HISTORY_RANGES[number];
 export function historyRangeLabel(value:HistoryRange):string{return value>=12?`${value/12}년`:`${value}개월`;}
 export function historyTick(index:number,count:number):boolean{return index===0||index===count-1||count<=6||index%Math.ceil(count/4)===0&&index<count-Math.ceil(count/8);}

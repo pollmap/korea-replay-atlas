@@ -51,7 +51,7 @@ def collector(tmp_path,transport,clock=lambda:STAMP):
 
 
 def test_month_ledger_sixty_completed_plus_current_latest_completed_first():
-    months=month_sequence(STAMP)
+    months=month_sequence(STAMP,61)
     assert len(months)==61 and len(set(months))==61
     assert months[:3]==['202608','202609','202607'] and months[-1]=='202109'
     assert month_sequence('2025-12-31T16:00:00Z',2)==['202512','202601']
@@ -62,7 +62,7 @@ def test_ten_year_window_covers_120_completed_months_plus_current():
     assert len(months)==len(set(months))==121
     assert months[:3]==['202608','202609','202607'] and months[-1]=='201609'
     with pytest.raises(RealEstateError,match='invalid_month_count'):
-        month_sequence(STAMP,122)
+        month_sequence(STAMP,242)
 
 
 def test_first_acquisition_filter_requires_boolean_and_preserves_refresh_queue(tmp_path):

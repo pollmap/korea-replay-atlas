@@ -427,6 +427,7 @@ def test_backfill_bypasses_newer_refresh_and_recent_still_updates_it(tmp_path):
     assert calls == [('rent', '202607')]
     assert report['acquisition'] == {'expected_jobs': 6, 'verified_snapshot_jobs': 5,
         'missing_snapshot_jobs': 1, 'refresh_pending_jobs': 2,
+        'source_unavailable_jobs': 0, 'eligible_jobs': 6, 'missing_collectable_jobs': 1,
         'first_acquisition_failed_jobs': 0, 'refresh_failed_jobs': 0}
     restore(tmp_path / 'check', store)
     with sqlite3.connect(tmp_path / 'check/checkpoint.sqlite') as db:
@@ -452,6 +453,7 @@ def test_refresh_failure_is_not_first_acquisition_or_lost_snapshot(tmp_path):
     assert list(c.db.execute('SELECT id,snapshot FROM jobs ORDER BY id')) == snapshots
     progress = acquisition_progress(c.db)
     assert progress == {'expected_jobs': 2, 'verified_snapshot_jobs': 1, 'missing_snapshot_jobs': 1,
+        'source_unavailable_jobs': 0, 'eligible_jobs': 2, 'missing_collectable_jobs': 1,
         'refresh_pending_jobs': 1, 'first_acquisition_failed_jobs': 0, 'refresh_failed_jobs': 1}
     assert c.summary()['failed'] == 1
     c.close()
