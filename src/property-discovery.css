@@ -10,6 +10,7 @@
 .discovery-filters fieldset>span{align-self:end;padding-bottom:14px;color:#7f8c81}
 .discovery-note{display:block;font-size:10px;line-height:1.6;color:#6b7b70;margin:7px 0}
 .discovery-result-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px}
+.discovery-filter-chips>.national-area-chip{flex:0 0 54px;font-weight:700}
 .discovery-result-heading p{margin:0;font-size:12px;font-weight:650}
 .discovery-reset{border:0;background:transparent;color:#286348;min-height:44px;padding:8px;font-size:11px;text-decoration:underline;cursor:pointer}
 .discovery-pending,.discovery-error,.discovery-empty{padding:10px;border-radius:5px;font-size:11px;line-height:1.6;background:#edf2e9;color:#576e5e}

@@ -2,6 +2,7 @@ import type {FeatureCollection,Point} from 'geojson';
 import type {LayerSpecification} from 'maplibre-gl';
 import type {MapCatalog2D} from '../shared/map-tiles';
 import type {PropertyRegions,PropertyRelease} from '../shared/property';
+import {M2_PER_PYEONG} from '../shared/property-area';
 import {regionNavigation} from './region-navigation';
 
 export const REGION_MAP_SOURCE='property-region-navigation';
@@ -12,6 +13,7 @@ export interface RegionMapInput {map:Pick<MapCatalog2D,'reference_dates'>;proper
 export interface RegionMapProperties {
   property_region_code:string;property_release:string;region_name:string;display_name:string;
   contract_month:string;trade_type:'sale'|'rent';count:number;count_label:string;month_label:string;sort_key:number;
+  value_label:string;value_kind:'reported-exclusive-pyeong-median'|'reported-count';
   anchor_purpose:'region-navigation-only';anchor_source_record_id:string;anchor_reference_date:string;
 }
 export interface RegionMapData {
@@ -25,6 +27,13 @@ export interface ProvinceMapProperties {
 }
 const shortName=(name:string)=>name.trim().replace(/\s+/g,' ').replace(/^(서울|부산|대구|인천|광주|대전|울산)(?:특별시|광역시) /,'$1 ').replace(/^경기도 /,'경기 ').replace(/^강원특별자치도 /,'강원 ').replace(/^전북특별자치도 /,'전북 ').replace(/^제주특별자치도 /,'제주 ').replace(/^충청북도 /,'충북 ').replace(/^충청남도 /,'충남 ').replace(/^전라남도 /,'전남 ').replace(/^경상북도 /,'경북 ').replace(/^경상남도 /,'경남 ');
 const provinceShortName=(name:string)=>({서울특별시:'서울',부산광역시:'부산',대구광역시:'대구',인천광역시:'인천',광주광역시:'광주',대전광역시:'대전',울산광역시:'울산',세종특별자치시:'세종',경기도:'경기',강원특별자치도:'강원',충청북도:'충북',충청남도:'충남',전북특별자치도:'전북',전라남도:'전남',경상북도:'경북',경상남도:'경남',제주특별자치도:'제주'} as Record<string,string>)[name]??name;
+function regionValueLabel(trade:'sale'|'rent',perM2:number|null,count:number):Pick<RegionMapProperties,'value_label'|'value_kind'> {
+  if(trade==='sale'&&count>0&&perM2!==null&&Number.isSafeInteger(perM2)&&perM2>0){
+    const perPyeongMan=Math.round(perM2*M2_PER_PYEONG/10_000);
+    if(Number.isSafeInteger(perPyeongMan))return {value_label:`${perPyeongMan.toLocaleString('ko-KR')}만/평`,value_kind:'reported-exclusive-pyeong-median'};
+  }
+  return {value_label:`${count.toLocaleString('ko-KR')}건`,value_kind:'reported-count'};
+}
 
 /** Markers are region-list shortcuts, not a boundary join or apartment position.
  * Only published counts from the same completed contract month are displayed.
@@ -43,12 +52,13 @@ export function regionMapData(input:RegionMapInput|null|undefined):RegionMapData
       const location=regionNavigation(row,input.map);if(!location)continue;
       data.features.push({type:'Feature',id:`${releaseId}:${row.lawd_code}`,geometry:{type:'Point',coordinates:[location.place.lon,location.place.lat]},
         properties:{property_region_code:row.lawd_code,property_release:releaseId,region_name:row.name.trim(),display_name:shortName(row.name),contract_month:month,trade_type:trade,count,count_label:`${String(count).replace(/\B(?=(\d{3})+(?!\d))/g,',')}건`,month_label:`${month.slice(2,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'}`,sort_key:-count,
+          ...regionValueLabel(trade,metric.median_price_per_m2_krw,count),
           anchor_purpose:'region-navigation-only',anchor_source_record_id:location.sourceRecordId,anchor_reference_date:location.boundaryReferenceDate}});
     }
   }
   return {data,provinces:provinceMapData(valid?input:null),month,releaseId,total,excluded:total-data.features.length,
-    caption:valid?`지역별 ${trade==='sale'?'매매':'전월세'} 거래량 · ${month.slice(0,4)}.${month.slice(4)} · 지역 탐색 위치`:`지역별 ${trade==='sale'?'매매':'전월세'} 거래량 · 자료 확인 중`,
-    notice:`최신 완료 계약월의 ${trade==='sale'?'취소·통계 제외 건을 뺀 매매':'통계 제외 건을 뺀 전월세'} 신고 거래량입니다. 패널의 거래 유형과 연동되며, 과거 계약월 선택과는 별개로 최신 완료월을 표시합니다. 점은 지역 이름으로 연결한 SGIS 2025-06-30 탐색 위치이며 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. ${data.features.length}개 지역 표시, 미연결·미수집·검증 제외 ${total-data.features.length}개 지역은 0건으로 표시하지 않습니다.`};
+    caption:valid?`${month.slice(0,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'} · 지역 탐색`:`${trade==='sale'?'매매':'전월세'} · 자료 확인 중`,
+    notice:`최신 완료 계약월의 ${trade==='sale'?'취소·통계 제외 건을 뺀 매매':'통계 제외 건을 뺀 전월세'} 신고 자료입니다. 매매 표식은 유효 거래의 전용면적 1평당 신고금액 중앙값이며 국평 가격이나 시세가 아닙니다. 값이 없거나 전월세이면 거래건수를 표시합니다. 패널의 거래 유형과 연동되며 과거 계약월 선택과는 별개로 최신 완료월을 표시합니다. 점은 지역 이름으로 연결한 SGIS 2025-06-30 탐색 위치이며 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. ${data.features.length}개 지역 표시, 미연결·미수집·검증 제외 ${total-data.features.length}개 지역은 0건으로 표시하지 않습니다.`};
 }
 
 /** National overview labels use published rows only; one missing district suppresses
@@ -79,16 +89,16 @@ export function provinceMapLayer():LayerSpecification {
   return {id:PROVINCE_MAP_LAYER,type:'symbol',source:REGION_MAP_SOURCE,minzoom:3,maxzoom:6.5,
     filter:['has','property_province_name'],
     layout:{'text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','count_label'],{'font-scale':1.05}],
-      'text-font':['Malgun Gothic','sans-serif'],'text-size':13,'text-line-height':1.25,'text-max-width':8,'text-padding':5,'text-allow-overlap':false,
-      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[4,6,4,6],'icon-allow-overlap':false},paint:{'text-color':'#102b46','icon-opacity':.98}};
+      'text-font':['Malgun Gothic','sans-serif'],'text-size':12,'text-line-height':1.1,'text-max-width':8,'text-padding':3,'text-allow-overlap':false,
+      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],'icon-allow-overlap':false},paint:{'text-color':'#102b46','icon-opacity':.98}};
 }
 
 export function regionMapLayer():LayerSpecification {
-  return {id:REGION_MAP_LAYER,type:'symbol',source:REGION_MAP_SOURCE,minzoom:6.5,
+  return {id:REGION_MAP_LAYER,type:'symbol',source:REGION_MAP_SOURCE,minzoom:6.5,maxzoom:10,
     filter:['has','property_region_code'],
-    layout:{'symbol-sort-key':['get','sort_key'],'symbol-z-order':'source','text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','count_label'],{'font-scale':1.1},'\n',{},['get','month_label'],{'font-scale':.7}],
-      'text-font':['Malgun Gothic','sans-serif'],'text-size':14,'text-line-height':1.25,'text-max-width':10,'text-padding':8,'text-allow-overlap':false,'text-ignore-placement':false,
-      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[5,8,5,8],'icon-allow-overlap':false,'icon-ignore-placement':false},
+    layout:{'symbol-sort-key':['get','sort_key'],'symbol-z-order':'source','text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','value_label'],{'font-scale':1.08}],
+      'text-font':['Malgun Gothic','sans-serif'],'text-size':12,'text-line-height':1.1,'text-max-width':10,'text-padding':3,'text-allow-overlap':false,'text-ignore-placement':false,
+      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],'icon-allow-overlap':false,'icon-ignore-placement':false},
     paint:{'text-color':'#102b46','icon-opacity':.98}};
 }
 
