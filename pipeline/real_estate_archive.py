@@ -20,6 +20,7 @@ import time
 import zlib
 
 from .real_estate import RealEstateError, canonical_bytes, sha256, _reject_links
+from .real_estate_usage import ArchiveUsage
 
 CHUNK = 48 * 1024
 MAX_FILE = 256 * 1024**2
@@ -225,34 +226,68 @@ class D1Archive:
                 or any(not re.fullmatch(r'[a-f0-9-]{36}', d) for d in [self.control, *self.shards])
                 or not self.token):
             raise RealEstateError('archive_configuration')
+        self.aliases = {self.control: 'control', **{db: f'object{i}' for i, db in enumerate(self.shards)}}
+        self._usage = ArchiveUsage('cloudflare-api')
 
     def query(self, database, sql, params=()):
+        # Direct REST can accept batches. Classify ambiguous text conservatively;
+        # a SELECT prefix alone cannot prove that later statements do not write.
+        observation = self._usage.begin(self.aliases.get(database, 'unmapped'),
+                                        isinstance(sql, str) and ';' not in sql
+                                        and sql.lstrip().upper().startswith('SELECT '))
+        success = False
+        try:
+            result = self._query(database, sql, params, observation)
+            success = True
+            return result
+        finally:
+            observation.finish(success)
+
+    def _query(self, database, sql, params, observation):
         conn = http.client.HTTPSConnection('api.cloudflare.com', timeout=60)
         try:
             body = canonical_bytes({'sql': sql, 'params': list(params)})
+            observation.request(len(body))
             conn.request('POST', f'/client/v4/accounts/{self.account}/d1/database/{database}/query',
                          body, {'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json'})
             response = conn.getresponse(); raw = response.read(16 * 1024**2 + 1)
+            observation.response(len(raw))
+            if len(raw) > 16 * 1024**2:
+                raise RealEstateError('archive_remote_response_limit')
             if response.status != 200:
+                observation.explicit_error = True
+                try:
+                    rejected = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    rejected = None
+                if isinstance(rejected, dict) and isinstance(rejected.get('result'), list):
+                    for entry in rejected['result']:
+                        observation.result(entry)
                 if response.status==400:
                     try:
-                        for error in json.loads(raw).get('errors',[]):
+                        for error in rejected.get('errors',[]):
                             message=str(error.get('message',''))
                             if error.get('code')==7500 and "exceeded D1's free tier daily row write limit" in message:
                                 raise RealEstateError('archive_daily_write_limit')
                             code=str(error.get('message','')).split(':',1)[0]
                             if code in ('collection_ownership_lost','collection_daily_budget','collection_invalid_reservation','collection_baseline_required','collection_baseline_conflict'):
                                 raise RealEstateError(code)
-                    except (json.JSONDecodeError,AttributeError,TypeError):
+                    except (AttributeError,TypeError):
                         pass
                 raise RealEstateError('archive_remote_http_'+str(response.status))
-            if len(raw) > 16 * 1024**2:
-                raise RealEstateError('archive_remote_response_limit')
             parsed = json.loads(raw)
-            if not parsed.get('success') or not parsed.get('result') or not all(r.get('success') for r in parsed['result']):
+            if isinstance(parsed, dict) and isinstance(parsed.get('result'), list):
+                for entry in parsed['result']:
+                    observation.result(entry)
+            if (not isinstance(parsed, dict) or parsed.get('success') is not True
+                    or not isinstance(parsed.get('result'), list) or not parsed['result']
+                    or not all(isinstance(r, dict) and r.get('success') is True for r in parsed['result'])):
+                observation.explicit_error = isinstance(parsed, dict) and (parsed.get('success') is False
+                    or (isinstance(parsed.get('result'), list) and any(
+                        isinstance(entry, dict) and entry.get('success') is False for entry in parsed['result'])))
                 raise RealEstateError('archive_remote_query')
             return parsed['result'][0]
-        except (OSError, http.client.HTTPException, json.JSONDecodeError):
+        except (OSError, http.client.HTTPException, json.JSONDecodeError, UnicodeDecodeError):
             raise RealEstateError('archive_remote_unavailable') from None
         finally:
             conn.close()
@@ -451,9 +486,9 @@ class BrokerArchive(D1Archive):
         endpoint = endpoint if endpoint is not None else os.environ.get('PROPERTY_ARCHIVE_BROKER_URL')
         self.broker_host = validate_endpoint(endpoint)
         super().__init__(config, token=token)
-        self.aliases = {self.control: 'control', **{db: f'object{i}' for i, db in enumerate(self.shards)}}
+        self._usage.transport = 'broker'
 
-    def query(self, database, sql, params=()):
+    def _query(self, database, sql, params, observation):
         from .real_estate_archive_broker import operation, REQUEST_LIMIT, RESPONSE_LIMIT, REMOTE_ERRORS
         if database not in self.aliases:
             raise RealEstateError('archive_broker_database')
@@ -464,10 +499,12 @@ class BrokerArchive(D1Archive):
             raise RealEstateError('archive_broker_request_limit')
         conn = http.client.HTTPSConnection(self.broker_host, timeout=60)
         try:
+            observation.request(len(body))
             conn.request('POST', '/v1/query', body,
                          {'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json'})
             response = conn.getresponse()
             raw = response.read(RESPONSE_LIMIT + 1)
+            observation.response(len(raw))
             if len(raw) > RESPONSE_LIMIT:
                 raise RealEstateError('archive_remote_response_limit')
             # http.client does not follow redirects. Do not interpret redirect
@@ -475,16 +512,21 @@ class BrokerArchive(D1Archive):
             if 300 <= response.status < 400:
                 raise RealEstateError('archive_broker_redirect')
             parsed = json.loads(raw)
+            result = parsed.get('result') if isinstance(parsed, dict) else None
+            if isinstance(result, dict):
+                observation.result(result)
             if response.status != 200:
+                observation.explicit_error = True
                 code = parsed.get('error') if isinstance(parsed, dict) else None
                 if isinstance(code, str) and code in REMOTE_ERRORS:
                     raise RealEstateError(code)
                 raise RealEstateError('archive_broker_http_' + str(response.status))
-            result = parsed.get('result') if isinstance(parsed, dict) else None
             if (not isinstance(parsed, dict) or parsed.get('success') is not True or not isinstance(result, dict)
                     or result.get('success') is not True or not isinstance(result.get('results'), list)
                     or not all(isinstance(row, dict) for row in result['results'])
                     or not isinstance(result.get('meta'), dict)):
+                observation.explicit_error = isinstance(parsed, dict) and (parsed.get('success') is False
+                    or isinstance(result, dict) and result.get('success') is False)
                 raise RealEstateError('archive_remote_query')
             return result
         except (OSError, http.client.HTTPException, json.JSONDecodeError, UnicodeDecodeError):

@@ -21,6 +21,7 @@ from .real_estate_archive import D1Archive
 from .real_estate_fetch import fetch_page, instant, month_sequence, read_key, MAX_PAGE_BYTES
 from .real_estate_remote import RemoteWorkspace, RemoteCollector
 from .real_estate_run_guard import CollectionGuard, DAY, guarded_transport
+from .real_estate_usage import usage_report
 
 STATE_KEY = 'property_automation_v1'
 SUCCESS_STOPS = {'work_complete', 'run_budget'}
@@ -353,6 +354,7 @@ def main(argv=None):
     parser.add_argument('--max-bytes', type=int, default=64*1024**2)
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args(argv)
+    store = None
     try:
         if not args.execute:
             raise RealEstateError('explicit_execution_required')
@@ -366,6 +368,7 @@ def main(argv=None):
         result = run_automation(root, store, key, mode=args.mode, months=args.months, scope=args.scope,
                                 require_scope_complete=args.require_scope_complete,
                                 max_requests=args.max_requests, max_bytes=args.max_bytes)
+        result['archive_io'] = usage_report(store)
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0 if result['status'] in ('collected', 'storage_paused') else 1
     except Exception as error:
@@ -374,7 +377,7 @@ def main(argv=None):
         if not re.fullmatch('[a-z0-9_]{1,80}', str(code)):
             code = 'automation_invalid_or_unavailable'
         print(json.dumps({'status': 'blocked', 'error': code, 'public_release': False,
-                          'next_retry_at': retry_at(code)}))
+                          'next_retry_at': retry_at(code), 'archive_io': usage_report(store)}))
         return 1
 
 
