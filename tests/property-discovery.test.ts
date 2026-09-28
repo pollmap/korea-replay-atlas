@@ -128,6 +128,13 @@ describe('property discovery provenance and filtering',()=>{
 });
 
 describe('property discovery presentation',()=>{
+  it('offers a direct 84㎡ band control without hiding the price and area filters',()=>{
+    const html=renderToStaticMarkup(createElement(PropertyComplexList,{complexes:[complex('a')],rows:[],dataReady:true,trade:'sale',onSelect:()=>{}}));
+    expect(html).toContain('aria-label="국평 전용 84㎡대 빠른 선택"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('매매가');
+    expect(html).toContain('전용면적');
+  });
   it('renders no more than 40 actionable complex records and includes real paging controls',()=>{
     const html=renderToStaticMarkup(createElement(PropertyComplexList,{complexes:Array.from({length:81},(_,i)=>complex(String(i))),rows:[],dataReady:true,trade:'sale',onSelect:()=>{}}));
     expect(html.match(/class="discovery-open"/g)).toHaveLength(40);

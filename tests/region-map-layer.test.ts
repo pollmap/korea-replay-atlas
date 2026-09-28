@@ -21,8 +21,8 @@ describe('region navigation volume labels',()=>{
     const result=regionMapData(fixture()),feature=result.data.features[0];
     expect(result).toMatchObject({month:'202608',releaseId:release,total:1,excluded:0});
     expect(feature.geometry).toEqual({type:'Point',coordinates:[127.10596,37.504822]});
-    expect(feature.properties).toMatchObject({property_region_code:'11710',region_name:'서울특별시 송파구',display_name:'서울 송파구',count:1234,count_label:'1,234건',contract_month:'202608',trade_type:'sale',month_label:'26.08 매매',anchor_purpose:'region-navigation-only',anchor_reference_date:'2025-06-30',anchor_source_record_id:'sgis:20250630:sigungu:11240'});
-    expect(result.caption).toBe('지역별 매매 거래량 · 2026.08 · 지역 탐색 위치');
+    expect(feature.properties).toMatchObject({property_region_code:'11710',region_name:'서울특별시 송파구',display_name:'서울 송파구',count:1234,count_label:'1,234건',value_label:'3,306만/평',value_kind:'reported-exclusive-pyeong-median',contract_month:'202608',trade_type:'sale',month_label:'26.08 매매',anchor_purpose:'region-navigation-only',anchor_reference_date:'2025-06-30',anchor_source_record_id:'sgis:20250630:sigungu:11240'});
+    expect(result.caption).toBe('2026.08 매매 · 지역 탐색');
     expect(result.notice).toContain('패널의 거래 유형과 연동');
     expect(result.notice).toContain('단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다');
   });
@@ -30,7 +30,8 @@ describe('region navigation volume labels',()=>{
     const input=fixture();input.trade='rent';
     const result=regionMapData(input);
     expect(result.data.features[0].properties).toMatchObject({trade_type:'rent',count:1234,month_label:'26.08 전월세'});
-    expect(result.caption).toContain('전월세 거래량');
+    expect(result.data.features[0].properties).toMatchObject({value_label:'1,234건',value_kind:'reported-count'});
+    expect(result.caption).toContain('전월세');
     expect(result.notice).toContain('과거 계약월 선택과는 별개');
   });
   it('aggregates published districts by province only when every member has a valid monthly count',()=>{
@@ -55,6 +56,7 @@ describe('region navigation volume labels',()=>{
   it('shows a verified empty result as zero but rejects an inconsistent empty result',()=>{
     const result=regionMapData(fixture([region({},{status:'empty',eligible_rows:0,source_rows:0})]));
     expect(result.data.features[0].properties.count_label).toBe('0건');
+    expect(result.data.features[0].properties.value_label).toBe('0건');
     expect(regionMapData(fixture([region({},{status:'empty',eligible_rows:1})])).data.features).toEqual([]);
   });
   it('rejects cross-release, mismatched month/trade/code and invalid counts',()=>{
@@ -90,6 +92,7 @@ describe('region volume map integration contracts',()=>{
     const layer=regionMapLayer();
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).data}},layers:[layer]})).toEqual([]);
     expect(layer.type).toBe('symbol');
+    expect(layer.maxzoom).toBe(10);
     if(layer.type==='symbol')expect(layer.layout).toMatchObject({'text-allow-overlap':false,'icon-allow-overlap':false,'icon-text-fit':'both'});
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).provinces}},layers:[provinceMapLayer()]})).toEqual([]);
   });

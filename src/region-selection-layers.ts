@@ -14,5 +14,9 @@ export function regionSelectionLayers():LayerSpecification[]{
     {id:'selected-region-dong-lines',type:'line',source:REGION_DONG_SOURCE,minzoom:10,paint:{'line-color':'#9779b9','line-width':1,'line-opacity':.5}},
     {id:'selected-dong-fill',type:'fill',source:SELECTED_DONG_SOURCE,paint:{'fill-color':'#7541ce','fill-opacity':.15}},
     {id:'selected-dong-outline',type:'line',source:SELECTED_DONG_SOURCE,paint:{'line-color':'#6330ba','line-width':3}},
+    {id:'selected-region-dong-labels',type:'symbol',source:REGION_DONG_SOURCE,minzoom:10,
+      filter:['all',['has','name'],['!=',['get','name'],'']],
+      layout:{'text-field':['get','name'],'text-font':['Malgun Gothic','sans-serif'],'text-size':12,'text-padding':4,'text-max-width':10,'text-allow-overlap':false},
+      paint:{'text-color':'#51416e','text-halo-color':'#ffffff','text-halo-width':1.5}},
   ];
 }

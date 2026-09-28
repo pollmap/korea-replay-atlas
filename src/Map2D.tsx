@@ -246,7 +246,8 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
         map.setFilter(APARTMENT_MAP_LAYER,['!=',['get','kapt_code'],valid?point.kaptCode:'']);
         const label=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale');
         map.setLayoutProperty(APARTMENT_MAP_LAYER,'text-field',label.layout!['text-field']);
-        map.setLayoutProperty(APARTMENT_SELECTED_LAYER,'text-field',label.layout!['text-field']);
+        const selectedLabel=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',true);
+        map.setLayoutProperty(APARTMENT_SELECTED_LAYER,'text-field',selectedLabel.layout!['text-field']);
       }
       node.dataset.selectedPropertyComplex=valid?point.complexId:'';
     };
