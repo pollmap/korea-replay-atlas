@@ -1,5 +1,10 @@
 /** Audited immutable snapshots only. Never infer an archive from a user URL or a complex ID. */
 const ARCHIVES:Readonly<Record<string,{origin:string;artifact:string;appRelease:string}>>={
+  'property-87d1c67336e97209':{
+    origin:'https://0c88b86f.korea-replay.pages.dev',
+    artifact:'1f4d796c585e6fd2bc2a031685ad3cfad4e176fa5143e8146f59ce8ecb2886c2',
+    appRelease:'pub-b71d244ced0bff39',
+  },
   'property-54bf1817fdcc7bd9':{
     origin:'https://a77a2fcd.korea-replay.pages.dev',
     artifact:'e78aa32db267d446a438963056663a3cb3ecc4427e0d9159bdad4266cbed33b0',
