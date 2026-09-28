@@ -5,6 +5,18 @@ import {assertPinnedDeploymentV2} from '../shared/runtime-v2';
 const current='property-1111111111111111',previous='property-eea48453a819f517';
 const hash=`#regionCode=11410&trade=sale&month=202608&historyMonths=120&propertyRelease=${previous}&complex=molit-apt%3A11410%3Atest&area=84-band`;
 const origin='https://korea-replay.pages.dev/';
+it('restores the previous public property release to its verified immutable snapshot',()=>{
+  const release='property-87d1c67336e97209';
+  const state=hash.replace(previous,release);
+  const result=new URL(propertyReleaseArchiveUrl(origin+state,current)!);
+  expect(result.origin).toBe('https://0c88b86f.korea-replay.pages.dev');
+  expect(result.hash).toBe(state);
+  expect(()=>assertPinnedDeploymentV2(result.searchParams.get('deployment'),{
+    schema_version:2,platform:'cloudflare-pages',project:'korea-replay',release_id:'pub-b71d244ced0bff39',
+    artifact_sha256:'1f4d796c585e6fd2bc2a031685ad3cfad4e176fa5143e8146f59ce8ecb2886c2',
+    snapshot:{origin:result.origin,hash:'0c88b86f'},data:{origin:'https://e593bf43.korea-replay-data.pages.dev',manifest_path:'/data/atlas/atlas-82335e2c9d48f0e3/manifest.json',manifest_sha256:'8657ceaad96ec1a019af1947a564fc7c601ede2e059106919d28150db70b27b0'},
+  },result.origin)).not.toThrow();
+});
 it('preserves the September 26 property release and its exact data deployment after publication advances',()=>{
   const release='property-54bf1817fdcc7bd9';
   const state=hash.replace(previous,release);
