@@ -2,6 +2,7 @@ import {useMemo} from 'react';
 import source from './data/seoul-apartment-facts.json';
 import historySource from './data/seoul-apartment-facts-54bf1817fdcc7bd9.json';
 import refreshedSource from './data/seoul-apartment-facts-87d1c67336e97209.json';
+import currentSource from './data/seoul-apartment-facts-2da3955e5d587c40.json';
 import {apartmentFactsIndex,parkingPerHousehold,type ApartmentFacts as Facts} from '../shared/property-facts';
 interface FactsIndex {release:string;source:string;retrieved:string;rows:Map<string,Facts>;}
 /** Lazy validation/cache per exact release; matching complex IDs do not authorize reuse. */
@@ -26,7 +27,7 @@ export function createApartmentFactsLookup(sources:readonly unknown[]){
   };
 }
 // Add new audited generated sources here; preserve older sources for pinned shares.
-const index=createApartmentFactsLookup([source,historySource,refreshedSource]);
+const index=createApartmentFactsLookup([source,historySource,refreshedSource,currentSource]);
 export default function ApartmentFacts({complexId,release}:{complexId:string;release:string}){
   const result=useMemo(()=>{try{const data=index(release);return {data,facts:data?.rows.get(complexId),invalid:false};}catch{return {data:undefined,facts:undefined,invalid:true};}},[complexId,release]);
   const {data,facts,invalid}=result,parking=facts?parkingPerHousehold(facts):null;

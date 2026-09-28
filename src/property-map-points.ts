@@ -3,6 +3,7 @@ import {parsePropertyMapPoints,type PropertyMapPoint} from '../shared/property-m
 import manifest from './data/property-navigation-manifest.json';
 import historyManifest from './data/property-navigation-manifest-54bf1817fdcc7bd9.json';
 import refreshedManifest from './data/property-navigation-manifest-87d1c67336e97209.json';
+import currentManifest from './data/property-navigation-manifest-2da3955e5d587c40.json';
 
 interface NavigationSource {
   manifest:{release_id:string;sha256:string;bytes:number;source_sha256:string};
@@ -50,6 +51,7 @@ const lookup=createPropertyMapPointLookup([
   {manifest,url:new URL('./data/seoul-property-navigation.json',import.meta.url).href},
   {manifest:historyManifest,url:new URL('./data/seoul-property-navigation-54bf1817fdcc7bd9.json',import.meta.url).href},
   {manifest:refreshedManifest,url:new URL('./data/seoul-property-navigation-87d1c67336e97209.json',import.meta.url).href},
+  {manifest:currentManifest,url:new URL('./data/seoul-property-navigation-2da3955e5d587c40.json',import.meta.url).href},
 ]);
 export const supportsPropertyMapPoint=lookup.supports;
 export const findPropertyMapPoint=lookup.find;
