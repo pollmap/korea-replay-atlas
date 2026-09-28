@@ -25,15 +25,22 @@ from .real_estate_manifest import load_manifest, save_manifest, checkpoint_row, 
 
 
 class RemoteWorkspace:
-    def __init__(self, root, store):
+    def __init__(self, root, store, *, resume_head=None):
         self.root=Path(root).absolute();_reject_links(self.root)
-        if self.root.exists():raise RealEstateError('remote_workspace_requires_new_directory')
+        if self.root.exists():
+            if resume_head is None or not self.root.is_dir():
+                raise RealEstateError('remote_workspace_requires_new_directory')
+        elif resume_head is not None:
+            raise RealEstateError('remote_workspace_resume_missing')
         self.store=store;self.head=store.head()
         if not self.head:raise RealEstateError('archive_no_backup')
+        if resume_head is not None and self.head != resume_head:
+            raise RealEstateError('archive_head_changed')
+        self.resumed=resume_head is not None
         self.manifest=load_manifest(store,self.head)
         self.files={r['path']:r for r in self.manifest['files']}
         self.cached_key=None;self.cached_body=None;self.hydrated_bytes=0;self.hydrated_files=0;self.downloaded_object_bytes=0
-        self.root.mkdir(parents=True)
+        if not self.resumed:self.root.mkdir(parents=True)
         self.hydrate(['checkpoint.sqlite'])
         self.base_checkpoint=(self.root/'checkpoint.sqlite').read_bytes()
         with closing(sqlite3.connect(self.root/'checkpoint.sqlite')) as db:
@@ -68,6 +75,7 @@ class RemoteWorkspace:
 
     def publish(self, lease, *, heartbeat=lambda: None):
         """Audit all references; verify new bytes without rereading all old packs."""
+        if self.resumed:raise RealEstateError('resumed_workspace_read_only')
         self.cached_key=None;self.cached_body=None
         rows=dict(self.files);new_files=0;new_bytes=0;checkpoint_changed_bytes=0
         with tempfile.TemporaryDirectory(prefix='korea-replay-remote-checkpoint-') as temporary:
