@@ -28,6 +28,9 @@
 .atlas-shell.is-2d.is-exploring .property-saved-filters small{display:block;color:#776b87;font-size:10px;margin:8px 0}
 .atlas-shell.is-2d.is-exploring .property-saved-filters p{font-size:11px;color:#6a4f88}
 .atlas-shell.is-2d.is-exploring .complex-subtitle{margin:5px 0 0;color:#716780;font-size:11px;line-height:1.5}
+.atlas-shell.is-2d.is-exploring .complex-headline-price{display:flex;align-items:baseline;gap:7px;min-width:0;margin:3px 0 0;color:#675b78;font-size:11px;white-space:nowrap;overflow:hidden}
+.atlas-shell.is-2d.is-exploring .complex-headline-price strong{color:#5145cd;font-size:17px;font-weight:800;letter-spacing:-.04em;flex:none}
+.atlas-shell.is-2d.is-exploring .complex-headline-price span{overflow:hidden;text-overflow:ellipsis}
 .atlas-shell.is-2d.is-exploring .complex-actionbar{display:flex;align-items:center;gap:6px;padding:0 16px 10px;flex:0 0 auto;background:#fff}
 .atlas-shell.is-2d.is-exploring .complex-actionbar button{flex:1;min-height:36px;padding:6px;border:1px solid #ded8ee;border-radius:6px;background:#fff;color:#63558e;font-size:12px;cursor:pointer}
 .atlas-shell.is-2d.is-exploring .complex-actionbar button[aria-pressed=true]{background:#eee8ff;border-color:#a897e1;color:#5140a7;font-weight:700}
@@ -64,6 +67,7 @@
  .atlas-shell.is-2d.is-exploring .property-header>button{min-width:44px;min-height:44px}
  .atlas-shell.is-2d.is-exploring .showing-complex.sheet-half .complex-actionbar{display:none}
  .atlas-shell.is-2d.is-exploring .showing-complex.sheet-peek :is(.complex-actionbar,.complex-section-nav,.complex-subtitle){display:none}
+ .atlas-shell.is-2d.is-exploring .showing-complex.sheet-peek .complex-headline-price{margin-top:2px}
  .atlas-shell.is-2d.is-exploring .complex-actionbar{padding-inline:14px}
  .atlas-shell.is-2d.is-exploring .complex-actionbar button{min-height:44px}
  .atlas-shell.is-2d.is-exploring .history-controls select,.atlas-shell.is-2d.is-exploring .chart-basis-select select{min-height:44px}
