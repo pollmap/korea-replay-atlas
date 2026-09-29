@@ -24,6 +24,12 @@ export function moneyLabel(value:number|null):string {
   if(value>=1e8){const remainder=Math.round(value%1e8/1e4);return `${Math.floor(value/1e8).toLocaleString('ko-KR')}억${remainder?` ${remainder.toLocaleString('ko-KR')}만`:''}`;}
   return `${(value/1e4).toLocaleString('ko-KR',{maximumFractionDigits:1})}만`;
 }
+/** A monthly-rent headline must not hide the payment behind the deposit. */
+export function propertyHeadline(row:PropertyTransaction):{amount:string;label:string}{
+  if(row.trade_type==='sale')return {amount:moneyLabel(row.price_krw),label:'매매'};
+  if(row.monthly_rent_krw!==null&&row.monthly_rent_krw>0)return {amount:`${moneyLabel(row.deposit_krw)} / 월 ${moneyLabel(row.monthly_rent_krw)}`,label:'보증금 / 월세'};
+  return {amount:moneyLabel(row.deposit_krw),label:row.monthly_rent_krw===0?'전세 보증금':'보증금'};
+}
 export function metricCount(metric:RegionMetric):number|null{return ['complete','empty'].includes(metric.status)?metric.eligible_rows:null;}
 export function propertyStatus(status:string):string{return ({complete:'수집 완료',empty:'신고 없음',failed:'조회 실패',partial:'부분 수집',pending:'수집 대기',source_unavailable:'원천 자료 제공 전'} as Record<string,string>)[status]??'미확인';}
 export interface PropertyRowsView {state:'ready'|'loading'|'unavailable'|'error';count:number|null;message:string;}
