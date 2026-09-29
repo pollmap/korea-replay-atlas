@@ -236,7 +236,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(map.getLayer(REGION_MAP_LAYER))map.setPaintProperty(REGION_MAP_LAYER,'text-color',['case',['==',['get','property_region_code'],latest.current.propertyRegion??''],'#713fc7','#102b46']);
     };
     refreshBoundaryRef.current=refreshBoundary;
-    let installedKaptUrl='';
+    let installedKaptUrl='',centeredPropertyKey='';
     const refreshSelectedPoint=()=>{
       if(disposed||!ready)return;
       const source=map.getSource(SEOUL_KAPT_SOURCE) as GeoJSONSource|undefined;
@@ -244,6 +244,13 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(source&&installedKaptUrl!==url){installedKaptUrl=url;source.setData(url);}
       const point=latest.current.propertyMapPoint;
       const valid=point&&point.releaseId===latest.current.vectorData?.property?.release_id;
+      if(valid&&matchMedia('(max-width:780px)').matches&&!latest.current.focused){
+        const key=`${point.releaseId}:${point.complexId}`;
+        if(centeredPropertyKey!==key){
+          centeredPropertyKey=key;
+          map.easeTo({center:[point.longitude,point.latitude],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:300});
+        }
+      }
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
         map.setFilter(APARTMENT_SELECTED_LAYER,['==',['get','kapt_code'],valid?point.kaptCode:'']);
         map.setFilter(APARTMENT_MAP_LAYER,['!=',['get','kapt_code'],valid?point.kaptCode:'']);
@@ -348,6 +355,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
           if(match&&kaptHit.properties?.property_release_id===latest.current.vectorData?.property?.release_id&&latest.current.onPropertyComplex){
             latest.current.onPropertyComplex(match[1],identity);
             if(matchMedia('(max-width:780px)').matches){
+              centeredPropertyKey=`${latest.current.vectorData?.property?.release_id}:${identity}`;
               // Keep the selected point above the mobile bottom sheet.
               map.easeTo({center:[coordinates[0],coordinates[1]],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:300});
             }
