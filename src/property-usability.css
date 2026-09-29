@@ -90,6 +90,11 @@
 @media(max-width:780px){.selected-region-caption,.has-property .selected-region-caption{top:76px;left:12px;max-width:calc(100% - 82px);flex-wrap:wrap;gap:3px 8px;padding:8px 11px}.selected-region-caption strong{font-size:12px}.selected-region-caption small{display:block;font-size:9px}.selected-region-caption button{min-width:44px;min-height:44px}}
 
 .selected-region-caption select{min-height:36px;max-width:150px;background:#faf7ff;border:1px solid #dfd1ef;border-radius:6px;padding:0 8px;color:#59318c;font-family:inherit;font-size:12px}.selected-region-caption select:focus-visible{outline:2px solid #7140c7;outline-offset:2px}@media(max-width:780px){.selected-region-caption select{min-height:44px;max-width:132px}}
+.map-apartment-label-control{position:absolute;z-index:5;top:86px;right:18px;display:flex;align-items:center;gap:7px;padding:4px 6px 4px 10px;border:1px solid #dce4ef;border-radius:9px;background:#fffffff2;box-shadow:0 3px 12px #122e4c12;color:#415777;font-size:11px;font-weight:650}
+.map-apartment-label-control select{min-height:36px;width:128px;border:1px solid #ccd9ea;border-radius:6px;background:#fff;color:#213f63;padding:0 6px;font:inherit;cursor:pointer}
+.map-apartment-label-control select:focus-visible{outline:2px solid #7140c7;outline-offset:2px}
+.atlas-shell:has(.selected-region-caption) .selected-region-caption{max-width:calc(100% - 250px)}
+@media(max-width:780px){.map-apartment-label-control{top:76px;right:12px;gap:4px;padding:3px 4px 3px 7px;font-size:10px}.map-apartment-label-control select{min-height:44px;width:108px}.atlas-shell:has(.selected-region-caption) .selected-region-caption{max-width:calc(100% - 205px)}}
 
 /* The half-height 2D list prioritizes results; the full sheet keeps every tool visible. */
 .property-mobile-tools-toggle,.property-mobile-list-context,.property-back-icon{display:none}

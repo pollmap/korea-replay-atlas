@@ -42,11 +42,14 @@ describe('region navigation volume labels',()=>{
     const hit={source:REGION_MAP_SOURCE,layer:{id:PROVINCE_MAP_LAYER},properties:{property_province_name:'서울특별시',property_release:release}};
     expect(pickedPropertyProvince([hit],current)).toEqual([126.939166,37.564879]);
     expect(pickedPropertyProvince([hit],current,'distance')).toBeNull();
-    expect(regionMapData(fixture([rows[0],region({lawd_code:'11680',name:'서울특별시 강남구'},{status:'pending',eligible_rows:null})])).provinces.features).toHaveLength(0);
+    const missing=regionMapData(fixture([rows[0],region({lawd_code:'11680',name:'서울특별시 강남구'},{status:'pending',eligible_rows:null})]));
+    expect(missing.provinces.features[0].properties.count_label).toBe('미수집');
   });
-  it('does not turn missing, failed, partial or unmatched regions into zero',()=>{
-    for(const metric of [{status:'pending',eligible_rows:null},{status:'failed',eligible_rows:null},{status:'partial',eligible_rows:null}] as Partial<RegionMetric>[]){
-      const result=regionMapData(fixture([region({},metric)]));expect(result.data.features).toEqual([]);expect(result.excluded).toBe(1);
+  it('keeps navigable region names and distinguishes missing, failed and partial data from zero',()=>{
+    for(const [status,display] of [['pending','미수집'],['failed','조회 실패'],['partial','부분 수집'],['source_unavailable','원천 미제공']] as const){
+      const result=regionMapData(fixture([region({},{status,eligible_rows:null})]));
+      expect(result.data.features[0].properties).toMatchObject({count:null,value_label:display,value_kind:'unavailable'});
+      expect(result.excluded).toBe(0);expect(result.uncollected).toBe(1);
     }
     for(const name of ['송파구','서울특별시 송파구 잠실동 1','전남광주통합특별시 동구','인천광역시 영종구','경기도 화성시 동탄구']){
       expect(regionMapData(fixture([region({name})])).data.features).toEqual([]);
@@ -58,6 +61,10 @@ describe('region navigation volume labels',()=>{
     expect(result.data.features[0].properties.count_label).toBe('0건');
     expect(result.data.features[0].properties.value_label).toBe('0건');
     expect(regionMapData(fixture([region({},{status:'empty',eligible_rows:1})])).data.features).toEqual([]);
+  });
+  it('does not silently switch a missing sale price to transaction volume',()=>{
+    const result=regionMapData(fixture([region({},{status:'complete',eligible_rows:3,median_price_per_m2_krw:null})]));
+    expect(result.data.features[0].properties).toMatchObject({value_label:'가격 미제공',value_kind:'unavailable',count_label:'3건'});
   });
   it('rejects cross-release, mismatched month/trade/code and invalid counts',()=>{
     const changed=fixture();changed.regions.release_id='property-ffffffffffffffff';expect(regionMapData(changed).data.features).toEqual([]);
@@ -92,7 +99,7 @@ describe('region volume map integration contracts',()=>{
     const layer=regionMapLayer();
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).data}},layers:[layer]})).toEqual([]);
     expect(layer.type).toBe('symbol');
-    expect(layer.maxzoom).toBe(10);
+    expect(layer.maxzoom).toBe(13);
     if(layer.type==='symbol')expect(layer.layout).toMatchObject({'text-allow-overlap':false,'icon-allow-overlap':false,'icon-text-fit':'both'});
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).provinces}},layers:[provinceMapLayer()]})).toEqual([]);
   });
