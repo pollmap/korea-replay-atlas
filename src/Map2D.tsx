@@ -41,6 +41,7 @@ const SEOUL_KAPT_SOURCES:Readonly<Record<string,string>>={
   'property-54bf1817fdcc7bd9':new URL('./data/seoul-kapt-points-14916a799c24a49e.geojson',import.meta.url).href,
   'property-87d1c67336e97209':new URL('./data/seoul-kapt-points-7843533a17275616.geojson',import.meta.url).href,
   'property-2da3955e5d587c40':new URL('./data/seoul-kapt-points-2da3955e5d587c40.geojson',import.meta.url).href,
+  'property-8deba5b9951e48da':new URL('./data/seoul-kapt-points-8deba5b9951e48da.geojson',import.meta.url).href,
 };
 const SEOUL_KAPT_BASE=new URL('./data/seoul-kapt-points-8360eb2d88be0ab4.geojson',import.meta.url).href;
 const seoulKaptUrl=(release:string)=>SEOUL_KAPT_SOURCES[release]??SEOUL_KAPT_BASE;
