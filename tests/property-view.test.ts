@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest';
-import {readPropertyView,transactionCsv,moneyLabel,propertyRowsView,propertyAreaOptions,transactionRows} from '../shared/property-view';
+import {readPropertyView,transactionCsv,moneyLabel,propertyHeadline,propertyRowsView,propertyAreaOptions,transactionRows} from '../shared/property-view';
 import type {PropertyTransaction} from '../shared/property';
 const period={from:'202109',to:'202609',latest_complete_month:'202608'};
 it('restores a province search without inventing a district code',()=>{
@@ -16,6 +16,13 @@ it('exports literal spreadsheet cells while retaining integer won',()=>{
   const text=transactionCsv([{complex_name:'=HYPERLINK("bad")',price_krw:123450000,contract_date:'2026-08-01'} as PropertyTransaction]);
   expect(text.startsWith('\uFEFF')).toBe(true);expect(text).toContain('"\'=HYPERLINK(""bad"")"');expect(text).toContain('"123450000"');
   expect(moneyLabel(123450000)).toBe('1억 2,345만');expect(moneyLabel(null)).toBe('자료 없음');
+});
+it('shows both deposit and monthly payment without labelling unknown rent as jeonse',()=>{
+  const row={trade_type:'rent',deposit_krw:300_000_000,monthly_rent_krw:2_500_000} as PropertyTransaction;
+  expect(propertyHeadline(row)).toEqual({amount:'3억 / 월 250만',label:'보증금 / 월세'});
+  expect(propertyHeadline({...row,monthly_rent_krw:0})).toEqual({amount:'3억',label:'전세 보증금'});
+  expect(propertyHeadline({...row,monthly_rent_krw:null})).toEqual({amount:'3억',label:'보증금'});
+  expect(propertyHeadline({...row,trade_type:'sale',price_krw:900_000_000})).toEqual({amount:'9억',label:'매매'});
 });
 
 it.each(['pending','partial','failed',undefined] as const)('keeps %s partition counts unknown even if old rows exist',status=>{

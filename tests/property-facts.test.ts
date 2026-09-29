@@ -7,6 +7,8 @@ import refreshedData from '../src/data/seoul-apartment-facts-87d1c67336e97209.js
 import refreshedNavigation from '../src/data/seoul-property-navigation-87d1c67336e97209.json';
 import currentData from '../src/data/seoul-apartment-facts-2da3955e5d587c40.json';
 import currentNavigation from '../src/data/seoul-property-navigation-2da3955e5d587c40.json';
+import nextData from '../src/data/seoul-apartment-facts-8deba5b9951e48da.json';
+import nextNavigation from '../src/data/seoul-property-navigation-8deba5b9951e48da.json';
 import {apartmentFactsIndex,parkingPerHousehold} from '../shared/property-facts';
 import ApartmentFacts,{createApartmentFactsLookup} from '../src/ApartmentFacts';
 
@@ -31,6 +33,17 @@ it('connects the latest verified transaction release without changing older fact
   for(const row of current.rows)expect(ids.get(row.complex_id)).toBe(row.kapt_code);
   expect(currentData.coordinate_verification).toBe('not_performed');
   const html=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:'molit-apt:11710:11710-8865',release:current.property_release_id}));
+  expect(html).toContain('9,510세대');
+  expect(html).not.toContain('자료 연결 전');
+});
+it('retains official building facts when the new transaction release is selected',()=>{
+  const current=apartmentFactsIndex(currentData),next=apartmentFactsIndex(nextData);
+  expect(next.property_release_id).toBe('property-8deba5b9951e48da');
+  expect(next.rows).toEqual(current.rows);
+  const ids=new Map(nextNavigation.points.map(row=>[row[0],row[1]]));
+  for(const row of next.rows)expect(ids.get(row.complex_id)).toBe(row.kapt_code);
+  expect(nextData.coordinate_verification).toBe('not_performed');
+  const html=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:'molit-apt:11710:11710-8865',release:next.property_release_id}));
   expect(html).toContain('9,510세대');
   expect(html).not.toContain('자료 연결 전');
 });

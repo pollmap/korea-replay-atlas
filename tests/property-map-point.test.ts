@@ -5,6 +5,7 @@ import {parsePropertyMapPoints} from '../shared/property-map-point';
 import manifest from '../src/data/property-navigation-manifest.json';
 import refreshedManifest from '../src/data/property-navigation-manifest-87d1c67336e97209.json';
 import currentManifest from '../src/data/property-navigation-manifest-2da3955e5d587c40.json';
+import nextManifest from '../src/data/property-navigation-manifest-8deba5b9951e48da.json';
 const request=vi.hoisted(()=>vi.fn());
 vi.mock('../src/atlas-client',()=>({atlasFetch:request}));
 const raw=readFileSync(new URL('../src/data/seoul-property-navigation.json',import.meta.url),'utf8');
@@ -42,6 +43,20 @@ it('loads the latest release from its own verified source bytes',async()=>{
   const {findPropertyMapPoint}=await import('../src/property-map-points');
   expect((await findPropertyMapPoint(helio,currentManifest.release_id))?.kaptCode).toBe('A10025850');
   expect(String(request.mock.calls[0][0])).toContain('seoul-property-navigation-2da3955e5d587c40.json');
+});
+it('keeps every linked complex and provisional coordinate in the new transaction release',async()=>{
+  const body=readFileSync(new URL('../src/data/seoul-property-navigation-8deba5b9951e48da.json',import.meta.url),'utf8');
+  const pointsBody=readFileSync(new URL('../src/data/seoul-kapt-points-8deba5b9951e48da.geojson',import.meta.url));
+  expect(createHash('sha256').update(pointsBody).digest('hex')).toBe(nextManifest.source_sha256);
+  expect(createHash('sha256').update(body).digest('hex')).toBe(nextManifest.sha256);
+  expect(Buffer.byteLength(body)).toBe(nextManifest.bytes);
+  const old=parsePropertyMapPoints(JSON.parse(readFileSync(new URL('../src/data/seoul-property-navigation-2da3955e5d587c40.json',import.meta.url),'utf8')),currentManifest.release_id,currentManifest.source_sha256);
+  const next=parsePropertyMapPoints(JSON.parse(body),nextManifest.release_id,nextManifest.source_sha256);
+  expect(next.size).toBe(old.size);
+  for(const [id,point] of old)expect(next.get(id)).toEqual({...point,releaseId:nextManifest.release_id});
+  request.mockResolvedValue(new Response(body));
+  const {findPropertyMapPoint}=await import('../src/property-map-points');
+  expect((await findPropertyMapPoint(helio,nextManifest.release_id))?.kaptCode).toBe('A10025850');
 });
 it('preserves every linked source coordinate exactly, with separate provisional geometry status',()=>{
   expect(createHash('sha256').update(raw).digest('hex')).toBe(manifest.sha256);
