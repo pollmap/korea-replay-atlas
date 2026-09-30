@@ -2,10 +2,17 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,it} from 'vitest';
 import type {PropertyTransaction} from '../shared/property';
-import {defaultDetailArea,equalLoanPayment,readComplexNote} from '../src/property-desktop';
+import {defaultDetailArea,detailSectionAtScroll,equalLoanPayment,readComplexNote} from '../src/property-desktop';
 import {DetailUnavailable,PropertyLoanCalculator,PropertyRegionAnalysis} from '../src/PropertyDetailTools';
 
 const row=(area:string,overrides:Partial<PropertyTransaction>={})=>({area_m2:area,trade_type:'sale',cancellation:'not_reported',statistics_eligible:true,quality:'valid',...overrides}) as PropertyTransaction;
+it('keeps a short final comparison selected when the scroll limit prevents top alignment',()=>{
+  const sections=[{id:'costs',top:160},{id:'compare',top:490}] as const;
+  expect(detailSectionAtScroll(sections,{top:197,height:883,scrollTop:2400,scrollHeight:3283})).toBe('compare');
+  expect(detailSectionAtScroll(sections,{top:197,height:883,scrollTop:2390,scrollHeight:3283})).toBe('costs');
+  expect(detailSectionAtScroll([{id:'trades',top:200},{id:'compare',top:490}],{top:197,height:883,scrollTop:0,scrollHeight:883})).toBe('trades');
+  expect(detailSectionAtScroll([],{top:197,height:883,scrollTop:2400,scrollHeight:3283})).toBeUndefined();
+});
 it('defaults to reported 84㎡ band and does not derive a supply-area label or price',()=>{
   expect(defaultDetailArea([row('59'),row('59'),row('84.99')])).toBe('84-band');
   expect(defaultDetailArea([row('85'),row('83.99'),row('83.99')])).toBe('83.99');
