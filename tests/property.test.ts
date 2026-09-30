@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {createHash} from 'node:crypto';
-import {parsePropertyRelease,parsePropertyRegions,parsePropertyRegionDetail,parsePropertyTransactions,
+import {parsePropertyRelease,parsePropertyRegions,parsePropertyRegionDetail,parsePropertyTransactions,parsePropertyMonthTransactions,
   parsePropertyComplexes,parsePropertyAssetBytes,summarizePropertyTransactions,
   eligiblePropertyTransactions,
   type PropertyTransaction,type RegionMetric} from '../shared/property';
@@ -25,6 +25,20 @@ function row(overrides:Partial<PropertyTransaction>={}):PropertyTransaction{
     source_input_sha256:'a'.repeat(64),retrieved_at:stamp,evidence_type:'official_report',observed_at:null,...overrides};
 }
 function packet(transactions:PropertyTransaction[]){return {schema_version:1,kind:'property-transactions',release_id:release,lawd_code:'11110',deal_month:'202609',transactions};}
+describe('bounded transaction packs and old shared releases',()=>{
+  const older=()=>row({id:`molit-sale:${'2'.repeat(64)}:1`,contract_date:'2026-08-03'});
+  const packed=()=>({schema_version:1,kind:'property-transaction-pack',release_id:release,lawd_code:'11110',months:[{deal_month:'202608',transactions:[older()]},{deal_month:'202609',transactions:[row()]}]});
+  it('unwraps only the requested month while preserving source IDs and the old format',()=>{
+    expect(parsePropertyMonthTransactions(packed(),'202608').transactions.map(r=>r.id)).toEqual([older().id]);
+    expect(parsePropertyMonthTransactions(packet([row()]),'202609')).toEqual(parsePropertyTransactions(packet([row()])));
+  });
+  it('rejects missing months, duplicate identities across months, and corrupt unselected rows',()=>{
+    expect(()=>parsePropertyMonthTransactions(packed(),'202607')).toThrow();
+    const duplicate=packed();duplicate.months[0].transactions=[row()];expect(()=>parsePropertyMonthTransactions(duplicate,'202609')).toThrow();
+    const corrupt=packed();corrupt.months[0].transactions=[older()];corrupt.months[0].transactions[0].price_krw=-1;expect(()=>parsePropertyMonthTransactions(corrupt,'202609')).toThrow();
+    expect(()=>parsePropertyMonthTransactions(packet([row()]),'202608')).toThrow();
+  });
+});
 function manifest(){return {schema_version:1,kind:'property-release',release_id:release,generated_at:stamp,period,coverage,
   sources:[{id:'molit-apt-sale-detail',dataset_id:'15126468',label:'공식 매매 신고',page_url:'https://www.data.go.kr/data/15126468/openapi.do',evidence_type:'official_report'},
     {id:'molit-apt-rent',dataset_id:'15126474',label:'공식 전월세 신고',page_url:'https://www.data.go.kr/data/15126474/openapi.do',evidence_type:'official_report'}],

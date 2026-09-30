@@ -20,6 +20,13 @@ function row(overrides:Partial<PropertyTransaction>={}):PropertyTransaction{retu
 function partition(month='202608',overrides:Partial<PropertyPartition>={}):PropertyPartition{return {lawd_code:'11110',deal_month:month,trade_type:'sale',status:'complete',source_rows:1,eligible_rows:1,retrieved_at:stamp,error_code:null,transactions:[{url:`/data/property/${release}/${month}.json`,sha256:'b'.repeat(64),bytes:1000}],...overrides};}
 function detail(partitions:PropertyPartition[]):PropertyRegionDetail{return {schema_version:1,kind:'property-region',release_id:release,lawd_code:'11110',name:'테스트 지역',period:{from:'202606',to:'202609',latest_complete_month:'202608'},coverage:{expected:partitions.length,complete:partitions.length,empty:0,pending:0,partial:0,failed:0,historical_coverage:'current_codes_only_pending_effective_date_crosswalk'},metrics:[],partitions,complexes:null};}
 function packet(transactions:PropertyTransaction[],deal_month='202608'){return {schema_version:1,kind:'property-transactions',release_id:release,lawd_code:'11110',deal_month,transactions};}
+it('counts one bounded shared pack against the download budget for several months',async()=>{
+  const shared={url:`/data/property/${release}/transaction-packs/11110/0000.json`,sha256:'b'.repeat(64),bytes:1000};
+  const source=detail(['202607','202608'].map(month=>partition(month,{transactions:[shared]})));
+  const results:HistoryResult[]=[],budget={remaining:1000,requestsRemaining:1};
+  await loadPropertyHistory({detail:source,end:'202608',count:3,trade:'sale',complex,origin:'https://example.com',signal:new AbortController().signal,onMonth:r=>results.push(r),budget,fetchJson:async()=>({schema_version:1,kind:'property-transaction-pack',release_id:release,lawd_code:'11110',months:['202607','202608'].map((month,i)=>({deal_month:month,transactions:[row({id:`molit-sale:${'1'.repeat(64)}:${i+1}`,contract_date:`${month.slice(0,4)}-${month.slice(4)}-01`})]}))})});
+  expect(results.filter(r=>r.status==='ready')).toHaveLength(2);expect(budget).toEqual({remaining:0,requestsRemaining:0,rowsRemaining:19998});
+});
 function publishedDetail(partitions:PropertyPartition[]):PropertyRegionDetail {
   const value=detail(partitions);
   value.metrics=partitions.map(partition=>({lawd_code:partition.lawd_code,deal_month:partition.deal_month,trade_type:'sale',status:'complete',source_rows:partition.source_rows,eligible_rows:partition.eligible_rows,cancelled_rows:0,invalid_rows:0,statistics_excluded_rows:0,complex_count:1,retrieved_at:stamp,median_price_per_m2_krw:1000000,statistic:'reported-row-median-price-per-m2',cancellation_policy:'exclude_cancelled_and_unknown'}));
@@ -39,7 +46,7 @@ it('restores bounded history range in old/new shared URLs',()=>{
   expect(readPropertyView('#historyMonths=240',period).historyMonths).toBe(240);
   expect(readPropertyView('#historyMonths=241',period).historyMonths).toBe(3);
   expect(readPropertyView('#historyMonths=999999',period).historyMonths).toBe(3);
-  expect(readPropertyView('',period).historyMonths).toBe(3);
+  expect(readPropertyView('',period).historyMonths).toBe(36);
 });
 it('offers 240 completed contract months and keeps the current provisional month separate',()=>{
   const months=historyMonths('202608',240);

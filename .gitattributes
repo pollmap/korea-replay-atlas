@@ -2,3 +2,4 @@
 src/data/*.json text eol=lf
 src/data/*.geojson text eol=lf
 src/data/**/*.json text eol=lf
+config/molit-legal-region-registry.json text eol=lf

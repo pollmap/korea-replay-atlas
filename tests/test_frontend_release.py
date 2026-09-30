@@ -80,6 +80,21 @@ def restage(fixture, **kwargs):
                             output=fixture.output, **kwargs)
 
 
+def test_additional_shared_module_requires_exact_audited_bytes(fixture, monkeypatch):
+    target = fixture.client / 'assets/property-summary-client-abcdefgh.js'
+    target.write_bytes(b'export const summary=1;')
+    monkeypatch.setattr(frontend, 'AUDITED_ADDITIONAL_CHUNKS', {
+        ('property-summary-client', 'js'): {'sha256': digest(target), 'bytes': target.stat().st_size},
+    })
+    _, assets = frontend._prior_metadata(fixture.bundle)
+    entries = frontend._frontend_entries(fixture.client, assets)
+    assert any(row['target'] == target.relative_to(fixture.client).as_posix() for row in entries)
+    target.write_bytes(b'export const summary=2;')
+    with pytest.raises(ValueError, match='differs from audited bytes'):
+        frontend._frontend_entries(fixture.client, assets)
+    assert_prior_unchanged(fixture)
+
+
 def assert_prior_unchanged(fixture):
     assert {p.relative_to(fixture.bundle).as_posix(): p.read_bytes()
             for p in fixture.bundle.rglob('*') if p.is_file()} == fixture.before

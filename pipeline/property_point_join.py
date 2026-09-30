@@ -271,6 +271,35 @@ def _money_label(won: int) -> str:
     return f'{eok}억 {man:,}만' if eok and man else f'{eok}억' if eok else f'{man:,}만'
 
 
+def _marker_page(property_root: Path, ref: dict, release: str, code: str, month: str, page: int):
+    expected = f'/data/property/{release}/transactions/{code}/{month}-{page:03}.json'
+    packed = re.fullmatch(r'/data/property/' + re.escape(release) + r'/transaction-packs/' + code + r'/(\d{4})\.json', ref['url'])
+    if ref['url'] != expected and not packed:
+        raise ValueError('unexpected_sale_marker_path')
+    relative = ref['url'].removeprefix(f'/data/property/{release}/')
+    raw = _read_hash(property_root / relative, ref['sha256'], 8 * 1024**2)
+    if len(raw) != ref['bytes']:
+        raise ValueError('sale_marker_page_size_mismatch')
+    data = json.loads(raw)
+    if data['release_id'] != release or data['lawd_code'] != code:
+        raise ValueError('sale_marker_partition_mismatch')
+    if not packed:
+        if data.get('kind', 'property-transactions') != 'property-transactions' or data['deal_month'] != month:
+            raise ValueError('sale_marker_partition_mismatch')
+        return data['transactions']
+    if data.get('kind') != 'property-transaction-pack' or not isinstance(data.get('months'), list) or not 1 <= len(data['months']) <= 512:
+        raise ValueError('sale_marker_partition_mismatch')
+    seen = set(); selected = None
+    for entry in data['months']:
+        current = entry.get('deal_month')
+        if not isinstance(current, str) or not re.fullmatch(r'20\d{2}(?:0[1-9]|1[0-2])', current) or current in seen:
+            raise ValueError('sale_marker_partition_mismatch')
+        seen.add(current)
+        if current == month: selected = entry.get('transactions')
+    if not isinstance(selected, list): raise ValueError('sale_marker_partition_mismatch')
+    return selected
+
+
 def recent_sale_markers(property_root: Path, linked_complexes: set[str]) -> dict[str, dict]:
     """Read verified release partitions; label a single latest eligible report, never a valuation."""
     release = property_root.name
@@ -302,13 +331,7 @@ def recent_sale_markers(property_root: Path, linked_complexes: set[str]) -> dict
         for part in parts:
             count = 0
             for page, ref in enumerate(part['transactions']):
-                expected = f'/data/property/{release}/transactions/{code}/{part["deal_month"]}-{page:03}.json'
-                if ref['url'] != expected:
-                    raise ValueError('unexpected_sale_marker_path')
-                data = json.loads(_read_hash(property_root / 'transactions' / code / f'{part["deal_month"]}-{page:03}.json', ref['sha256'], 8 * 1024**2))
-                if data['release_id'] != release or data['lawd_code'] != code or data['deal_month'] != part['deal_month']:
-                    raise ValueError('sale_marker_partition_mismatch')
-                for row in data['transactions']:
+                for row in _marker_page(property_root, ref, release, code, part['deal_month'], page):
                     if row['trade_type'] != 'sale':
                         continue
                     count += 1

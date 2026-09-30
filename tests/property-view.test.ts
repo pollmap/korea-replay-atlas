@@ -75,13 +75,25 @@ it('restores the same legal-dong list when revisiting district, complex and list
     expect(view.complex).toBe(hash.get('complex')??'');
   }
 });
-it('does not apply a legal dong without an apartment district or merge ambiguous URL values',()=>{
-  for(const hash of ['#legalDong=주엽동','#regionCode=invalid&legalDong=주엽동','#regionCode=41287&propertyType=officetel&legalDong=주엽동','#regionCode=41287&legalDong=주엽동&legalDong=대화동']){
+it('does not apply a legal dong without a district or merge ambiguous URL values',()=>{
+  for(const hash of ['#legalDong=주엽동','#regionCode=invalid&legalDong=주엽동','#regionCode=41287&legalDong=주엽동&legalDong=대화동']){
     expect(readPropertyView(hash,period).legalDong).toBeUndefined();
   }
   for(const value of ['', ' 주엽동', '주엽동 ', '\u0000동', '동\u007f', '동'.repeat(81)]){
     expect(readPropertyView('#regionCode=41287&legalDong='+encodeURIComponent(value),period).legalDong).toBeUndefined();
   }
+});
+it('keeps district and dong conditions when switching property type',()=>{
+  expect(readPropertyView('#regionCode=41287&propertyType=officetel&legalDong=주엽동&compareRegions=11710,41287',period)).toMatchObject({propertyType:'officetel',region:'41287',legalDong:'주엽동',compare:['11710','41287']});
+});
+it('defaults a fresh visit to three years while preserving legacy and explicit shared periods',()=>{
+  expect(readPropertyView('',period).historyMonths).toBe(36);
+  expect(readPropertyView('#regionCode=11710',period).historyMonths).toBe(3);
+  expect(readPropertyView('#historyMonths=240',period).historyMonths).toBe(240);
+});
+it('restores desktop display choices with bounded defaults',()=>{
+  expect(readPropertyView('#markerDisplay=unit-price&priceBasis=pyeong&areaBasis=supply&detailSection=schools',period)).toMatchObject({markerDisplay:'unit-price',priceBasis:'pyeong',areaBasis:'supply',detailSection:'schools'});
+  expect(readPropertyView('#markerDisplay=bad&priceBasis=bad&detailSection=bad',period)).toMatchObject({markerDisplay:'price-area',priceBasis:'total',areaBasis:'exclusive',detailSection:'trades'});
 });
 it('keeps a syntactically valid but unavailable dong explicit instead of falling back to all districts',()=>{
   expect(readPropertyView('#regionCode=41287&legalDong='+encodeURIComponent('이 버전에 없는 동'),period)).toMatchObject({region:'41287',legalDong:'이 버전에 없는 동'});

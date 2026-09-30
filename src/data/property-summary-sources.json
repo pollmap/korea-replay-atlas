@@ -1,0 +1,18 @@
+[
+  {
+    "release_id": "property-8deba5b9951e48da",
+    "origin": "https://d50754f0.korea-replay-data.pages.dev",
+    "manifest": {
+      "path": "/data/property-summary/summary-3bd848e301667a3e/manifest.json",
+      "sha256": "6065910bdb90c01fe98e4cfd1fd528743abcd89e09f8c4b2c435385e492e2c99"
+    }
+  },
+  {
+    "release_id": "property-8879dff1b31ac5f0",
+    "origin": "https://29d97e95.korea-replay-data.pages.dev",
+    "manifest": {
+      "path": "/data/property-summary/summary-49ad802d41baf9f8/manifest.json",
+      "sha256": "a190b8c21dcb94ec5577a60d73747f919ee13d717a4eb1a9e594a06cbe52da49"
+    }
+  }
+]

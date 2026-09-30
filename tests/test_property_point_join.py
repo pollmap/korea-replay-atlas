@@ -137,6 +137,39 @@ def test_expired_only_report_is_not_retained_as_current_price(tmp_path):
     assert recent_sale_markers(root, {MARKER_ID}) == {}
 
 
+def test_shared_multimonth_pack_uses_only_requested_month_and_preserves_marker_window(tmp_path):
+    root = marker_release(tmp_path)
+    registry = json.loads((root / 'regions.json').read_bytes())
+    for region in registry['regions']:
+        code = region['lawd_code']; index_path = root / 'regions' / f'{code}.json'
+        index = json.loads(index_path.read_bytes()); months = []
+        for part in index['partitions']:
+            old = json.loads((root / 'transactions' / code / f'{part["deal_month"]}-000.json').read_bytes())
+            months.append({'deal_month': part['deal_month'], 'transactions': old['transactions']})
+        ref = save_json(root / 'transaction-packs' / code / '0000.json',
+            {'schema_version': 1, 'kind': 'property-transaction-pack', 'release_id': root.name, 'lawd_code': code, 'months': months})
+        ref['url'] = f'/data/property/{root.name}/transaction-packs/{code}/0000.json'
+        for part in index['partitions']: part['transactions'] = [ref]
+        region['index'] = save_json(index_path, index)
+    save_json(root / 'regions.json', registry)
+    marker = recent_sale_markers(root, {MARKER_ID})[MARKER_ID]
+    assert marker['contract_date'] == '2026-09-15' and marker['price_krw'] == 600_000_000
+
+
+def test_duplicate_month_or_reference_path_in_pack_is_rejected(tmp_path):
+    from pipeline.property_point_join import _marker_page
+    root = tmp_path / 'property-test'; release = root.name
+    path = root / 'transaction-packs' / '11110' / '0000.json'
+    ref = save_json(path, {'kind': 'property-transaction-pack', 'release_id': release,
+        'lawd_code': '11110', 'months': [{'deal_month': '202609', 'transactions': []}] * 2})
+    ref['url'] = f'/data/property/{release}/transaction-packs/11110/0000.json'
+    with pytest.raises(ValueError, match='sale_marker_partition_mismatch'):
+        _marker_page(root, ref, release, '11110', '202609', 0)
+    ref['url'] = f'/data/property/{release}/transaction-packs/11110/../0000.json'
+    with pytest.raises(ValueError, match='unexpected_sale_marker_path'):
+        _marker_page(root, ref, release, '11110', '202609', 0)
+
+
 @pytest.mark.parametrize('options', [{'missing': True}, {'duplicate': True}])
 def test_each_district_requires_twelve_distinct_completed_months(tmp_path, options):
     root = marker_release(tmp_path, **options)

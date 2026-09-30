@@ -84,6 +84,10 @@ def _write_immutable(path: Path, body: bytes) -> None:
 
 
 class LocalArchive:
+    head_name = HEAD
+    heads_directory = 'heads'
+    lock_name = '.head.lock'
+
     def __init__(self, directory: Path, *, reserve_bytes: int = 0):
         if type(reserve_bytes) is not int or reserve_bytes < 0:
             raise RealEstateError('invalid_disk_reserve')
@@ -117,7 +121,7 @@ class LocalArchive:
         return raw
 
     def head(self):
-        path = self.root / HEAD
+        path = self.root / self.head_name
         _reject_links(path)
         if not path.exists():
             return None
@@ -132,18 +136,18 @@ class LocalArchive:
         if expected is not None:
             expected = _descriptor(expected)
         self.get(descriptor['sha256'], descriptor['bytes'])
-        with _lock(self.root / '.head.lock'):
+        with _lock(self.root / self.lock_name):
             if self.head() != expected:
                 raise RealEstateError('archive_head_changed')
             body = canonical_bytes(descriptor)
-            _write_immutable(self.root / 'heads' / (descriptor['sha256'] + '.json'), body)
+            _write_immutable(self.root / self.heads_directory / (descriptor['sha256'] + '.json'), body)
             scratch = self.root / ('.head-' + uuid.uuid4().hex + '.partial')
             try:
                 with scratch.open('xb') as stream:
                     stream.write(body)
                     stream.flush()
                     os.fsync(stream.fileno())
-                os.replace(scratch, self.root / HEAD)
+                os.replace(scratch, self.root / self.head_name)
             finally:
                 if scratch.exists():
                     scratch.unlink()
@@ -151,7 +155,7 @@ class LocalArchive:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['backup', 'restore', 'status'])
+    parser.add_argument('command', choices=['backup', 'restore', 'status', 'plan-set', 'backup-set', 'restore-set'])
     parser.add_argument('--store', required=True, type=Path)
     parser.add_argument('--root', type=Path)
     parser.add_argument('--reserve-gib', type=int, default=30)
@@ -159,9 +163,16 @@ def main():
     try:
         store = LocalArchive(args.store, reserve_bytes=args.reserve_gib * 1024**3)
         if args.command == 'status':
-            result = {'head': store.head()}
+            from .real_estate_local_archive_set import LocalArchiveSet
+            result = {'head': store.head(), 'set_head': LocalArchiveSet(
+                args.store, reserve_bytes=store.reserve_bytes).head()}
         elif args.root is None:
             raise RealEstateError('archive_root_required')
+        elif args.command in ('plan-set', 'backup-set', 'restore-set'):
+            from .real_estate_local_archive_set import LocalArchiveSet, backup_set, restore_set, plan_set
+            grouped = LocalArchiveSet(args.store, reserve_bytes=store.reserve_bytes)
+            operation = {'plan-set': plan_set, 'backup-set': backup_set, 'restore-set': restore_set}[args.command]
+            result = operation(args.root, grouped)
         elif args.command == 'backup':
             result = backup(args.root, store)
         else:

@@ -99,6 +99,16 @@ describe('independent Pages release stages',()=>{
     await put(path.join(path.dirname(mapPublication),'data/extra.json'),'{}');
     await expect(stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication})).rejects.toThrow('closure');
   });
+  it('pins audited price summaries to the same property release and includes them in the data closure',async()=>{
+    const f=await fixture(),mapPublication=await dataFixture(f.projectRoot,'map_catalog'),propertyPublication=await dataFixture(f.projectRoot,'property_release');
+    const id='summary-0123456789abcdef',base=path.join(f.projectRoot,'.local',id),target=`data/property-summary/${id}/manifest.json`,publication=path.join(base,'publication.json');
+    const writeSummary=async(propertyId)=>{const body=json({schema_version:1,kind:'property-complex-summary-release',summary_release_id:id,property_release_id:propertyId});await put(path.join(base,target),body);await put(publication,json({schema_version:1,property_release_id:propertyId,summary_release:{path:target,sha256:sha(body),summary_release_id:id},files:[{path:target,sha256:sha(body),byte_length:Buffer.byteLength(body)}]}));};
+    await writeSummary('property-fixture');
+    const staged=await stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication,summaryPublications:[publication]}),checked=await verifyPagesStage(staged.receiptPath,{projectRoot:f.projectRoot});
+    const manifest=JSON.parse(await readFile(path.join(checked.client,staged.receipt.atlas_manifest.path.slice(1)),'utf8'));
+    expect(manifest.property_summaries[0].release_id).toBe(id);expect(checked.entries.some(entry=>entry.target===target)).toBe(true);
+    await writeSummary('property-other');await expect(stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication,summaryPublications:[publication]})).rejects.toThrow('same property release');
+  });
   it.each(['asset-size','archive-size','count'])('rejects the free data-publication limit before upload: %s',async type=>{
     const f=await fixture(),mapPublication=await dataFixture(f.projectRoot,'map_catalog'),propertyPublication=await dataFixture(f.projectRoot,'property_release'),publication=JSON.parse(await readFile(mapPublication,'utf8'));
     if(type==='count')publication.files=Array.from({length:20001},(_,i)=>({...publication.files[0],path:`data/map-tiles/file-${i}.json`}));

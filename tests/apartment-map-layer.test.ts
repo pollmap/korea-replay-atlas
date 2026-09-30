@@ -11,7 +11,7 @@ function label(properties:Record<string,unknown>,trade:'sale'|'rent'='sale',sele
 }
 describe('consistent property map labels',()=>{
   it('keeps region cards through the middle zoom range until apartment cards start, retaining the shared card sprite',()=>{
-    const region=regionMapLayer();expect(region.maxzoom).toBe(13);
+    const region=regionMapLayer();expect(region.maxzoom).toBe(17);
     for(const layer of [provinceMapLayer(),region,apartmentMapLayer('apartments',release,'sale')]){
       expect(layer.type).toBe('symbol');
       if(layer.type==='symbol')expect(layer.layout?.['icon-image']).toBe(REGION_MAP_IMAGE);
