@@ -4,12 +4,22 @@ import {apartmentMapLayer,type ApartmentLabelMode} from '../src/apartment-map-la
 import {regionMapLayer,provinceMapLayer,REGION_MAP_IMAGE} from '../src/region-map-layer';
 
 const release='property-current';
-function label(properties:Record<string,unknown>,trade:'sale'|'rent'='sale',selected=false,mode:ApartmentLabelMode='price-area'){
-  const parsed=createExpression(apartmentMapLayer('apartments',release,trade,selected,mode).layout!['text-field'] as unknown[],'layers[0].layout.text-field');
+function label(properties:Record<string,unknown>,trade:'sale'|'rent'='sale',selected=false,mode:ApartmentLabelMode='price-area',filterKey=''){
+  const parsed=createExpression(apartmentMapLayer('apartments',release,trade,selected,mode,filterKey).layout!['text-field'] as unknown[],'layers[0].layout.text-field');
   if(parsed.result==='error')throw new Error(JSON.stringify(parsed.value));
   return parsed.value.evaluate({zoom:15},{type:1,properties}).toString();
 }
 describe('consistent property map labels',()=>{
+  it('keeps apartment identity with missing-condition states while retaining compact confirmed prices',()=>{
+    const row={name:'검증 아파트',property_filter_key:'selected',filtered_contract_date:'',filtered_label:'미수집 포함',filtered_price_label:'미수집 포함',filtered_unit_label:'미수집 포함'};
+    for(const mode of ['price-area','price','unit-price'] as const){
+      expect(label(row,'sale',false,mode,'selected')).toBe('검증 아파트\n미수집 포함');
+      expect(label(row,'sale',true,mode,'selected')).toBe('검증 아파트\n미수집 포함');
+      expect(label(row,'sale',false,mode,'next')).toBe('검증 아파트\n조건 확인 중');
+    }
+    expect(label({...row,filtered_contract_date:'2026-08-15',filtered_price_label:'9억'},'sale',false,'price','selected')).toBe('9억');
+    expect(label(row,'sale',false,'name','selected')).toBe('검증 아파트');
+  });
   it('keeps region cards through the middle zoom range until apartment cards start, retaining the shared card sprite',()=>{
     const region=regionMapLayer();expect(region.maxzoom).toBe(17);
     for(const layer of [provinceMapLayer(),region,apartmentMapLayer('apartments',release,'sale')]){
