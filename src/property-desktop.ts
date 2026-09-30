@@ -1,6 +1,13 @@
 import type {PropertyTransaction} from '../shared/property';
 import {NATIONAL_AREA} from '../shared/property-area';
 
+/** A short final section cannot reach the top of the scroll viewport. */
+export function detailSectionAtScroll<T extends string>(sections:readonly {id:T;top:number}[],viewport:{top:number;height:number;scrollTop:number;scrollHeight:number}):T|undefined{
+  const last=sections.at(-1),maximum=viewport.scrollHeight-viewport.height;
+  if(maximum>1&&maximum-viewport.scrollTop<=1&&last&&last.top<viewport.top+viewport.height)return last.id;
+  return (sections.filter(section=>section.top<=viewport.top+20).at(-1)??sections[0])?.id;
+}
+
 /** Uses reported exclusive areas only; never estimates a supply-area floor plan. */
 export function defaultDetailArea(rows:readonly PropertyTransaction[]):string{
   const counts=new Map<string,number>();
