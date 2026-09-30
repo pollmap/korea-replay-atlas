@@ -5,6 +5,17 @@ import {assertPinnedDeploymentV2} from '../shared/runtime-v2';
 const current='property-1111111111111111',previous='property-eea48453a819f517';
 const hash=`#regionCode=11410&trade=sale&month=202608&historyMonths=120&propertyRelease=${previous}&complex=molit-apt%3A11410%3Atest&area=84-band`;
 const origin='https://korea-replay.pages.dev/';
+it('preserves the September 29 release when the PC publication advances',()=>{
+  const release='property-8deba5b9951e48da',state=hash.replace(previous,release);
+  const result=new URL(propertyReleaseArchiveUrl(origin+state,current)!);
+  expect(result.origin).toBe('https://7ae4ec3d.korea-replay.pages.dev');
+  expect(result.hash).toBe(state);
+  expect(()=>assertPinnedDeploymentV2(result.searchParams.get('deployment'),{
+    schema_version:2,platform:'cloudflare-pages',project:'korea-replay',release_id:'pub-b71d244ced0bff39',
+    artifact_sha256:'235848135096b7f47d0468a5688663a323364a7a87c4e74b6bc5dff488d64b72',
+    snapshot:{origin:result.origin,hash:'7ae4ec3d'},data:{origin:'https://126c6720.korea-replay-data.pages.dev',manifest_path:'/data/atlas/atlas-be6c95e367929558/manifest.json',manifest_sha256:'5e6dffa4f5c86f14b91c2df7f8d0a90cdc1944b6ff98924dc833ea6b7d0b0537'},
+  },result.origin)).not.toThrow();
+});
 it('restores the previous public property release to its verified immutable snapshot',()=>{
   const release='property-87d1c67336e97209';
   const state=hash.replace(previous,release);
