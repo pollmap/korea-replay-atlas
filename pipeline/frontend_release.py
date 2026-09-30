@@ -8,8 +8,9 @@ new bundle. Its existing hardlink and 30 GiB reserve protections remain active.
 
 Only existing Vite chunk families, index.html and download-gate.js may change,
 plus explicitly audited point/navigation, SGIS selection and pinned OSM POI assets.
-New chunk families, copied-library changes, Worker changes or deployment-policy
-changes require full staging. No credentials are read to perform this operation;
+New chunk families require full staging unless their exact audited bytes are
+listed below. Copied-library, Worker or deployment-policy changes still require
+full staging. No credentials are read to perform this operation;
 the frontend scan rejects recognizable credential literals, but cannot prove
 that an arbitrary unlabelled string is not a secret.
 """
@@ -33,6 +34,15 @@ GENERATED = frozenset(('data/catalog.json', '_headers', '404.html'))
 MUTABLE_ROOT = frozenset(('index.html', 'download-gate.js'))
 ROOT_FILES = MUTABLE_ROOT | {'.assetsignore'}
 CHUNK_NAME = re.compile(r'assets/([A-Za-z0-9_][A-Za-z0-9_.-]*)-[A-Za-z0-9_-]{8}\.(js|css)\Z')
+# The PC price loader is shared by Map2D and PropertyExplorer, so Rollup emits
+# one additional module. Approve this source-audited build, not arbitrary JS or
+# a mutable new chunk family. Every existing data/vendor/Worker byte stays pinned.
+AUDITED_ADDITIONAL_CHUNKS = {
+    ('property-summary-client', 'js'): {
+        'sha256': '121589dbdb3da2561d15703c2e1512a8dcfb9746e33f84cb4c0df75609e0c397',
+        'bytes': 12559,
+    },
+}
 SEOUL_KAPT_GEOJSON_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c26622debe82'
 SEOUL_KAPT_JOINED_SHA = '33058dae0a1d86c302b2f1c5b0dff9d71241a60031880f4f738c9fe506611792'
 SEOUL_KAPT_RECENT_SHA = 'b63b62af834062de98b142f4caef4f8a2087bd8e713c15ba3351fcf3dc06859c'
@@ -43,6 +53,7 @@ SEOUL_KAPT_ASSET_HASHES = {
     '14916a799c24a49e': '14916a799c24a49e0bd2c91311dfc8e98ff287fb4ce8d09a958bad75f1208c35',
     '7843533a17275616': '7843533a172756165fbe4c8ad9e5eb479915b349d8d2d91de47a7a38476f6187',
     '8deba5b9951e48da': 'd017162bdd00a6b9f8f124d971e5c8c84d8dedb929cb782186e7df66b0ced8e7',
+    '8879dff1b31ac5f0': '55ad17067ec49bfc73085da633cd0c9b3735495ed94db1735002510e1fb21344',
 }
 SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
 PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-(?:[a-f0-9]{16}-)?[A-Za-z0-9_-]{8}\.json\Z')
@@ -52,6 +63,7 @@ PROPERTY_NAVIGATION_ASSETS = {
     ('9ee094b267838e30d2f5117c027444d16fedc8b5348f1214011a265e93432e7c', 55930),
     ('7d1758f5552a4e0d0d20119f97813624b0bad9d30f5684cca245910580132112', 55930),
     ('4f0987966a5ea103cb4f91b1ef938fc8350640192e9f0c4ed0ad2c95d9863037', 55929),
+    ('009c22e31c65d6c5def9f821bd3dab6a0083b433866c5d2ee612d78f85f6e36d', 55666),
 }
 REGION_ASSET = re.compile(r'assets/(boundary-(?:[0-9]{2}|[0-9]{5})|dongs-[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
 REGION_SOURCE_ROOT = Path(__file__).resolve().parents[1] / 'src/data'
@@ -340,6 +352,7 @@ def _frontend_entries(client: Path, previous: dict):
     result = []
     names = set()
     seen_families = set()
+    additional_families = set()
     for path in paths:
         name = path.relative_to(client).as_posix()
         _frontend_name(name)
@@ -348,8 +361,11 @@ def _frontend_entries(client: Path, previous: dict):
         names.add(name.casefold())
         family = _family(name)
         if family:
-            if family not in families or family in seen_families:
+            if (family not in families and family not in AUDITED_ADDITIONAL_CHUNKS
+                    or family in seen_families):
                 raise ValueError('Changed frontend chunk families; full staging is required')
+            if family not in families:
+                additional_families.add(family)
             seen_families.add(family)
         elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name):
             raise ValueError('Unknown frontend file; full staging is required')
@@ -357,6 +373,8 @@ def _frontend_entries(client: Path, previous: dict):
         if not 0 <= size < release.MAX_FILE_BYTES:
             raise ValueError('Frontend file exceeds the static asset size ceiling')
         sha = digest(path)
+        if family in additional_families and AUDITED_ADDITIONAL_CHUNKS[family] != {'sha256': sha, 'bytes': size}:
+            raise ValueError('Additional frontend module differs from audited bytes')
         prior = old.get(name)
         unchanged = prior and prior['sha256'] == sha and prior['bytes'] == size
         approved_point_asset = _approved_point_asset(name, sha, size)
@@ -404,7 +422,7 @@ def _frontend_entries(client: Path, previous: dict):
         raise ValueError('Audited POI assets are missing from the frontend')
     if seen_regions != set(region_inventory):
         raise ValueError('Audited region assets are missing from the frontend')
-    if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != families:
+    if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != families | additional_families:
         raise ValueError('Frontend files or chunk families are missing; full staging is required')
     return result
 

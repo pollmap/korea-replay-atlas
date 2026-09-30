@@ -23,7 +23,7 @@ describe('region navigation volume labels',()=>{
     expect(feature.geometry).toEqual({type:'Point',coordinates:[127.10596,37.504822]});
     expect(feature.properties).toMatchObject({property_region_code:'11710',region_name:'서울특별시 송파구',display_name:'서울 송파구',count:1234,count_label:'1,234건',value_label:'3,306만/평',value_kind:'reported-exclusive-pyeong-median',contract_month:'202608',trade_type:'sale',month_label:'26.08 매매',anchor_purpose:'region-navigation-only',anchor_reference_date:'2025-06-30',anchor_source_record_id:'sgis:20250630:sigungu:11240'});
     expect(result.caption).toBe('2026.08 매매 · 지역 탐색');
-    expect(result.notice).toContain('패널의 거래 유형과 연동');
+    expect(result.notice).toContain('패널과 같은 계약월');
     expect(result.notice).toContain('단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다');
   });
   it('uses the same completed-month trade type as the property panel',()=>{
@@ -32,7 +32,7 @@ describe('region navigation volume labels',()=>{
     expect(result.data.features[0].properties).toMatchObject({trade_type:'rent',count:1234,month_label:'26.08 전월세'});
     expect(result.data.features[0].properties).toMatchObject({value_label:'1,234건',value_kind:'reported-count'});
     expect(result.caption).toContain('전월세');
-    expect(result.notice).toContain('과거 계약월 선택과는 별개');
+    expect(result.notice).toContain('다른 월 가격으로 대체하지 않습니다');
   });
   it('aggregates published districts by province only when every member has a valid monthly count',()=>{
     const rows=[region(),region({lawd_code:'11680',name:'서울특별시 강남구'},{eligible_rows:10})];
@@ -99,7 +99,7 @@ describe('region volume map integration contracts',()=>{
     const layer=regionMapLayer();
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).data}},layers:[layer]})).toEqual([]);
     expect(layer.type).toBe('symbol');
-    expect(layer.maxzoom).toBe(13);
+    expect(layer.maxzoom).toBe(17);
     if(layer.type==='symbol')expect(layer.layout).toMatchObject({'text-allow-overlap':false,'icon-allow-overlap':false,'icon-text-fit':'both'});
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).provinces}},layers:[provinceMapLayer()]})).toEqual([]);
   });

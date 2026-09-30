@@ -3,19 +3,26 @@ import type {PropertyStatus,PropertyTransaction,RegionMetric} from './property';
 import {eligiblePropertyTransactions} from './property';
 import {HISTORY_RANGES,type HistoryRange} from './property-history';
 import {readRentKind,rentKindMatches,type RentKind} from './property-rent';
+import type {PriceBasis} from './property-pricing';
 export type PropertyType='apartment'|'officetel';
-export interface PropertyViewState {legalDong?:string;regionQuery?:string;propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
+export type PropertyMarkerDisplay='price-area'|'price'|'unit-price'|'name';
+export type PropertyDetailSection='trades'|'facts'|'fees'|'life'|'schools'|'region'|'costs'|'compare';
+export interface PropertyViewState {markerDisplay?:PropertyMarkerDisplay;priceBasis?:PriceBasis;areaBasis?:'exclusive'|'supply';detailSection?:PropertyDetailSection;legalDong?:string;regionQuery?:string;propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
 export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
   const p=new URLSearchParams(hash.replace(/^#/,'')),region=p.get('regionCode')??'',month=p.get('month')??'',complex=p.get('complex')??'',area=p.get('area')??'';
   const legalDong=p.get('legalDong')??'';
   const propertyType:PropertyType=p.get('propertyType')==='officetel'?'officetel':'apartment';
-  return {...(propertyType==='apartment'&&/^\d{5}$/.test(region)&&p.getAll('legalDong').length===1&&legalDong.trim()===legalDong&&legalDong.length>0&&legalDong.length<=80&&Array.from(legalDong).every(char=>char.charCodeAt(0)>=32&&char.charCodeAt(0)!==127)?{legalDong}:{}),...(p.get('regionQuery')&&p.get('regionQuery')!.length<=80&&Array.from(p.get('regionQuery')!).every(char=>char.charCodeAt(0)>=32)?{regionQuery:p.get('regionQuery')!}:{}),propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:propertyType==='apartment'&&/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
+  return {...(/^\d{5}$/.test(region)&&p.getAll('legalDong').length===1&&legalDong.trim()===legalDong&&legalDong.length>0&&legalDong.length<=80&&Array.from(legalDong).every(char=>char.charCodeAt(0)>=32&&char.charCodeAt(0)!==127)?{legalDong}:{}),...(p.get('regionQuery')&&p.get('regionQuery')!.length<=80&&Array.from(p.get('regionQuery')!).every(char=>char.charCodeAt(0)>=32)?{regionQuery:p.get('regionQuery')!}:{}),propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
     month:/^\d{4}(?:0[1-9]|1[0-2])$/.test(month)&&month>=period.from&&month<=period.to?month:period.latest_complete_month,
     complex:propertyType==='apartment'&&/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
     area:area===NATIONAL_AREA?NATIONAL_AREA:/^(?:0|[1-9][0-9]*)(?:\.[0-9]{0,5}[1-9])?$/.test(area)&&Number(area)>0&&Number(area)<=10000?area:'',
-    compare:propertyType==='apartment'?[...new Set((p.get('compareRegions')??'').split(',').filter(v=>/^\d{5}$/.test(v)))].slice(0,3):[],
+    compare:[...new Set((p.get('compareRegions')??'').split(',').filter(v=>/^\d{5}$/.test(v)))].slice(0,3),
     compareComplexes:propertyType==='apartment'?[...new Set((p.get('compareComplexes')??'').split(',').filter(v=>/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(v)))].slice(0,3):[],
-    includeReview:p.get('review')==='include',historyMonths:(HISTORY_RANGES.includes(Number(p.get('historyMonths')) as HistoryRange)?Number(p.get('historyMonths')):3) as HistoryRange};
+    markerDisplay:(['price-area','price','unit-price','name'].includes(p.get('markerDisplay')??'')?p.get('markerDisplay'):'price-area') as PropertyMarkerDisplay,
+    priceBasis:(['total','pyeong','m2'].includes(p.get('priceBasis')??'')?p.get('priceBasis'):'total') as PriceBasis,
+    areaBasis:p.get('areaBasis')==='supply'?'supply':'exclusive',
+    detailSection:(['trades','facts','fees','life','schools','region','costs','compare'].includes(p.get('detailSection')??'')?p.get('detailSection'):'trades') as PropertyDetailSection,
+    includeReview:p.get('review')==='include',historyMonths:(HISTORY_RANGES.includes(Number(p.get('historyMonths')) as HistoryRange)?Number(p.get('historyMonths')):p.toString()?3:36) as HistoryRange};
 }
 
 export const monthLabel=(month:string)=>`${month.slice(0,4)}.${month.slice(4,6)}`;

@@ -181,9 +181,11 @@ def collect_complexes(records):
     return result
 
 
-def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
+def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=18_000):
     if not isinstance(reserve_bytes,int) or isinstance(reserve_bytes,bool) or reserve_bytes<0:
         raise RealEstateError('invalid_disk_reserve')
+    if type(max_files) is not int or not 18_000 <= max_files <= 100_000:
+        raise RealEstateError('invalid_publication_file_budget')
     root=Path(root).absolute(); output=Path(output_root).absolute()
     _reject_links(root);_reject_links(output)
     if any(p.lower() in ('public','dist') for p in output.parts):raise RealEstateError('public_output_forbidden')
@@ -216,6 +218,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
     final=output/release
     if final.exists():
         publication=json.loads((final/'publication.json').read_text(encoding='utf-8'))
+        if len(publication['files'])>max_files:raise RealEstateError('publication_file_limit')
         for f in publication['files']:
             checked_read(final,{'path':f['path'],'sha256':f['sha256'],'bytes':f['byte_length']},MAX_ASSET)
         return publication
@@ -293,7 +296,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3):
             '비표준 지번은 위치 연결 검토 대상으로 남기되, 유효한 지역·계약일·면적·금액의 통계 적격성과 구분합니다.',
             '지역 제곱미터당 중앙값은 서로 다른 거래의 분포입니다. 같은 전용면적 단지 비교와 구별하세요.']}
     entry=emit('manifest.json',manifest)
-    if len(files)>18_000:raise RealEstateError('publication_file_limit')
+    if len(files)>max_files:raise RealEstateError('publication_file_limit')
     publication={'schema_version':1,'kind':'property-publication','release_id':release,
         'property_release':{'path':entry['url'].lstrip('/'),'sha256':entry['sha256'],'release_id':release},
         'files':sorted(files,key=lambda f:f['path']),
@@ -314,9 +317,11 @@ def main():
     parser.add_argument('--root',required=True,type=Path)
     parser.add_argument('--regions',required=True,type=Path)
     parser.add_argument('--output',required=True,type=Path)
+    parser.add_argument('--private-packing-input', action='store_true',
+                        help='Allow up to 100,000 private input files for subsequent transaction packing; not a Pages deployment budget')
     args=parser.parse_args()
     try:
-        value=publish(args.root,load_registry(args.regions),args.output)
+        value=publish(args.root,load_registry(args.regions),args.output,max_files=100_000 if args.private_packing_input else 18_000)
         print(json.dumps({'status':'verified','release_id':value['release_id'],**value['audit']},ensure_ascii=False))
     except (OSError,ValueError,KeyError,TypeError,sqlite3.Error) as error:
         parser.exit(1,f"real_estate_publish: {error.code if isinstance(error,RealEstateError) else 'invalid_input'}\n")

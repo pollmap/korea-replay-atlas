@@ -154,7 +154,8 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
 }
 async function publication(projectRoot,filename,kind){
   filename=path.resolve(projectRoot,filename);descendant(path.join(projectRoot,'.local'),filename);await noLinks(projectRoot,filename);
-  const root=path.dirname(filename),value=JSON.parse(await readFile(filename,'utf8')),reference=value[kind];
+  const root=path.dirname(filename),value=JSON.parse(await readFile(filename,'utf8')),rawReference=value[kind];
+  const reference=kind==='summary_release'&&rawReference?{...rawReference,release_id:rawReference.summary_release_id}:rawReference;
   if(value.schema_version!==1||!reference||!RELEASE.test(reference.release_id)||!SHA.test(reference.sha256))throw new Error('Invalid data publication contract');
   const referencePath=safePath(reference.path.replace(/^\//,''));if(!referencePath.startsWith('data/'))throw new Error('Data reference must be public data');
   const entries=value.files.map(item=>({target:safePath(item.path.replace(/^\//,'')),sha256:item.sha256,bytes:item.byte_length}));auditEntries(entries);
@@ -162,18 +163,22 @@ async function publication(projectRoot,filename,kind){
   const actual=await filesIn(path.join(root,'data'),'data/');if(json(actual)!==json(entries.map(entry=>entry.target).sort()))throw new Error('Publication does not contain its exact declared data closure');
   await parallel(entries,async entry=>{const file=path.join(root,entry.target);await noLinks(root,file);if((await lstat(file)).size!==entry.bytes||await hashFile(file)!==entry.sha256)throw new Error('Data publication hash/size mismatch');});
   const referenced=entries.find(entry=>entry.target===referencePath);if(referenced?.sha256!==reference.sha256)throw new Error('Publication entry is absent or has a different hash');
-  const body=JSON.parse(await readFile(path.join(root,referencePath),'utf8'));if(body.release_id!==reference.release_id)throw new Error('Publication release differs from entry body');
-  return {root,entries,reference:{path:'/'+referencePath,sha256:reference.sha256,release_id:reference.release_id}};
+  const body=JSON.parse(await readFile(path.join(root,referencePath),'utf8'));if((kind==='summary_release'?body.summary_release_id:body.release_id)!==reference.release_id)throw new Error('Publication release differs from entry body');
+  if(kind==='summary_release'&&(body.kind!=='property-complex-summary-release'||body.property_release_id!==value.property_release_id))throw new Error('Summary property release differs from publication');
+  return {root,entries,propertyRelease:body.property_release_id,reference:{path:'/'+referencePath,sha256:reference.sha256,release_id:reference.release_id}};
 }
-export async function stagePagesData({projectRoot=process.cwd(),mapPublication,propertyPublication,copyOnly=false}){
+export async function stagePagesData({projectRoot=process.cwd(),mapPublication,propertyPublication,summaryPublications=[],copyOnly=false}){
   projectRoot=path.resolve(projectRoot);
+  if(!Array.isArray(summaryPublications)||summaryPublications.length>8)throw new Error('Invalid summary publication list');
   const [map,property]=await Promise.all([publication(projectRoot,mapPublication,'map_catalog'),publication(projectRoot,propertyPublication,'property_release')]);
-  const content={schema_version:1,map_catalog:map.reference,property_release:property.reference},release='atlas-'+digest(json(content)).slice(0,16);
+  const summaries=await Promise.all(summaryPublications.map(file=>publication(projectRoot,file,'summary_release')));
+  if(summaries.some(row=>row.propertyRelease!==property.reference.release_id))throw new Error('Summary and transaction publications must pin the same property release');
+  const content={schema_version:1,map_catalog:map.reference,property_release:property.reference,...(summaries.length?{property_summaries:summaries.map(row=>row.reference)}:{})},release='atlas-'+digest(json(content)).slice(0,16);
   const manifest={...content,release_id:release},target=`data/atlas/${release}/manifest.json`,body=Buffer.from(json(manifest));
   const generated=new Map([[target,body],['404.html',Buffer.from('<!doctype html><meta charset="utf-8"><title>자료 없음</title><p>요청한 자료가 없습니다.</p>')],['_headers',Buffer.from('/*\n  Access-Control-Allow-Origin: *\n  Access-Control-Allow-Methods: GET, HEAD, OPTIONS\n  Access-Control-Expose-Headers: Content-Length, ETag, Content-Encoding\n  X-Content-Type-Options: nosniff\n/data/*\n  Cache-Control: public, max-age=31536000, immutable\n/data/*.pmtiles\n  Content-Type: application/octet-stream\n')]]);
   generated.atlasRelease=release;generated.atlasManifest={path:'/'+target,sha256:digest(body),release_id:release};
   const entries=[],sources=new Map();
-  for(const publication of [map,property])for(const entry of publication.entries){entries.push(entry);sources.set(entry.target,path.join(publication.root,entry.target));}
+  for(const publication of [map,property,...summaries])for(const entry of publication.entries){entries.push(entry);sources.set(entry.target,path.join(publication.root,entry.target));}
   for(const [target,value] of generated)entries.push(fileEntry(target,value));
   return createStage(projectRoot,'korea-replay-data',entries,generated,sources,null,copyOnly);
 }

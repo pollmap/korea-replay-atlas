@@ -233,6 +233,24 @@ export function parsePropertyTransactions(v:unknown):PropertyTransactions{
   }
   return v as unknown as PropertyTransactions;
 }
+/** V1 month files and bounded multi-month packs share the same audited row
+ * contract. A missing pack month is an error, never an empty transaction set. */
+export function parsePropertyMonthTransactions(v:unknown,requestedMonth:string):PropertyTransactions{
+  if(!month(requestedMonth))return fail();
+  if(obj(v)&&v.kind==='property-transactions'){
+    const data=parsePropertyTransactions(v);if(data.deal_month!==requestedMonth)return fail();return data;
+  }
+  if(!base(v,'property-transaction-pack')||!code(v.lawd_code)||!Array.isArray(v.months)||!v.months.length||v.months.length>MAX_PROPERTY_PERIOD_MONTHS)return fail();
+  const seenMonths=new Set<string>(),ids=new Set<string>();let selected:PropertyTransactions|undefined;
+  for(const part of v.months){
+    if(!obj(part)||!month(part.deal_month)||seenMonths.has(part.deal_month))return fail();
+    seenMonths.add(part.deal_month);
+    const decoded=parsePropertyTransactions({schema_version:1,kind:'property-transactions',release_id:v.release_id,lawd_code:v.lawd_code,deal_month:part.deal_month,transactions:part.transactions});
+    for(const row of decoded.transactions){if(ids.has(row.id)||ids.size>=100_000)return fail();ids.add(row.id);}
+    if(part.deal_month===requestedMonth)selected=decoded;
+  }
+  return selected??fail();
+}
 export function parsePropertyComplexes(v:unknown):PropertyComplexes{
   if(!base(v,'property-complexes')||!code(v.lawd_code)||!Array.isArray(v.complexes))return fail();
   const ids=new Set<string>();

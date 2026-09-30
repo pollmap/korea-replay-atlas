@@ -1,6 +1,6 @@
 import {rentKindLabel,rentKindMatches,type RentKind} from '../shared/property-rent';
 import {pricingSummary} from '../shared/property-pricing';
-import {useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useState} from 'react';
 import {summarizePropertyTransactions,type PropertyComplex} from '../shared/property';
 import {HISTORY_RANGES,historyMonths,historyRangeLabel,type HistoryRange} from '../shared/property-history';
 import {historySourceStart,historySourceCoverage} from '../shared/property-source-period';
@@ -9,8 +9,15 @@ import {loadComparisonHistory} from './property-comparison-loader';
 import {commonHistoryMonths,historyMonthStatus} from './property-history-state';
 import type {HistoryResult} from './property-history-loader';
 import type {AtlasContent} from './useAtlas';
+import PropertySummaryComparison from './PropertySummaryComparison';
 
-export default function ComplexComparison({atlas,items,month,trade,area,onArea,onRemove,rentKind='all',range=1,onRange}:{atlas:AtlasContent;items:PropertyComplex[];month:string;trade:'sale'|'rent';area:string;onArea:(area:string)=>void;onRemove:(id:string)=>void;rentKind?:RentKind;range?:HistoryRange;onRange?:(range:HistoryRange)=>void}){
+export interface ComplexComparisonProps {atlas:AtlasContent;items:PropertyComplex[];month:string;trade:'sale'|'rent';area:string;onArea:(area:string)=>void;onRemove:(id:string)=>void;rentKind?:RentKind;range?:HistoryRange;onRange?:(range:HistoryRange)=>void;summaryFirst?:boolean;}
+export default function ComplexComparison(props:ComplexComparisonProps){
+  const [rawScope,setRawScope]=useState('');const scope=`${props.atlas.property.release_id}:${props.items.map(item=>item.id).join(',')}:${props.month}:${props.range}`;
+  const onRaw=useCallback(()=>setRawScope(scope),[scope]);
+  return props.summaryFirst&&(props.range??1)>=12&&rawScope!==scope?<PropertySummaryComparison {...props} onRaw={onRaw}/>:<RawComplexComparison {...props}/>;
+}
+export function RawComplexComparison({atlas,items,month,trade,area,onArea,onRemove,rentKind='all',range=1,onRange}:ComplexComparisonProps){
   const [loaded,setLoaded]=useState<{key:string;histories:Record<string,HistoryResult[]>}>({key:'',histories:{}}),[pending,setPending]=useState(true),[error,setError]=useState(''),[attempt,setAttempt]=useState(0);
   const selection=useMemo(()=>items.map(item=>item.id).sort().join(','),[items]);
   const codes=useMemo(()=>[...new Set(items.map(item=>item.lawd_code))].sort(),[items]);

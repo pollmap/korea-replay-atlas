@@ -37,17 +37,23 @@ function range(minText:string,maxText:string,label:string,maximum:number,decimal
   if(min!==null&&max!==null&&min>max)errors.push(`${label} 최솟값은 최댓값보다 클 수 없습니다.`);
   return [min,max];
 }
-function within(value:number|null,min:number|null,max:number|null):boolean{
+export function propertyDiscoveryWithin(value:number|null,min:number|null,max:number|null):boolean{
   if(min===null&&max===null)return true;
   return value!==null&&Number.isFinite(value)&&(min===null||value>=min)&&(max===null||value<=max);
 }
+const within=propertyDiscoveryWithin;
 
-/** One pass over transactions, followed by ID lookups; names never join identities. */
-export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],rows:readonly PropertyTransaction[],dataReady:boolean,trade:'sale'|'rent',filters:PropertyDiscoveryFilters):PropertyDiscoveryResult{
+export function propertyDiscoveryBounds(filters:PropertyDiscoveryFilters,trade:'sale'|'rent'){
   const errors:string[]=[];
   const [yearMin,yearMax]=range(filters.buildYearMin,filters.buildYearMax,'건축연도',9999,0,1,errors);
   const [priceMin,priceMax]=range(filters.priceMinEok,filters.priceMaxEok,trade==='sale'?'매매가':'보증금',90_000_000,8,100_000_000,errors);
   const [areaMin,areaMax]=range(filters.areaMinM2,filters.areaMaxM2,'전용면적',10_000,5,1,errors);
+  return {yearMin,yearMax,priceMin,priceMax,areaMin,areaMax,errors};
+}
+
+/** One pass over transactions, followed by ID lookups; names never join identities. */
+export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],rows:readonly PropertyTransaction[],dataReady:boolean,trade:'sale'|'rent',filters:PropertyDiscoveryFilters):PropertyDiscoveryResult{
+  const {yearMin,yearMax,priceMin,priceMax,areaMin,areaMax,errors}=propertyDiscoveryBounds(filters,trade);
   const transactionFiltered=!!filters.hasTrades||trade==='rent'&&!!filters.rentKind&&filters.rentKind!=='all'||[priceMin,priceMax,areaMin,areaMax].some(value=>value!==null);
   const transactionFiltersPending=!dataReady&&transactionFiltered;
   if(errors.length)return {items:[],errors,transactionFiltersPending};

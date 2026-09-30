@@ -2,6 +2,11 @@ import {selectedRegionBoundary,regionAdministrativeDongs,clearRegionBoundaryCach
 import {regionSelectionLayers,SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED_DONG_SOURCE,DONG_HIT_LAYER} from './region-selection-layers';
 import {MAP2D_RAIL_NEUTRAL} from '../shared/map2d-rail-style';
 import type {PropertyMapPoint} from '../shared/property-map-point';
+import type {PropertyViewState} from '../shared/property-view';
+import {historyMonths} from '../shared/property-history';
+import {propertyMapFilterKey,propertyMapPrices,type MapPriceData} from './property-map-prices';
+import {loadComplexPriceSummaries} from './property-summary-client';
+import type {FeatureCollection,Point} from 'geojson';
 import {forwardRef,useEffect,useImperativeHandle,useMemo,useRef,useState} from 'react';
 import {Map as LibreMap,Marker,NavigationControl,ScaleControl,AttributionControl,setWorkerUrl,addProtocol,removeProtocol,type MapMouseEvent,type LayerSpecification,type GeoJSONSource} from 'maplibre-gl';
 import libreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
@@ -29,7 +34,7 @@ import {createMap2DDiagnostics,writeMap2DDiagnostics} from './map2d-diagnostics'
 // Bundle the v6 worker and its shared ESM dependency for both dev and production.
 setWorkerUrl(libreWorkerUrl);
 
-interface Props {propertyRegionName?:string;onPropertyProvince?:(name:string)=>void;propertyRegion?:string;inspectFeatures?:boolean;propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
+interface Props {onMarkerDisplay?:(mode:NonNullable<PropertyViewState['markerDisplay']>)=>void;propertyView?:PropertyViewState|null;propertyRegionName?:string;onPropertyProvince?:(name:string)=>void;propertyRegion?:string;inspectFeatures?:boolean;propertyMapPoint?:PropertyMapPoint|null;catalog:Catalog;layers:Record<LayerId,boolean>;boundaries?:boolean;overviewPanelVisible?:boolean;focused?:boolean;instant:number;mode:'replay'|'sun';liveTransit?:LiveTransitSnapshot|null;initialPlace:Place;initialFlatCamera?:FlatCamera|null;measurement?:Measurement;onMeasurement?:(value:Measurement)=>void;vectorData?:{map:MapCatalog2D;origin:string;property?:PropertyRelease;regions?:PropertyRegions}|null;vectorPending?:boolean;lightweight:boolean;propertyTrade?:'sale'|'rent';onSelect:(value:Selection)=>void;onPropertyRegion?:(code:string)=>void;onPropertyComplex?:(regionCode:string,complexId:string)=>void;onStatus:(value:string)=>void;onPerformance?:(value:PerformanceSnapshot)=>void;}
 interface Resource {asset:Asset;source:string;layerIds:string[];url:string;record:number;features:number;vertices:number;}
 type Loaded=Extract<Map2DWorkerResponse,{type:'loaded'}>;
 const abortError=()=>new DOMException('Aborted','AbortError');
@@ -42,6 +47,7 @@ const SEOUL_KAPT_SOURCES:Readonly<Record<string,string>>={
   'property-87d1c67336e97209':new URL('./data/seoul-kapt-points-7843533a17275616.geojson',import.meta.url).href,
   'property-2da3955e5d587c40':new URL('./data/seoul-kapt-points-2da3955e5d587c40.geojson',import.meta.url).href,
   'property-8deba5b9951e48da':new URL('./data/seoul-kapt-points-8deba5b9951e48da.geojson',import.meta.url).href,
+  'property-8879dff1b31ac5f0':new URL('./data/seoul-kapt-points-8879dff1b31ac5f0.geojson',import.meta.url).href,
 };
 const SEOUL_KAPT_BASE=new URL('./data/seoul-kapt-points-8360eb2d88be0ab4.geojson',import.meta.url).href;
 const seoulKaptUrl=(release:string)=>SEOUL_KAPT_SOURCES[release]??SEOUL_KAPT_BASE;
@@ -62,7 +68,12 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const facilityMarker=useRef<Marker|null>(null);
   const latest=useRef(props);latest.current=props;
   const [selectedDong,setSelectedDong]=useState('');
-  const [labelMode,setLabelMode]=useState<ApartmentLabelMode>(()=>{try{const saved=localStorage.getItem('korea-replay-apartment-label');return saved==='price'||saved==='area'||saved==='name'?saved:'price-area';}catch{return 'price';}});
+  const labelMode:ApartmentLabelMode=props.propertyView?.markerDisplay??'price-area';
+  const [priceData,setPriceData]=useState<{key:string;data:FeatureCollection<Point>}|null>(null);
+  const priceDataRef=useRef(priceData);priceDataRef.current=priceData;
+  const apartmentBases=useRef(new Map<string,FeatureCollection<Point>>());
+  const filterKey=props.propertyView&&props.vectorData?.property?propertyMapFilterKey(props.vectorData.property.release_id,props.propertyView):'';
+  const filterKeyRef=useRef(filterKey);filterKeyRef.current=filterKey;
   const labelModeRef=useRef(labelMode);labelModeRef.current=labelMode;
   const [dongOptions,setDongOptions]=useState<{id:string;name:string}[]>([]);
   const selectDongRef=useRef<((id:string,locate?:boolean)=>void)|null>(null);
@@ -70,8 +81,25 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const regionName=props.propertyRegionName||(props.vectorData?.regions?.regions.find(row=>row.lawd_code===props.propertyRegion)?.name??'');
   const refreshBoundaryRef=useRef<(()=>void)|null>(null);
   const refreshSelectedPointRef=useRef<(()=>void)|null>(null);
-  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,trade:props.propertyTrade}:null);},[props.vectorData,props.propertyTrade]);
+  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);},[props.vectorData,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
+  useEffect(()=>{
+    const view=latest.current.propertyView,release=latest.current.vectorData?.property?.release_id;
+    if(!view||!release||!filterKey)return;
+    const controller=new AbortController(),url=seoulKaptUrl(release);
+    void(async()=>{
+      let base=apartmentBases.current.get(url);
+      if(!base){const response=await atlasFetch(url,{signal:controller.signal});if(!response.ok)throw new Error('단지 표식 조회 실패');base=await response.json() as FeatureCollection<Point>;if(apartmentBases.current.size>=2)apartmentBases.current.delete(apartmentBases.current.keys().next().value!);apartmentBases.current.set(url,base);}
+      if(base.type!=='FeatureCollection'||!Array.isArray(base.features)||base.features.length>4000)throw new Error('단지 표식 자료 오류');
+      const publish=(data:MapPriceData)=>{if(!controller.signal.aborted)setPriceData({key:filterKey,data:propertyMapPrices(base,release,view,data)});};
+      publish({state:'loading',rows:[],partitions:[]});
+      try{
+        const result=view.propertyType!=='officetel'&&view.region?await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal):null;
+        publish(result?{state:'ready',...result}:{state:'missing',rows:[],partitions:[]});
+      }catch(error){if(controller.signal.aborted)return;publish({state:'error',rows:[],partitions:[]});if(element.current)element.current.dataset.propertySummaryError=error instanceof Error?error.message:'가격 요약 조회 실패';}
+    })().catch(()=>{if(!controller.signal.aborted&&element.current)element.current.dataset.propertySummaryError='단지 표식 조회 실패';});
+    return()=>controller.abort();
+  },[filterKey]);
   useImperativeHandle(ref,()=>({
     flyTo:(place:Place,options)=>{
       const map=mapRef.current;if(!map)return;
@@ -81,7 +109,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(place.id==='korea')map.fitBounds(NATIONAL_OVERVIEW,{padding,duration:700});
       // Offset the target into the unobscured viewport without persisting camera
       // padding, which would otherwise shift later national fits/shared cameras.
-      else map.flyTo({center:[place.lon,place.lat],offset:[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2],zoom:map2DZoom(place.lat,place.range,Math.max(64,Math.min(node.clientHeight-padding.top-padding.bottom,node.clientWidth-padding.left-padding.right))),bearing:0,pitch:0,duration:700});
+      else map.flyTo({center:[place.lon,place.lat],offset:[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2],zoom:place.id.startsWith('molit-apt:')?15:map2DZoom(place.lat,place.range,Math.max(64,Math.min(node.clientHeight-padding.top-padding.bottom,node.clientWidth-padding.left-padding.right))),bearing:0,pitch:0,duration:700});
     },
     north:()=>{mapRef.current?.easeTo({bearing:0,duration:450});},
     overhead:()=>{mapRef.current?.easeTo({bearing:0,pitch:0,duration:450});},
@@ -236,12 +264,13 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(map.getLayer(REGION_MAP_LAYER))map.setPaintProperty(REGION_MAP_LAYER,'text-color',['case',['==',['get','property_region_code'],latest.current.propertyRegion??''],'#713fc7','#102b46']);
     };
     refreshBoundaryRef.current=refreshBoundary;
-    let installedKaptUrl='',centeredPropertyKey='';
+    let installedKaptUrl='',centeredPropertyKey='';let installedKaptData:FeatureCollection<Point>|undefined;
     const refreshSelectedPoint=()=>{
       if(disposed||!ready)return;
       const source=map.getSource(SEOUL_KAPT_SOURCE) as GeoJSONSource|undefined;
       const url=seoulKaptUrl(latest.current.vectorData?.property?.release_id??'');
-      if(source&&installedKaptUrl!==url){installedKaptUrl=url;source.setData(url);}
+      const priced=priceDataRef.current;const sourceKey=priced?.key===filterKeyRef.current?priced.key+':'+url:url;
+      if(source){if(priced?.key===filterKeyRef.current&&installedKaptData!==priced.data){source.setData(priced.data);installedKaptData=priced.data;installedKaptUrl=sourceKey;}else if(!filterKeyRef.current&&installedKaptUrl!==url){installedKaptUrl=url;source.setData(url);}}
       const point=latest.current.propertyMapPoint;
       const valid=point&&point.releaseId===latest.current.vectorData?.property?.release_id;
       if(valid&&matchMedia('(max-width:780px)').matches&&!latest.current.focused){
@@ -254,12 +283,12 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
         map.setFilter(APARTMENT_SELECTED_LAYER,['==',['get','kapt_code'],valid?point.kaptCode:'']);
         map.setFilter(APARTMENT_MAP_LAYER,['!=',['get','kapt_code'],valid?point.kaptCode:'']);
-        const label=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',false,labelModeRef.current);
+        const label=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',false,labelModeRef.current,filterKeyRef.current);
         map.setLayoutProperty(APARTMENT_MAP_LAYER,'text-field',label.layout!['text-field']);
-        const selectedLabel=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',true,labelModeRef.current);
+        const selectedLabel=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',true,labelModeRef.current,filterKeyRef.current);
         map.setLayoutProperty(APARTMENT_SELECTED_LAYER,'text-field',selectedLabel.layout!['text-field']);
       }
-      node.dataset.selectedPropertyComplex=valid?point.complexId:'';
+      node.dataset.selectedPropertyComplex=valid?point.complexId:'';node.dataset.propertyFilterKey=filterKeyRef.current;
     };
     refreshSelectedPointRef.current=refreshSelectedPoint;
     const loadSeoulKaptPoints=()=>{
@@ -269,10 +298,10 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       node.dataset.seoulKaptVisible=String(visible&&(map.getZoom()>=13||!!latest.current.propertyMapPoint));
       if(!visible||map.getSource(SEOUL_KAPT_SOURCE))return;
       installedKaptUrl=seoulKaptUrl(latest.current.vectorData?.property?.release_id??'');
-      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:installedKaptUrl,attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
+      map.addSource(SEOUL_KAPT_SOURCE,{type:'geojson',data:priceDataRef.current?.data??{type:'FeatureCollection',features:[]},attribution:'서울특별시 열린데이터광장 · 공공누리 제1유형'});
       const release=latest.current.vectorData?.property?.release_id??'',trade=latest.current.propertyTrade??'sale';
-      map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade,false,labelModeRef.current));
-      map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade,true,labelModeRef.current));
+      map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade,false,labelModeRef.current,filterKeyRef.current));
+      map.addLayer(apartmentMapLayer(SEOUL_KAPT_SOURCE,release,trade,true,labelModeRef.current,filterKeyRef.current));
       for(const id of [APARTMENT_MAP_LAYER,APARTMENT_SELECTED_LAYER]){
         map.on('mouseenter',id,()=>{if((latest.current.measurement?.mode??'none')==='none')map.getCanvas().style.cursor='pointer';});
         map.on('mouseleave',id,()=>{map.getCanvas().style.cursor=(latest.current.measurement?.mode??'none')==='none'?'':'crosshair';});
@@ -441,9 +470,9 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   useEffect(()=>{refreshRef.current?.();},[props.catalog,props.layers,props.boundaries,props.lightweight,props.vectorData,props.vectorPending]);
   useEffect(()=>{refreshBoundaryRef.current?.();},[props.propertyRegion,props.propertyRegionName,props.vectorData]);
   useEffect(()=>{refreshRegionsRef.current?.();},[regions,props.measurement]);
-  useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData,props.propertyTrade,labelMode]);
+  useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData,props.propertyTrade,labelMode,filterKey,priceData]);
   useEffect(()=>{const source=mapRef.current?.getSource('live-buses') as GeoJSONSource|undefined;const data=map2DLiveBuses(props.liveTransit);source?.setData(data);if(element.current)element.current.dataset.liveBusCount=String(data.features.length);},[props.liveTransit]);
   useEffect(()=>{const map=mapRef.current;if(!map)return;const source=map.getSource('measure') as GeoJSONSource|undefined;source?.setData(measurementGeoJSON(props.measurement??EMPTY_MEASUREMENT));map.getCanvas().style.cursor=props.measurement&&props.measurement.mode!=='none'?'crosshair':'';},[props.measurement]);
-  return <>{regionName&&<div className="selected-region-caption" role="status"><strong>{boundaryView.loading?regionName:boundaryView.name||regionName}{!boundaryView.loading&&selectedDong?` › ${selectedDong}`:''}</strong><small>{boundaryView.error?'선택 지역의 경계를 불러오지 못했습니다':boundaryView.loading?'경계 불러오는 중':boundaryView.name?`${selectedDong?'행정동 경계':'행정구역 경계'} · ${boundaryView.date}`:'경계 자료 미연결'}</small>{boundaryView.error&&<button onClick={()=>refreshBoundaryRef.current?.()}>다시 불러오기</button>}{dongOptions.length>0&&!boundaryView.loading&&!boundaryView.error&&<select aria-label="행정동 범위 선택" value={dongOptions.find(row=>row.name===selectedDong)?.id??''} onChange={event=>selectDongRef.current?.(event.target.value,true)}><option value="">행정동 전체</option>{dongOptions.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select>}</div>}<label className="map-apartment-label-control"><span>단지 표식</span><select aria-label="지도 단지 표식 표시 기준" value={labelMode} onChange={event=>{const mode=event.target.value as ApartmentLabelMode;setLabelMode(mode);try{localStorage.setItem('korea-replay-apartment-label',mode);}catch{return;}}}><option value="price-area">가격·면적</option><option value="price">최근 매매가격</option><option value="area">전용면적</option><option value="name">단지명</option></select></label><div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.total>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표식 · 미수집 등 {regions.uncollected}개 · 위치 미연결 {regions.excluded}개</span></div>}</>;
+  return <>{regionName&&<div className="selected-region-caption" role="status"><strong>{boundaryView.loading?regionName:boundaryView.name||regionName}{!boundaryView.loading&&selectedDong?` › ${selectedDong}`:''}</strong><small>{boundaryView.error?'선택 지역의 경계를 불러오지 못했습니다':boundaryView.loading?'경계 불러오는 중':boundaryView.name?`${selectedDong?'행정동 경계':'행정구역 경계'} · ${boundaryView.date}`:'경계 자료 미연결'}</small>{boundaryView.error&&<button onClick={()=>refreshBoundaryRef.current?.()}>다시 불러오기</button>}{dongOptions.length>0&&!boundaryView.loading&&!boundaryView.error&&<select aria-label="행정동 범위 선택" value={dongOptions.find(row=>row.name===selectedDong)?.id??''} onChange={event=>selectDongRef.current?.(event.target.value,true)}><option value="">행정동 전체</option>{dongOptions.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select>}</div>}{props.propertyView&&props.onMarkerDisplay&&<label className="map-apartment-label-control"><span>표식</span><select aria-label="지도 단지 표식 표시 기준" value={labelMode} onChange={event=>props.onMarkerDisplay?.(event.target.value as NonNullable<PropertyViewState['markerDisplay']>)}><option value="price-area">가격·전용평</option><option value="price">가격</option><option value="unit-price">전용 평당가</option><option value="name">단지명</option></select></label>}<div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.total>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표식 · 미수집 등 {regions.uncollected}개 · 위치 미연결 {regions.excluded}개</span></div>}</>;
 });
 export default Map2D;

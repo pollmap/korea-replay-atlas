@@ -1,4 +1,4 @@
-import {parsePropertyTransactions,type PropertyRegionDetail,type PropertySource,type PropertyTransaction} from '../shared/property';
+import {parsePropertyMonthTransactions,type PropertyRegionDetail,type PropertySource,type PropertyTransaction} from '../shared/property';
 import {historyPlan,type HistoryRange} from '../shared/property-history';
 import {historySourceStart} from '../shared/property-source-period';
 import {fetchPinnedJson} from './atlas-client';
@@ -16,16 +16,17 @@ export async function loadPropertyHistory({detail,end,count,trade,complex,origin
   const sourceStart=historySourceStart(trade,sources);
   budget.requestsRemaining??=HISTORY_LIMITS.requests;budget.rowsRemaining??=HISTORY_LIMITS.rows;
   const complexIds=new Set(typeof complex==='string'?[complex]:complex);
-  let next=0;
+  let next=0;const reservedAssets=new Set<string>();
   const run=async()=>{while(next<plan.length&&!signal.aborted){const {month,partition}=plan[next++];
     if(sourceStart&&month<sourceStart){onMonth({month,status:'missing',rows:[],reason:'before_source'});continue;}
     if(!partition||!['complete','empty'].includes(partition.status)){onMonth({month,status:'missing',rows:[],reason:partition?.status??'outside_release'});continue;}
     if(budget.rowsRemaining===0&&partition.source_rows!==0){onMonth({month,status:'missing',rows:[],reason:'retention_budget'});continue;}
-    const bytes=partition.transactions.reduce((sum,ref)=>sum+ref.bytes,0);
+    const unreserved=partition.transactions.filter(ref=>!reservedAssets.has(`${ref.url}:${ref.sha256}`));
+    const bytes=unreserved.reduce((sum,ref)=>sum+ref.bytes,0);
     if(bytes>budget.remaining){onMonth({month,status:'missing',rows:[],reason:'download_budget'});continue;}
-    if(partition.transactions.length>budget.requestsRemaining!){onMonth({month,status:'missing',rows:[],reason:'request_budget'});continue;}
+    if(unreserved.length>budget.requestsRemaining!){onMonth({month,status:'missing',rows:[],reason:'request_budget'});continue;}
     budget.remaining-=bytes;
-    budget.requestsRemaining!-=partition.transactions.length;
+    budget.requestsRemaining!-=unreserved.length;for(const ref of unreserved)reservedAssets.add(`${ref.url}:${ref.sha256}`);
     try{
       const cacheKey=historyMonthCacheKey(origin,detail.release_id,detail.lawd_code,partition,complexIds),cached=cache.get(cacheKey);
       if(cached){
@@ -34,7 +35,7 @@ export async function loadPropertyHistory({detail,end,count,trade,complex,origin
       }
       const kept:PropertyTransaction[]=[];let sourceCount=0;const ids=new Set<string>();
       for(const ref of partition.transactions){
-        const data=parsePropertyTransactions(await fetchJson(ref,origin,signal));
+        const data=parsePropertyMonthTransactions(await fetchJson(ref,origin,signal),month);
         if(signal.aborted)return;
         if(data.release_id!==detail.release_id||data.lawd_code!==detail.lawd_code||data.deal_month!==month)throw new Error('history_scope_mismatch');
         for(const row of data.transactions){if(row.trade_type!==trade)continue;if(ids.has(row.id))throw new Error('history_partition_mismatch');ids.add(row.id);sourceCount++;if(row.complex_id&&complexIds.has(row.complex_id)){if(kept.length>=budget.rowsRemaining!)throw new Error('retention_budget');kept.push(row);}}
