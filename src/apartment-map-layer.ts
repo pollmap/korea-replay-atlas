@@ -12,7 +12,9 @@ export function apartmentMapLayer(source:string,release:string,trade:'sale'|'ren
   const hasSale:ExpressionSpecification=['all',linked,['has','recent_sale_label'],['literal',trade==='sale']];
   const priceLabel:ExpressionSpecification=['case',['>=',['index-of',' · ',saleLabel],0],['slice',saleLabel,0,['index-of',' · ',saleLabel]],saleLabel];
   const unavailable:ExpressionSpecification=['case',linked,trade==='rent'?'전월세 미연결':'최근 거래 없음','단지 미연결'];
-  const filtered:ExpressionSpecification=['case',['==',['get','property_filter_key'],filterKey],['coalesce',['get',mode==='unit-price'?'filtered_unit_label':mode==='price'?'filtered_price_label':'filtered_label'],'조건 확인 중'],'조건 확인 중'];
+  const filteredValue:ExpressionSpecification=['coalesce',['get',mode==='unit-price'?'filtered_unit_label':mode==='price'?'filtered_price_label':'filtered_label'],'조건 확인 중'];
+  const namedStatus=(value:ExpressionSpecification|string):ExpressionSpecification=>selected?['to-string',value]:['concat',['coalesce',['get','name'],'아파트'],'\n',value];
+  const filtered:ExpressionSpecification=['case',['==',['get','property_filter_key'],filterKey],['case',['!=',['coalesce',['get','filtered_contract_date'],''],''],filteredValue,namedStatus(filteredValue)],namedStatus('조건 확인 중')];
   const detail:ExpressionSpecification=mode==='name'?['get','name']:filterKey?filtered:mode==='price-area'
     ?['case',hasSale,saleLabel,unavailable]:mode==='area'
     ?['case',['all',hasSale,['has','recent_sale_area_m2']],['concat',['to-string',['get','recent_sale_area_m2']],'㎡'],unavailable]

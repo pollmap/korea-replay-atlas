@@ -23,6 +23,13 @@ function atlas():AtlasContent{return {
 };}
 afterEach(()=>vi.unstubAllGlobals());
 
+it('labels the retained legal dong as officetel when the apartment type changes',()=>{
+  vi.stubGlobal('location',{hash:'#regionCode=11110&legalDong='+encodeURIComponent('청운동')+'&propertyType=officetel'});
+  const html=renderToStaticMarkup(createElement(PropertyExplorer,{atlas:atlas(),hidden:false,mapLayout:true,onClose:()=>{},onLocate:()=>{},onViewState:()=>{}}));
+  expect(html).toContain('청운동 오피스텔</h2>');expect(html).toContain('오피스텔 자료 준비 중');
+  expect(html).not.toContain('청운동 아파트</h2>');
+});
+
 it('does not call unrequested price-card observations zero transactions',()=>{
   const detail={release_id:release,period,partitions:[]} as unknown as PropertyRegionDetail;
   const complex={id:'molit-apt:11110:test'} as PropertyComplex;
