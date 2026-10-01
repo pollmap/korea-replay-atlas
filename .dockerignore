@@ -1,0 +1,6 @@
+**
+!pipeline/
+!pipeline/**/*.py
+!deploy/
+!deploy/vps/
+!deploy/vps/Dockerfile

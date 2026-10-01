@@ -356,17 +356,24 @@ class Collector:
 
     def collect(self, key, *, max_requests=100, max_bytes=64*1024**2, daily_budget=8000,
                 min_interval=0.3, timeout=60, page_size=1000, retry_failed=False, refresh=False,
-                collect_months=None, first_acquisition_only=False):
+                collect_months=None, first_acquisition_only=False, collect_trades=None):
         if (not 1 <= max_requests <= 2000 or not 1 <= max_bytes <= 64*1024**2
                 or not 1 <= daily_budget <= 8000 or not 0 <= min_interval <= 60
                 or not 1 <= timeout <= 60 or not 1 <= page_size <= 1000):
             raise RealEstateError('invalid_collection_budget')
         if type(first_acquisition_only) is not bool:
             raise RealEstateError('invalid_acquisition_filter')
+        if collect_trades is not None and (not isinstance(collect_trades, (list, tuple))
+                or not collect_trades
+                or any(not isinstance(trade, str) or trade not in ENDPOINTS for trade in collect_trades)
+                or len(set(collect_trades)) != len(collect_trades)):
+            raise RealEstateError('invalid_trade_filter')
         if collect_months is not None and (not collect_months or len(collect_months)>DEFAULT_PLAN_MONTHS
                 or any(not isinstance(m,str) or not re.fullmatch(r'[0-9]{4}(?:0[1-9]|1[0-2])',m) for m in collect_months)):
             raise RealEstateError('invalid_month_filter')
         condition=''
+        if collect_trades is not None:
+            condition += ' AND trade_type IN (' + ','.join("'" + trade + "'" for trade in collect_trades) + ')'
         if collect_months:
             available={r[0] for r in self.db.execute('SELECT DISTINCT deal_month FROM jobs')}
             if not set(collect_months)<=available:raise RealEstateError('month_outside_planned_window')

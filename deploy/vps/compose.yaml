@@ -1,0 +1,58 @@
+name: korea-replay
+services:
+  api:
+    image: korea-replay:${APP_BUILD:?release required}
+    command: [api]
+    environment:
+      APP_BUILD: ${APP_BUILD}
+    ports: ["127.0.0.1:8330:8330"]
+    volumes:
+      - /srv/services/korea-replay/shared/data:/data:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    cpus: 0.50
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8330/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}
+    networks: [private]
+  collector:
+    image: korea-replay:${APP_BUILD:?release required}
+    command: [worker]
+    environment:
+      APP_BUILD: ${APP_BUILD}
+    volumes:
+      - /srv/services/korea-replay/shared/data:/data
+      - /srv/services/korea-replay/backups/cas:/backups
+      - /srv/services/korea-replay/shared/secrets/provider.json:/run/secrets/provider.json:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp:size=128m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1024m
+    cpus: 0.75
+    pids_limit: 32
+    healthcheck:
+      test: [CMD, python, -c, "import json,time,datetime; s=json.load(open('/data/worker-status.json')); assert time.time()-datetime.datetime.fromisoformat(s['at'].replace('Z','+00:00')).timestamp()<900"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: local
+      options: {max-size: 10m, max-file: "3"}
+    networks: [private]
+networks:
+  private:
+    driver: bridge
