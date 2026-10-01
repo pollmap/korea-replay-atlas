@@ -28,7 +28,7 @@
 ## 구현과 사전 검증
 
 - VPS 기준 디스크 145GiB 중 약 46GiB 사용, 약 100GiB 여유, RAM 약 5.9GiB 가용을 확인했습니다. 기존 Hannun·hongong-learning·gateway의 올바른 health URL에서 정상 응답을 보존했습니다. 기존 failed systemd unit 3개는 이번 작업 이전 상태이며 수정하지 않았습니다.
-- 고유 localhost 8330, Compose `korea-replay`, 서비스 경로 `/srv/services/korea-replay`, TLS 도메인 `korea-replay.62-171-141-206.sslip.io`를 준비했습니다. 무료 인증서의 자동 갱신이 설정됐습니다.
+- 고유 localhost 8437(컨테이너 8330), Compose `korea-replay`, 서비스 경로 `/srv/services/korea-replay`, TLS 도메인 `korea-replay.62-171-141-206.sslip.io`를 준비했습니다. 사전 선정한 8330은 다른 작업이 전환 중 먼저 사용했으므로 다른 서비스를 보존하고 재선정했습니다. 무료 인증서의 자동 갱신과 해당 도메인의 Nginx reload hook을 설정했습니다.
 - Python 3.13 slim 이미지 digest를 고정하고 API 768MiB/0.5CPU, 수집기 1GiB/0.75CPU, 로그·healthcheck·network 격리를 적용했습니다. 인증키는 파일 600·상위 디렉터리 700으로 저장하며 코드·이미지·출력에 포함하지 않았습니다.
 - CAS closure streaming과 SHA 영수증은 노트북에 두 번째 대용량 파일을 만들지 않습니다. 서버에서는 링크·경로·중복·크기·객체 SHA, manifest closure, 전체 복원 파일 SHA, SQLite·원본 참조·호출 기록을 검증합니다.
 - 원천별 호출 한도가 찼을 때 다른 원천 수집을 이어가는 필터를 추가했으며, 기존 `_reserve()` 호출 기록 검사는 그대로 유지합니다. 인증/원천/해시 오류는 hold로 중단하고 마지막 성공본을 보존합니다.

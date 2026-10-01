@@ -5,7 +5,7 @@ services:
     command: [api]
     environment:
       APP_BUILD: ${APP_BUILD}
-    ports: ["127.0.0.1:8330:8330"]
+    ports: ["127.0.0.1:8437:8330"]
     volumes:
       - /srv/services/korea-replay/shared/data:/data:ro
     restart: unless-stopped

@@ -8,7 +8,7 @@
 - 프로젝트: `/srv/services/korea-replay`; Compose project `korea-replay`, private bridge network.
 - 릴리스: `releases/<release-id>/`; 검증한 소스와 `deploy/vps/release.env`의 `APP_BUILD`로 고정합니다.
 - 현재 코드: `current` 링크. 데이터는 링크 밖의 `shared/data/collector/`에 유지합니다.
-- API: localhost `8330`, 외부 HTTPS `https://korea-replay.62-171-141-206.sslip.io`의 전용 Nginx server.
+- API: localhost `8437` → 전용 컨테이너 `8330`, 외부 HTTPS `https://korea-replay.62-171-141-206.sslip.io`의 전용 Nginx server.
 - 비밀키: `shared/secrets/provider.json`, 파일 600·디렉터리 700. `DATA_GO_KR_SERVICE_KEY`만 저장하며 이미지·Git·로그에 포함하지 않습니다.
 - 백업: `backups/migration/`의 SHA 고정 이전 묶음과 `backups/cas/`의 기존 partitioned-set 형식. 기존 로컬 원본·복구본은 보존합니다.
 - API 읽기 전용, collector만 쓰기. UID 10001, cap drop, 읽기 전용 rootfs, 메모리·CPU·PID 상한, 로그 10MB×3, healthcheck, `unless-stopped`를 적용합니다.
@@ -16,7 +16,7 @@
 ```sh
 cd /srv/services/korea-replay/current
 docker compose --env-file deploy/vps/release.env -f deploy/vps/compose.yaml ps
-curl --fail http://127.0.0.1:8330/health
+curl --fail http://127.0.0.1:8437/health
 curl --fail https://korea-replay.62-171-141-206.sslip.io/api/v1/property/acquisition
 ```
 
