@@ -104,7 +104,7 @@ def collect_once(root, backups, secret_file, *, max_requests=500, progress=None)
                                        first_acquisition_only=True, scope='priority-nine')
         report = collector.collect(read_key(secret_file), max_requests=max_requests,
                                    max_bytes=64 * 1024**2, daily_budget=8000, min_interval=.3,
-                                   timeout=60, first_acquisition_only=True, collect_trades=trades)
+                                   timeout=60, first_acquisition_only=True, collect_trades=trades, progress=progress)
     finally:
         collector.close()
     if progress:
@@ -137,7 +137,8 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                 write_json(state, {**base, 'state': 'collecting'})
                 def progress(event):
                     write_json(state, {'at': instant(), 'state': 'running', 'phase': event.get('phase', 'backup'),
-                                       'verified_files': event.get('verified_files'), 'public_release': False})
+                                       'verified_files': event.get('verified_files'), 'requests': event.get('requests'),
+                                       'response_bytes': event.get('response_bytes'), 'public_release': False})
                 report = collect_once(root, backups, secret_file, max_requests=max_requests, progress=progress)
                 write_json(data / 'last-run.json', report)
                 stop = report['collection']['stop_reason']

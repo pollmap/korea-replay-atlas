@@ -245,3 +245,33 @@ def test_cas_stream_receipt_matches_received_bytes_without_local_bundle(tmp_path
     assert receipt['archive_bytes'] == bundle.stat().st_size
     result = restore_cas(bundle, tmp_path / 'new-cas', tmp_path / 'restored', expected_sha256=receipt['archive_sha256'], reserve=0)
     assert result['audit'] == receipt['audit']
+
+
+def test_collection_progress_is_bounded_and_excludes_credentials(tmp_path):
+    c = collector(tmp_path, lambda key, trade, *a, **kw: xml([rent()]) if trade == 'rent' else xml())
+    events = []
+    try:
+        result = c.collect(KEY, max_requests=2, min_interval=0, progress=events.append)
+        assert result['requests'] == 2
+        assert [event['requests'] for event in events] == [1, 2]
+        assert all(set(event) == {'phase', 'requests', 'response_bytes'} for event in events)
+        assert all(event['phase'] == 'collecting' for event in events)
+        assert events[1]['response_bytes'] > 0
+        with pytest.raises(RealEstateError, match='invalid_progress_callback'):
+            c.collect(KEY, progress='invalid')
+    finally:
+        c.close()
+
+
+def test_month_filter_preserves_trade_budget_filter(tmp_path):
+    seen = []
+    def transport(key, trade, *args, **kwargs):
+        seen.append(trade)
+        return xml()
+    c = collector(tmp_path, transport)
+    try:
+        month = c.db.execute('SELECT deal_month FROM jobs ORDER BY priority LIMIT 1').fetchone()[0]
+        c.collect(KEY, max_requests=1, min_interval=0, collect_months=[month], collect_trades=['sale'])
+        assert seen == ['sale']
+    finally:
+        c.close()
