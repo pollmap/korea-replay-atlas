@@ -21,3 +21,23 @@ python3 -m pipeline.property_candidate --data /srv/services/korea-replay/shared/
 테스트는 고정 이후 수집 DB 변경, 원본 훼손, 실패 후 마지막 정상 후보 보존, 재시도 동안 현재 조회본 변경, 중복 실행, 원본/공개 출력 금지, 거래 ID 보존을 검사합니다.
 
 실제 최초 실행은 `korea-replay-candidate-20261003` 전용 systemd 작업으로 CPU 1코어, 메모리 2300MiB, 낮은 우선순위를 적용했습니다. 실행 로그는 private operations 디렉터리에 보관합니다. 최초 실데이터 전수 감사와 30GiB 보호 조건 통과 전 자동 공개 게시 완료로 판정하지 않습니다.
+
+## 이전 공개본과의 연속성 검사
+
+후보가 준비되면 `pipeline.property_continuity`로 실제 이전 공개본과 대조합니다.
+
+```sh
+python3 -m pipeline.property_continuity \
+  --previous /private/previous/publication.json \
+  --candidate /private/candidate/publication.json \
+  --report /private/continuity-report.json
+```
+
+- 원본 월별 파일과 월 묶음 형식 모두 읽고, 참조 파일의 SHA·크기·릴리스·지역·월·거래 ID·행 수를 확인합니다. 동일 속성의 반복 거래도 각각의 ID로 비교합니다.
+- 이전의 모든 ID를 검사합니다. 신규 거래가 늘어도 기존 ID 소실을 상쇄하지 않습니다. 전체 지역이 없어져도 검사 대상에서 제외하지 않습니다.
+- 완료된 월이 미완료로 바뀌거나 더 오래된 스냅샷으로 되돌아가면 차단합니다. 같은 원천에서 ID가 사라진 경우도 차단합니다.
+- 더 최근의 원천 정정으로 ID가 달라진 경우 `requires_source_revision_review`로 기록합니다. 정정 가능성은 자동 게시 승인과 다릅니다. 원문 차이와 취소·정정 근거를 검토해야 합니다.
+- 종료 코드 0은 연속성 검사 통과, 2는 보고서가 생성됐지만 자동 전환 불가, 1은 입력·무결성 오류입니다. 보고서는 원문이나 인증키를 포함하지 않습니다.
+- `automatic_transition_eligible`은 이 검사만의 결과입니다. 데이터 권한, 위치 연결, Pages 후보·브라우저·복구 검사까지 통과해야 공개할 수 있습니다. 도구 자체는 업로드나 공개 포인터 변경을 하지 않습니다.
+
+2026-10-03 공개 앱 `2c891364`는 지도 전체 보기 검색 복귀 수정(PR68)을 포함합니다. 거래 데이터는 여전히 `property-8879dff1b31ac5f0`입니다. 별도 대규모 원문 감사 실행과 혼동하지 않습니다.
