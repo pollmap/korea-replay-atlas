@@ -13,6 +13,7 @@ from pipeline.real_estate import RealEstateError, canonical_bytes
 from pipeline.real_estate_fetch import Collector
 from pipeline.vps_runtime import PropertyAPI, available_trades, write_json
 from pipeline import vps_runtime
+from pipeline.property_read_model import publish, ReadModel
 from pipeline.vps_transfer import export, restore, digest, export_cas, restore_cas
 from pipeline.real_estate_local_archive_set import LocalArchiveSet, backup_set
 from test_real_estate_fetch import collector, xml, rent, KEY
@@ -23,6 +24,7 @@ def acquired(tmp_path):
     c = collector(root, lambda key, trade, *args, **kwargs: xml([rent(), rent()]) if trade == 'rent' else xml())
     c.collect(KEY, max_requests=2, min_interval=0)
     c.close()
+    publish(data, reserve_bytes=0)
     return data, root
 
 
@@ -92,6 +94,7 @@ def test_api_snapshot_pagination_state_and_hash_binding(tmp_path):
     assert code == 409
     with sqlite3.connect(root / 'checkpoint.sqlite') as db:
         db.execute("UPDATE jobs SET status='pending' WHERE trade_type='rent'")
+    publish(data, reserve_bytes=0)
     _, retained = api.dispatch('/api/v1/property/transactions?regionCode=11110&month=202609&trade=rent')
     assert retained['retained_previous'] and retained['records']
     assert api.dispatch('/.env')[0] == api.dispatch('/raw/foo')[0] == 404
@@ -110,12 +113,13 @@ def test_api_rejects_invalid_queries(tmp_path, query):
 def test_api_distinguishes_unacquired_not_planned_and_failed(tmp_path):
     data = tmp_path / 'data'
     c = collector(data / 'collector', lambda *args, **kwargs: xml())
-    c.close(); api = PropertyAPI(data)
+    c.close(); publish(data, reserve_bytes=0); api = PropertyAPI(data)
     _, body = api.dispatch('/api/v1/property/transactions?regionCode=11110&month=202609')
     assert body['status'] == 'pending' and body['total'] is None
     assert api.dispatch('/api/v1/property/transactions?regionCode=11110&month=200609')[0] == 404
     with sqlite3.connect(data / 'collector/checkpoint.sqlite') as db:
         db.execute("UPDATE jobs SET status='failed',error_code='upstream_timeout'")
+    publish(data, reserve_bytes=0)
     _, body = api.dispatch('/api/v1/property/transactions?regionCode=11110&month=202609')
     assert body['status'] == 'failed' and body['total'] is None
 
@@ -275,3 +279,70 @@ def test_month_filter_preserves_trade_budget_filter(tmp_path):
         assert seen == ['sale']
     finally:
         c.close()
+
+
+def test_read_model_survives_closed_writer_and_has_no_wal_dependency(tmp_path):
+    data, root = acquired(tmp_path)
+    from contextlib import closing
+    with closing(sqlite3.connect(root / 'checkpoint.sqlite')) as writer:
+        writer.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    assert not (root / 'checkpoint.sqlite-wal').exists()
+    model = ReadModel(data)
+    path, manifest = model.resolve()
+    assert not Path(str(path) + '-wal').exists()
+    with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
+        assert db.execute('PRAGMA journal_mode').fetchone()[0] == 'delete'
+    api = PropertyAPI(data)
+    assert api.dispatch('/health')[0] == 200
+    # Source can be offline and the API still serves the audited generation.
+    (root / 'checkpoint.sqlite').rename(root / 'writer-preserved.sqlite')
+    assert api.dispatch('/health')[0] == 200
+    assert api.dispatch('/api/v1/property/acquisition')[1]['read_model']['generation'] == manifest['generation']
+
+
+def test_read_model_atomic_promotion_and_bad_candidate_keeps_last_good(tmp_path):
+    data, root = acquired(tmp_path)
+    reader = ReadModel(data); old = reader.resolve()
+    with sqlite3.connect(root / 'checkpoint.sqlite') as db:
+        db.execute("UPDATE jobs SET status='pending' WHERE trade_type='rent'")
+    assert reader.resolve()[1]['generation'] == old[1]['generation']
+    new = publish(data, reserve_bytes=0)
+    assert reader.resolve()[1]['generation'] == new['generation']
+    (data / 'read-model/current.json').write_text('{broken')
+    assert reader.resolve()[1]['generation'] == new['generation']
+    assert reader.error_code == 'read_model_update_unavailable'
+    # Cold starts fail closed if no valid manifest can be selected.
+    api = PropertyAPI(data)
+    assert api.dispatch('/live')[0] == 200
+    assert api.dispatch('/health')[0] == 503
+
+
+def test_read_model_hash_failure_never_replaces_good_reader(tmp_path):
+    data, _ = acquired(tmp_path)
+    reader = ReadModel(data); old = reader.resolve()
+    candidate = publish(data, reserve_bytes=0)
+    (data / 'read-model' / (candidate['generation'] + '.sqlite')).write_bytes(b'bad')
+    assert reader.resolve()[1]['generation'] == old[1]['generation']
+    assert reader.error_code
+
+
+def test_online_read_model_excludes_uncommitted_writer_changes(tmp_path):
+    data, root = acquired(tmp_path)
+    with sqlite3.connect(root / 'checkpoint.sqlite') as writer:
+        writer.execute('PRAGMA journal_mode=WAL')
+        writer.execute("UPDATE jobs SET status='pending' WHERE trade_type='rent'")
+        manifest = publish(data, reserve_bytes=0)
+        path, _ = ReadModel(data).resolve()
+        with sqlite3.connect(path) as read:
+            assert read.execute("SELECT status FROM jobs WHERE trade_type='rent'").fetchone()[0] == 'complete'
+        writer.rollback()
+    assert manifest['counts']['jobs'] > 0
+
+
+def test_read_model_failure_preserves_current_manifest(tmp_path, monkeypatch):
+    data, _ = acquired(tmp_path)
+    original = (data / 'read-model/current.json').read_bytes()
+    import pipeline.property_read_model as module
+    monkeypatch.setattr(module, 'sha256', lambda _: (_ for _ in ()).throw(OSError('failure')))
+    with pytest.raises(OSError): publish(data, reserve_bytes=0)
+    assert (data / 'read-model/current.json').read_bytes() == original
