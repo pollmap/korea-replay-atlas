@@ -171,7 +171,7 @@ class PropertyAPI:
         self.data = Path(data).absolute(); _reject_links(self.data)
         self.root = self.data / 'collector'
         self.read_model = ReadModel(self.data)
-        self.lock = threading.Lock(); self.coverage = None; self.coverage_at = 0
+        self.lock = threading.Lock(); self.coverage = None; self.coverage_date = None
         self.coverage_generation = None
 
     def connection(self):
@@ -181,13 +181,20 @@ class PropertyAPI:
     def acquisition(self):
         with self.lock:
             path, manifest = self.read_model.resolve()
+            as_of = datetime.now(KST).date().isoformat()
             if (self.coverage is None or self.coverage_generation != manifest['generation']
-                    or time.monotonic() - self.coverage_at > 60):
-                self.coverage = history_audit(path, as_of=datetime.now(KST).date().isoformat())
-                self.coverage_at = time.monotonic()
+                    or self.coverage_date != as_of):
+                # Closed generations cannot change. Recompute only for a new
+                # generation or KST date (rolling window / source budget day).
+                coverage = history_audit(path, as_of=as_of)
+                self.coverage = coverage
+                self.coverage_date = as_of
                 self.coverage_generation = manifest['generation']
-        return {'service': 'korea-replay', 'at': instant(), 'acquisition': self.coverage,
-                'read_model': manifest, 'read_model_error': self.read_model.error_code,
+            # Keep data and version from one lock scope during concurrent reads.
+            coverage = self.coverage
+            read_model_error = self.read_model.error_code
+        return {'service': 'korea-replay', 'at': instant(), 'acquisition': coverage,
+                'read_model': manifest, 'read_model_error': read_model_error,
                 'worker': read_state(self.data / 'worker-status.json'),
                 'publication': {'automatic': False, 'site': 'https://korea-replay.pages.dev/',
                                 'acquired_is_not_published': True}}

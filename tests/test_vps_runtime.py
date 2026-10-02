@@ -346,3 +346,54 @@ def test_read_model_failure_preserves_current_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(module, 'sha256', lambda _: (_ for _ in ()).throw(OSError('failure')))
     with pytest.raises(OSError): publish(data, reserve_bytes=0)
     assert (data / 'read-model/current.json').read_bytes() == original
+
+
+def test_acquisition_cache_is_keyed_by_closed_generation_and_kst_date(tmp_path, monkeypatch):
+    from datetime import datetime as actual_datetime
+    data, _ = acquired(tmp_path); api = PropertyAPI(data); calls = []
+    class Clock:
+        value = '2026-10-03T10:00:00+09:00'
+        @classmethod
+        def now(cls, tz): return actual_datetime.fromisoformat(cls.value).astimezone(tz)
+    monkeypatch.setattr(vps_runtime, 'datetime', Clock)
+    def audit(path, *, as_of):
+        calls.append((str(path),as_of))
+        return {'call':len(calls),'as_of':as_of}
+    monkeypatch.setattr(vps_runtime, 'history_audit', audit)
+    first = api.acquisition()
+    Clock.value = '2026-10-03T22:00:00+09:00'
+    write_json(data/'worker-status.json', {'state':'waiting'})
+    cached = api.acquisition()
+    assert len(calls) == 1 and cached['acquisition'] == first['acquisition']
+    assert cached['worker']['state'] == 'waiting'
+    assert cached['at'] != first['at']
+    Clock.value = '2026-10-04T00:00:00+09:00'
+    next_day = api.acquisition()
+    assert len(calls) == 2 and next_day['acquisition']['as_of'] == '2026-10-04'
+    publish(data, reserve_bytes=0)
+    updated = api.acquisition()
+    assert len(calls) == 3
+    assert updated['read_model']['generation'] != first['read_model']['generation']
+
+
+def test_acquisition_keeps_response_bound_to_manifest_when_another_reader_advances(tmp_path, monkeypatch):
+    data, _ = acquired(tmp_path); api = PropertyAPI(data)
+    monkeypatch.setattr(vps_runtime, 'history_audit', lambda *args, **kwargs:{'generation':'first'})
+    class InterleavedLock:
+        def __enter__(self): return self
+        def __exit__(self, *args):
+            # Another request may update the shared cache immediately on unlock.
+            api.coverage = {'generation':'second'}
+    api.lock = InterleavedLock()
+    assert api.acquisition()['acquisition'] == {'generation':'first'}
+
+
+def test_failed_coverage_refresh_keeps_previous_cache_without_marking_new_generation(tmp_path, monkeypatch):
+    data, _ = acquired(tmp_path); api = PropertyAPI(data)
+    monkeypatch.setattr(vps_runtime, 'history_audit', lambda *args, **kwargs:{'value':1})
+    before = api.acquisition(); publish(data, reserve_bytes=0)
+    def fail(*args, **kwargs): raise RealEstateError('history_failed')
+    monkeypatch.setattr(vps_runtime, 'history_audit', fail)
+    with pytest.raises(RealEstateError): api.acquisition()
+    assert api.coverage == before['acquisition']
+    assert api.coverage_generation == before['read_model']['generation']
