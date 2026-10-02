@@ -28,6 +28,7 @@ from .real_estate_local_archive_set import LocalArchiveSet, backup_set
 from .real_estate_regions import load_registry
 from .real_estate_storage import decode_snapshot
 from .property_automation import requeue_safe_failures
+from .property_read_model import ReadModel, publish as publish_read_model
 
 RESERVE = 30 * 1024**3
 MAX_RESPONSE = 1024**2
@@ -144,6 +145,15 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                 stop = report['collection']['stop_reason']
                 if stop not in ACCEPTED_STOPS:
                     raise RealEstateError(stop)
+                if report['collection']['requests'] or not (data / 'read-model/current.json').is_file():
+                    try:
+                        model = publish_read_model(data)
+                        write_json(data / 'read-model-status.json', {'at': instant(), 'state': 'ready',
+                                   'generation': model['generation']})
+                    except Exception:
+                        # A reader publication failure must not reset collection or its quota.
+                        write_json(data / 'read-model-status.json', {'at': instant(), 'state': 'failed',
+                                   'error_code': 'read_model_publish_failed'})
                 write_json(state, {'at': instant(), 'state': 'waiting', 'stop_reason': stop,
                                    'last_success_at': report['finished_at'], 'requests': report['collection']['requests'],
                                    'public_release': False})
@@ -160,18 +170,24 @@ class PropertyAPI:
     def __init__(self, data):
         self.data = Path(data).absolute(); _reject_links(self.data)
         self.root = self.data / 'collector'
+        self.read_model = ReadModel(self.data)
         self.lock = threading.Lock(); self.coverage = None; self.coverage_at = 0
+        self.coverage_generation = None
 
     def connection(self):
-        path = self.root / 'checkpoint.sqlite'; _reject_links(path)
-        return sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)
+        path, _ = self.read_model.resolve()
+        return sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1', uri=True, timeout=5)
 
     def acquisition(self):
         with self.lock:
-            if self.coverage is None or time.monotonic() - self.coverage_at > 60:
-                self.coverage = history_audit(self.root / 'checkpoint.sqlite', as_of=datetime.now(KST).date().isoformat())
+            path, manifest = self.read_model.resolve()
+            if (self.coverage is None or self.coverage_generation != manifest['generation']
+                    or time.monotonic() - self.coverage_at > 60):
+                self.coverage = history_audit(path, as_of=datetime.now(KST).date().isoformat())
                 self.coverage_at = time.monotonic()
+                self.coverage_generation = manifest['generation']
         return {'service': 'korea-replay', 'at': instant(), 'acquisition': self.coverage,
+                'read_model': manifest, 'read_model_error': self.read_model.error_code,
                 'worker': read_state(self.data / 'worker-status.json'),
                 'publication': {'automatic': False, 'site': 'https://korea-replay.pages.dev/',
                                 'acquired_is_not_published': True}}
@@ -214,11 +230,19 @@ class PropertyAPI:
         parts = urlsplit(url)
         if len(url) > 4096:
             return 400, {'error_code': 'invalid_query'}
+        if parts.path == '/live' and not parts.query:
+            return 200, {'ok': True, 'service': 'korea-replay', 'build': os.environ.get('APP_BUILD', 'local')}
         if parts.path == '/health' and not parts.query:
-            with closing(self.connection()) as db:
-                db.execute('SELECT 1 FROM meta LIMIT 1').fetchone()
+            try:
+                with closing(self.connection()) as db:
+                    db.execute('SELECT 1 FROM meta LIMIT 1').fetchone()
+            except (RealEstateError, sqlite3.Error, OSError):
+                return 503, {'ok': False, 'error_code': 'read_model_not_ready'}
+            _, manifest = self.read_model.resolve()
             return 200, {'ok': True, 'service': 'korea-replay', 'build': os.environ.get('APP_BUILD', 'local'),
-                         'data_ready': (self.data / 'migration-verified.json').is_file(),
+                         'data_ready': True, 'read_model': manifest,
+                         'read_model_error': self.read_model.error_code,
+                         'publication': read_state(self.data / 'read-model-status.json'),
                          'collector_state': read_state(self.data / 'worker-status.json').get('state', 'not_started')}
         if parts.path == '/api/v1/property/acquisition' and not parts.query:
             return 200, self.acquisition()
@@ -260,7 +284,7 @@ def serve(data, port):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('api', 'worker', 'backup'))
+    parser.add_argument('mode', choices=('api', 'worker', 'backup', 'publish-read-model'))
     parser.add_argument('--data', type=Path, default=Path('/data'))
     parser.add_argument('--backups', type=Path, default=Path('/backups'))
     parser.add_argument('--secret-file', type=Path, default=Path('/run/secrets/provider.json'))
@@ -270,6 +294,8 @@ def main():
         serve(args.data, args.port)
     elif args.mode == 'worker':
         worker(args.data, args.backups, args.secret_file)
+    elif args.mode == 'publish-read-model':
+        print(json.dumps(publish_read_model(args.data), ensure_ascii=False))
     else:
         print(json.dumps(backup(args.data / 'collector', args.backups), ensure_ascii=False))
 

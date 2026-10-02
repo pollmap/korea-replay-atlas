@@ -59,3 +59,17 @@ Nginx 설정 변경 전 해당 서비스 파일을 백업하고 `nginx -t` 성�
 ## 판정
 
 구현·로컬 검사·서버 복원·수집 재개·공개 HTTPS·Git 병합을 각각 검증합니다. 실행 증거와 현재 확보표는 `docs/VPS_CUTOVER_20261002.md`에 기록합니다. 아직 20년 전체 확보, 단지 좌표 확정, 오피스텔 인증/공개, 모든 보조 공식 자료, 전체 백엔드 대체·자동 게시·경쟁 서비스 동등성은 완료가 아닙니다.
+
+## 2026-10-03 읽기 전용 조회본
+
+수집 WAL의 `-wal`/`-shm`이 사라져도 API가 열리도록 `/data/read-model/<generation>.sqlite`를 서비스합니다. `publish-read-model`은 SQLite online backup, DELETE journal 전환, integrity/schema/count 검증, SHA 확인 후 `current.json`을 원자적으로 전환합니다. 원본·이전 조회본은 삭제하지 않으며 30GiB 여유 보호를 유지합니다. 조회본 게시와 Pages 데이터 공개는 별개입니다.
+
+수집기 배치 성공 후 새 요청이 있었을 때 조회본을 갱신합니다. 생성 실패는 `read-model-status.json`에 기록하고 이전 API 조회본과 수집 장부를 유지합니다. API는 쓰기 DB로 fallback하지 않으며, 이미 열린 정상 조회본은 잘못된 새 manifest가 와도 유지합니다. 새 프로세스에 유효한 manifest가 없으면 준비 상태는 503입니다.
+
+- `/live`: API 프로세스 응답 확인. 데이터 조회 정상 여부와 분리합니다.
+- `/health`: 검증 조회본 준비 상태, generation·생성시각·최근 게시 결과.
+- `/api/v1/property/acquisition`: 동일 조회본 기준 장부와 generation.
+- 초기 전환 전 writer 권한이 있는 전용 실행에서 `python -B -m pipeline.vps_runtime publish-read-model --data /data`를 한 번 수행합니다. 기존 collector와 별개 수집을 시작하는 명령이 아닙니다.
+- API mount는 계속 read-only입니다. 수집 중인 WAL에는 immutable을 적용하지 않습니다.
+
+관련 회귀 검사는 writer 종료·WAL 부재·미커밋 변경·원자적 전환·SHA 실패·마지막 정상본 유지·조회본 생성 실패와 기존 페이지네이션/복원을 포함합니다. 24시간 및 일일 예산 전환의 실환경 검증은 배포 시점 이후 별도로 판정합니다.
