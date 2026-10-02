@@ -181,7 +181,7 @@ def collect_complexes(records):
     return result
 
 
-def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=18_000):
+def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=18_000, checkpoint=None, progress=None):
     if not isinstance(reserve_bytes,int) or isinstance(reserve_bytes,bool) or reserve_bytes<0:
         raise RealEstateError('invalid_disk_reserve')
     if type(max_files) is not int or not 18_000 <= max_files <= 100_000:
@@ -189,8 +189,9 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
     root=Path(root).absolute(); output=Path(output_root).absolute()
     _reject_links(root);_reject_links(output)
     if any(p.lower() in ('public','dist') for p in output.parts):raise RealEstateError('public_output_forbidden')
-    _reject_links(root/'checkpoint.sqlite')
-    connection=sqlite3.connect((root/'checkpoint.sqlite').as_uri()+'?mode=ro',uri=True)
+    database = Path(checkpoint).absolute() if checkpoint is not None else root/'checkpoint.sqlite'
+    _reject_links(database)
+    connection=sqlite3.connect(database.as_uri()+'?mode=ro',uri=True)
     connection.row_factory=sqlite3.Row
     try:
         connection.execute('BEGIN')
@@ -240,7 +241,8 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
 
     regions=[];complex_total=0;source_rows=0;groups=defaultdict(list);published_jobs=[]
     for job in jobs:groups[job['lawd_code']].append(job)
-    for code,region_jobs in sorted(groups.items()):
+    for region_number, (code,region_jobs) in enumerate(sorted(groups.items()), 1):
+        if progress:progress({'phase':'raw_audit','region':code,'region_number':region_number,'regions':len(groups),'source_rows':source_rows})
         stats=[];partitions=[];all_rows=[];by_month=defaultdict(list);by_job={};published_region_jobs=[]
         for collection_job in region_jobs:
             partition=verify_snapshot(root,collection_job);job=publication_job(collection_job,partition)
