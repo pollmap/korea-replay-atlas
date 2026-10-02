@@ -54,14 +54,14 @@ export function regionMapData(input:RegionMapInput|null|undefined):RegionMapData
       const location=regionNavigation(row,input.map);if(!location)continue;
       data.features.push({type:'Feature',id:`${releaseId}:${row.lawd_code}`,geometry:{type:'Point',coordinates:[location.place.lon,location.place.lat]},
         properties:{property_region_code:row.lawd_code,property_release:releaseId,region_name:row.name.trim(),display_name:shortName(row.name),contract_month:month,trade_type:trade,count:published?count:null,count_label:published?`${count!.toLocaleString('ko-KR')}건`:missingMetricLabel(metric.status),month_label:`${month.slice(2,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'}`,sort_key:published?-count!:0,
-          ...(published?regionValueLabel(trade,metric.median_price_per_m2_krw,count!):{value_label:conditionsMatch?missingMetricLabel(metric.status):'선택 조건',value_kind:'unavailable' as const}),
+          ...(published?regionValueLabel(trade,metric.median_price_per_m2_krw,count!):{value_label:conditionsMatch?missingMetricLabel(metric.status):'조건별 집계 전',value_kind:'unavailable' as const}),
           anchor_purpose:'region-navigation-only',anchor_source_record_id:location.sourceRecordId,anchor_reference_date:location.boundaryReferenceDate}});
     }
   }
   const uncollected=data.features.filter(feature=>feature.properties.count===null).length;
   return {data,provinces:provinceMapData(valid?input:null),month,releaseId,total,excluded:total-data.features.length,uncollected,
     caption:valid?`${month.slice(0,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'} · 지역 탐색`:`${trade==='sale'?'매매':'전월세'} · 자료 확인 중`,
-    notice:`패널과 같은 계약월·거래 유형·면적 조건을 사용합니다. 조건별 집계가 연결되지 않은 지역은 이름과 선택 조건만 표시하며 다른 월 가격으로 대체하지 않습니다. 매매 평당가는 전용면적 기준 신고금액 중앙값이며 시세가 아닙니다. 점은 SGIS ${input?.map.reference_dates.sgis??''}의 지역 탐색 위치입니다. 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. 미수집·미연결은 0건과 다릅니다.`};
+    notice:`패널과 같은 계약월·거래 유형·면적 조건을 사용합니다. 조건별 집계가 연결되지 않은 지역은 이름과 집계 전 상태만 표시하며 다른 월 가격으로 대체하지 않습니다. 매매 평당가는 전용면적 기준 신고금액 중앙값이며 시세가 아닙니다. 점은 SGIS ${input?.map.reference_dates.sgis??''}의 지역 탐색 위치입니다. 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. 미수집·미연결은 0건과 다릅니다.`};
 }
 
 /** National overview never reports a partial province sum as a complete total. */
