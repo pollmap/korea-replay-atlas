@@ -1,6 +1,6 @@
 /* Product palette: indigo = brand/sale, teal = rent, amber = map selection.
    Labels, pressed states and chart cancellation labels remain the primary cues. */
-.app-shell.atlas-shell {
+.app-shell.atlas-shell:not(.is-2d.is-exploring) {
   --atlas-blue: #5145cd;
   --atlas-ink: #252344;
   --atlas-line: #e3e0f1;
@@ -8,65 +8,120 @@
   --trade-soft: #f0edff;
   --trade-line: #d9d2f6;
 }
-.app-shell.atlas-shell .topbar { background: #352b78; border-bottom-color: #514395; }
-.atlas-shell .brand { color: #fff; }
-.app-shell.atlas-shell .brand-symbol { background: #6555d5; }
-.app-shell.atlas-shell .brand small { color: #d1caef; }
-.app-shell.atlas-shell .search-wrap { background: #f4f1ff; border-color: #ddd5fc; color: #635990; }
-.atlas-shell .header-actions > button,
-.atlas-shell .city-tools-toggle { color: #e8e3ff; }
-.atlas-shell .header-actions .explore-button[aria-pressed=true] { color: #fff; background: #514392; }
-.atlas-shell .header-actions > button:hover,
-.atlas-shell .city-tools-toggle:hover,
-.atlas-shell .city-tools-toggle[aria-expanded=true] { background: #514392; color: #fff; }
-.app-shell.atlas-shell .share-button { background: #eee9ff; color: #352b78; }
-.app-shell.atlas-shell .share-button:hover { background: #fff; color: #352b78; }
-.app-shell.atlas-shell .view-switch button[aria-pressed=true] { background: #5145cd; }
-.app-shell.atlas-shell .property-panel { --accent: #5145cd; --ink: #252344; }
-.atlas-shell .property-panel[data-trade=rent] {
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .topbar { background: #352b78; border-bottom-color: #514395; }
+.atlas-shell:not(.is-2d.is-exploring) .brand { color: #fff; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .brand-symbol { background: #6555d5; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .brand small { color: #d1caef; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .search-wrap { background: #f4f1ff; border-color: #ddd5fc; color: #635990; }
+.atlas-shell:not(.is-2d.is-exploring) .header-actions > button,
+.atlas-shell:not(.is-2d.is-exploring) .city-tools-toggle { color: #e8e3ff; }
+.atlas-shell:not(.is-2d.is-exploring) .header-actions .explore-button[aria-pressed=true] { color: #fff; background: #514392; }
+.atlas-shell:not(.is-2d.is-exploring) .header-actions > button:hover,
+.atlas-shell:not(.is-2d.is-exploring) .city-tools-toggle:hover,
+.atlas-shell:not(.is-2d.is-exploring) .city-tools-toggle[aria-expanded=true] { background: #514392; color: #fff; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .share-button { background: #eee9ff; color: #352b78; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .share-button:hover { background: #fff; color: #352b78; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .view-switch button[aria-pressed=true] { background: #5145cd; }
+.app-shell.atlas-shell:not(.is-2d.is-exploring) .property-panel { --accent: #5145cd; --ink: #252344; }
+.atlas-shell:not(.is-2d.is-exploring) .property-panel[data-trade=rent] {
   --trade-color: #087b72;
   --trade-soft: #e5f5ef;
   --trade-line: #b6dfd5;
 }
-.atlas-shell .property-header { background: #f1edff; border-bottom-color: #e0d8f5; }
-.atlas-shell .property-header .eyebrow,
-.atlas-shell .property-header .property-back { color: #605388; }
-.atlas-shell .complex-identity { background: #f1edff; }
-.atlas-shell .complex-identity > button { background: #fff; border-color: #cfc5ee; color: #5145cd; }
-.atlas-shell .property-provider-location { background: #fff8e7; border-color: #e9c97c; color: #765018; }
-.atlas-shell .property-provider-location span { color: #795c32; }
-.atlas-shell .complex-identity > button[aria-pressed=true] { background: #5145cd; color: #fff; border-color: #5145cd; }
-.atlas-shell .complex-section-nav > button[aria-pressed=true] { color: var(--trade-color); border-bottom-color: var(--trade-color); }
-.atlas-shell .property-trade { background: #eeebf6; }
-.atlas-shell .property-trade button[aria-pressed=true] { background: var(--trade-color); color: #fff; box-shadow: none; }
-.atlas-shell .history-summary { padding: 14px 12px; margin: 10px 0 14px; border-radius: 10px; background: var(--trade-soft); border: 1px solid var(--trade-line); }
-.atlas-shell .history-summary strong,
-.atlas-shell .discovery-price strong,
-.atlas-shell .history-point strong { color: var(--trade-color); }
-.atlas-shell .history-summary span,
-.atlas-shell .history-summary small { color: #5d647a; }
-.atlas-shell .history-summary .history-total { border-left-color: var(--trade-line); }
-.atlas-shell .history-summary .history-total strong { color: #45536a; }
-.atlas-shell .history-ranges button[aria-pressed=true] { background: var(--trade-color); color: #fff; box-shadow: none; }
-.atlas-shell .history-chart circle:not([fill="#a07963"]) { fill: var(--trade-color); }
-.atlas-shell .history-chart text { fill: #5d6b81; }
-.atlas-shell .history-point,
-.atlas-shell .history-selected { background: var(--trade-soft); }
-.atlas-shell .history-point { color: #546078; border-left: 3px solid var(--trade-color); }
-.atlas-shell .property-comparison-action .compare-region { background: var(--trade-soft); color: var(--trade-color); border-color: var(--trade-line); }
-.atlas-shell .discovery-open[aria-pressed=true] { background: var(--trade-soft); box-shadow: inset 3px 0 var(--trade-color); }
-.atlas-shell .discovery-count { color: #087b72; }
-.atlas-shell .region-shortcuts button[aria-pressed=true] { background: #5145cd; border-color: #5145cd; color: #fff; }
-.atlas-shell .region-results li:hover,
-.atlas-shell .discovery-open:hover { background: #f5f2ff; }
-.atlas-shell .region-open strong,
-.atlas-shell .property-body .region-inline-stat strong { color: var(--trade-color); }
-.atlas-shell .compare-add[aria-pressed=true] { background: #eee9ff; color: #5145cd; }
-.atlas-shell .property-panel th { background: #f2effa; color: #5c5479; }
-.atlas-shell .property-panel :focus-visible { outline-color: var(--trade-color); }
-.atlas-shell .topbar button:focus-visible,
-.atlas-shell .topbar a:focus-visible { outline-color: #f4cd75; }
+.atlas-shell:not(.is-2d.is-exploring) .property-header { background: #f1edff; border-bottom-color: #e0d8f5; }
+.atlas-shell:not(.is-2d.is-exploring) .property-header .eyebrow,
+.atlas-shell:not(.is-2d.is-exploring) .property-header .property-back { color: #605388; }
+.atlas-shell:not(.is-2d.is-exploring) .complex-identity { background: #f1edff; }
+.atlas-shell:not(.is-2d.is-exploring) .complex-identity > button { background: #fff; border-color: #cfc5ee; color: #5145cd; }
+.atlas-shell:not(.is-2d.is-exploring) .property-provider-location { background: #fff8e7; border-color: #e9c97c; color: #765018; }
+.atlas-shell:not(.is-2d.is-exploring) .property-provider-location span { color: #795c32; }
+.atlas-shell:not(.is-2d.is-exploring) .complex-identity > button[aria-pressed=true] { background: #5145cd; color: #fff; border-color: #5145cd; }
+.atlas-shell:not(.is-2d.is-exploring) .complex-section-nav > button[aria-pressed=true] { color: var(--trade-color); border-bottom-color: var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .property-trade { background: #eeebf6; }
+.atlas-shell:not(.is-2d.is-exploring) .property-trade button[aria-pressed=true] { background: var(--trade-color); color: #fff; box-shadow: none; }
+.atlas-shell:not(.is-2d.is-exploring) .history-summary { padding: 14px 12px; margin: 10px 0 14px; border-radius: 10px; background: var(--trade-soft); border: 1px solid var(--trade-line); }
+.atlas-shell:not(.is-2d.is-exploring) .history-summary strong,
+.atlas-shell:not(.is-2d.is-exploring) .discovery-price strong,
+.atlas-shell:not(.is-2d.is-exploring) .history-point strong { color: var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .history-summary span,
+.atlas-shell:not(.is-2d.is-exploring) .history-summary small { color: #5d647a; }
+.atlas-shell:not(.is-2d.is-exploring) .history-summary .history-total { border-left-color: var(--trade-line); }
+.atlas-shell:not(.is-2d.is-exploring) .history-summary .history-total strong { color: #45536a; }
+.atlas-shell:not(.is-2d.is-exploring) .history-ranges button[aria-pressed=true] { background: var(--trade-color); color: #fff; box-shadow: none; }
+.atlas-shell:not(.is-2d.is-exploring) .history-chart circle:not([fill="#a07963"]) { fill: var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .history-chart text { fill: #5d6b81; }
+.atlas-shell:not(.is-2d.is-exploring) .history-point,
+.atlas-shell:not(.is-2d.is-exploring) .history-selected { background: var(--trade-soft); }
+.atlas-shell:not(.is-2d.is-exploring) .history-point { color: #546078; border-left: 3px solid var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .property-comparison-action .compare-region { background: var(--trade-soft); color: var(--trade-color); border-color: var(--trade-line); }
+.atlas-shell:not(.is-2d.is-exploring) .discovery-open[aria-pressed=true] { background: var(--trade-soft); box-shadow: inset 3px 0 var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .discovery-count { color: #087b72; }
+.atlas-shell:not(.is-2d.is-exploring) .region-shortcuts button[aria-pressed=true] { background: #5145cd; border-color: #5145cd; color: #fff; }
+.atlas-shell:not(.is-2d.is-exploring) .region-results li:hover,
+.atlas-shell:not(.is-2d.is-exploring) .discovery-open:hover { background: #f5f2ff; }
+.atlas-shell:not(.is-2d.is-exploring) .region-open strong,
+.atlas-shell:not(.is-2d.is-exploring) .property-body .region-inline-stat strong { color: var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .compare-add[aria-pressed=true] { background: #eee9ff; color: #5145cd; }
+.atlas-shell:not(.is-2d.is-exploring) .property-panel th { background: #f2effa; color: #5c5479; }
+.atlas-shell:not(.is-2d.is-exploring) .property-panel :focus-visible { outline-color: var(--trade-color); }
+.atlas-shell:not(.is-2d.is-exploring) .topbar button:focus-visible,
+.atlas-shell:not(.is-2d.is-exploring) .topbar a:focus-visible { outline-color: #f4cd75; }
 @media (max-width:780px) {
-  .atlas-shell .sheet-handle { background: #f1edff; border-radius: 20px 20px 0 0; }
-  .atlas-shell .sheet-handle span { background: #b2a4df; }
+  .atlas-shell:not(.is-2d.is-exploring) .sheet-handle { background: #f1edff; border-radius: 20px 20px 0 0; }
+  .atlas-shell:not(.is-2d.is-exploring) .sheet-handle span { background: #b2a4df; }
+}
+
+/* Property design tokens. Legacy city modes retain the palette above. */
+.app-shell.atlas-shell.is-2d.is-exploring {
+ --md-ink:#1f2f46;--md-muted:#5c6878;--md-line:#dce1e7;
+ --md-accent:#b54818;--md-soft:#fff4ec;--md-surface:#f5f7f9;
+ --atlas-ink:var(--md-ink);--atlas-muted:var(--md-muted);--atlas-line:var(--md-line);
+ --atlas-blue:var(--md-accent);--trade-color:var(--md-ink);--trade-soft:var(--md-soft);--trade-line:var(--md-line);
+ font-variant-numeric:tabular-nums;
+}
+.app-shell.atlas-shell.is-2d.is-exploring .topbar{background:#fff;border-color:var(--md-line);box-shadow:none;gap:14px;padding:0 16px}
+.app-shell.atlas-shell.is-2d.is-exploring .brand{color:var(--md-ink);width:auto;min-width:250px;gap:8px}
+.app-shell.atlas-shell.is-2d.is-exploring .brand-symbol{background:var(--md-accent);border-radius:4px;width:30px;height:32px}
+.app-shell.atlas-shell.is-2d.is-exploring .brand strong{font-size:19px;letter-spacing:-.7px}
+.app-shell.atlas-shell.is-2d.is-exploring .brand small{color:var(--md-muted);font-size:11px;margin-top:1px}
+.app-shell.atlas-shell.is-2d.is-exploring .header-actions>button,.app-shell.atlas-shell.is-2d.is-exploring .city-tools-toggle{color:var(--md-ink);background:transparent}
+.app-shell.atlas-shell.is-2d.is-exploring .share-button{background:var(--md-ink);color:#fff;border-radius:4px}
+.app-shell.atlas-shell.is-2d.is-exploring .property-panel{--accent:var(--md-accent);--ink:var(--md-ink);border-color:var(--md-line);border-radius:0;box-shadow:none}
+.app-shell.atlas-shell.is-2d.is-exploring .property-panel[data-trade=rent]{--trade-color:#087b72;--trade-soft:#eef8f6;--trade-line:#cee2de}
+.app-shell.atlas-shell.is-2d.is-exploring .property-panel th{background:var(--md-surface);color:var(--md-muted)}
+.app-shell.atlas-shell.is-2d.is-exploring .discovery-open[aria-pressed=true]{background:var(--md-soft);box-shadow:inset 3px 0 var(--md-accent)}
+.app-shell.atlas-shell.is-2d.is-exploring .history-selected,.app-shell.atlas-shell.is-2d.is-exploring .history-point{background:var(--md-soft)}
+#property-header-tools{flex:1;min-width:0;max-width:620px}
+.workspace-header-tools{display:flex;gap:8px;align-items:center}
+.workspace-header-tools>button{flex:none;min-height:34px;padding:0 10px;font-size:13px;color:var(--md-ink);border:1px solid var(--md-line);border-radius:4px;background:#fff}
+.workspace-header-tools>button[aria-pressed=true]{border-color:var(--md-accent);color:var(--md-accent)}
+.workspace-search{position:relative;flex:1;min-width:140px}
+.workspace-search input{box-sizing:border-box;width:100%;height:34px;padding:0 10px;border:1px solid var(--md-line);border-radius:4px;background:var(--md-surface);font:inherit;font-size:13px;color:var(--md-ink)}
+.workspace-search-results{position:absolute;top:39px;left:0;right:0;min-width:280px;max-height:440px;overflow:auto;background:#fff;border:1px solid var(--md-line);box-shadow:0 5px 16px #1f2f4620;z-index:30}
+.workspace-search-results button{display:grid;grid-template-columns:44px 1fr;text-align:left;width:100%;padding:10px;gap:3px 8px;border-bottom:1px solid var(--md-line);color:var(--md-ink)}
+.workspace-search-results button:hover{background:var(--md-soft)}
+.workspace-search-results small,.workspace-search-results span,.workspace-search-results p{font-size:12px;color:var(--md-muted)}
+.workspace-search-results span{grid-column:2}.workspace-search-results p{padding:12px;line-height:1.5}
+.retained-list-heading{display:none}
+@media(max-width:780px){#property-header-tools{display:none}}
+@media(min-width:781px){
+ .app-shell.atlas-shell.is-2d.is-exploring{--atlas-rail-width:380px}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex .retained-complex-list{display:none}
+}
+@media(min-width:1600px){
+ .app-shell.atlas-shell.is-2d.is-exploring:has(.showing-complex .retained-complex-list){--atlas-rail-width:700px}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex:has(.retained-complex-list)>:is(.property-header,.complex-actionbar,.complex-section-nav,.property-body){margin-left:280px}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex .retained-complex-list{display:block;position:fixed;top:48px;left:0;bottom:0;width:280px;box-sizing:border-box;padding:0 12px 24px;overflow:auto;overscroll-behavior:contain;background:#fff;border-right:1px solid var(--md-line);z-index:4}
+ .retained-list-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;position:sticky;top:0;background:#fff;z-index:2;padding:12px 0;border-bottom:1px solid var(--md-line);font-size:14px}
+ .retained-list-heading button{font-size:12px;color:var(--md-accent);min-height:30px}
+}
+@media(min-width:1600px){
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-selects{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-selects label{min-width:0}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-selects select{min-width:0;max-width:100%}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-filter-chips{flex-wrap:wrap}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-filter-chips>button{flex:1 0 40%;min-width:0}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-filters fieldset{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-filters input{min-width:0;width:100%}
+ .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-contract{white-space:normal;overflow-wrap:anywhere}
 }
