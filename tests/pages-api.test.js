@@ -271,3 +271,18 @@ describe('bounded idempotent transport recovery',()=>{
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe('upload-only timeout budget',()=>{
+  it('allows large audited assets more transfer time without changing deployment retries',async()=>{
+    const timeouts=vi.spyOn(AbortSignal,'timeout');
+    const fetcher=vi.fn(async()=>ok({}));
+    try {
+      const api=createPagesApi({accountId:'a'.repeat(32),token:'test-token',fetcher});
+      await api.upload([], 'asset-token');
+      await api.deploy('korea-replay',new FormData());
+      expect(timeouts.mock.calls.map(call=>call[0])).toEqual([300000,120000]);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally { timeouts.mockRestore(); }
+  });
+});
