@@ -10,7 +10,7 @@
 .property-type-switch{display:flex;gap:5px;margin-top:12px;padding:3px;width:max-content;max-width:100%;border-radius:9px;background:#eef2f7}
 .property-type-switch button{min-height:36px;padding:0 16px;border-radius:7px;color:#66778d;font-size:13px;font-weight:650}
 .property-type-switch button[aria-pressed=true]{background:#fff;color:#185da8;box-shadow:0 1px 4px #2038591a}
-.property-data-pending{margin:18px 0 30px;padding:22px;border:1px solid #d8e5f2;border-radius:14px;background:linear-gradient(145deg,#f3f8ff,#f8fbff 55%,#fff)}
+.property-data-pending{margin:18px 0 30px;padding:22px;border:1px solid #d8e5f2;border-radius:14px;background:#fff}
 .property-data-pending .eyebrow{color:#2874a7;font-size:11px;font-weight:750;letter-spacing:.04em}
 .property-data-pending h3{margin:10px 0 8px;color:#1e344f;font-size:20px;letter-spacing:-.5px}
 .property-data-pending>p{max-width:560px;color:#5e6f83;font-size:13px;line-height:1.8}
