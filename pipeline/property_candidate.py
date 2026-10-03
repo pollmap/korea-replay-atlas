@@ -15,7 +15,6 @@ from .property_read_model import ReadModel, sha256
 from .real_estate_local_archive import _lock
 from .real_estate_regions import load_registry
 from .real_estate_publish import publish
-from .real_estate_transaction_pack import build as pack_transactions
 from .real_estate_complex_summary import build as summarize
 from .real_estate_summary_month_pack import build as pack_summaries
 from .vps_runtime import write_json
@@ -63,11 +62,8 @@ def run(data, output, *, reserve_bytes=RESERVE, progress=None):
 
         try:
             report({'phase':'raw_audit'})
-            raw = publish(root, registry, output / 'raw-candidates', reserve_bytes=reserve_bytes,
-                          max_files=100_000, checkpoint=database, progress=report)
-            report({'phase':'transaction_pack', 'raw_release':raw['release_id']})
-            packed = pack_transactions(output / 'raw-candidates' / raw['release_id'] / 'publication.json',
-                                       output / 'transactions', reserve_bytes=reserve_bytes)
+            packed = publish(root, registry, output / 'transactions', reserve_bytes=reserve_bytes,
+                             checkpoint=database, progress=report, packed_transactions=True)
             report({'phase':'monthly_summary', 'property_release':packed['release_id']})
             summary = summarize(output / 'transactions' / packed['release_id'] / 'publication.json',
                                 output / 'summaries', reserve_bytes=reserve_bytes, max_files=100_000)
