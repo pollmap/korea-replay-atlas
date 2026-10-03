@@ -1,5 +1,6 @@
 import {readFile,writeFile,mkdir,readdir,lstat,realpath,link,copyFile,constants} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
@@ -155,7 +156,32 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
 // Large 3D payloads stay in a verified immutable legacy deployment, never in
 // the active 2D staging closure. The small catalog and all 2D/traffic data stay.
 export const LEGACY_SPATIAL_PREFIXES=Object.freeze(['data/retiled/','data/terrain/','data/hierarchy/','data/building-streams/','data/building-parts/']);
-export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,legacy3dOrigin,data,snapshotOrigin=null,candidateReceiptPath=null,copyOnly=false}){
+const fixedPagesFile=target=>target.startsWith('data/')||target.startsWith('_worker.js/')||['_headers','404.html','_routes.json','_redirects'].includes(target);
+async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable){
+  const client=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,clientDirectory));
+  const worker=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,workerDirectory));
+  await noLinks(projectRoot,client);await noLinks(projectRoot,worker);
+  const request={receiptPath:path.join(source.directory,'receipt.json'),clientDirectory:client,workerDirectory:worker,artifactSha256:source.receipt.artifact_sha256};
+  const payload=await new Promise((resolve,reject)=>{
+    const child=spawn(pythonExecutable,['-m','pipeline.pages_frontend'],{cwd:projectRoot,stdio:['pipe','pipe','pipe']});
+    let stdout='',stderr='',size=0;
+    const timer=setTimeout(()=>{child.kill();reject(new Error('Frontend inspection timed out'));},120000);
+    child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
+    const collect=(chunk,isError)=>{size+=Buffer.byteLength(chunk);if(size>4*1024*1024){child.kill();reject(new Error('Frontend inspection output exceeds budget'));return;}if(isError)stderr+=chunk;else stdout+=chunk;};
+    child.stdout.on('data',chunk=>collect(chunk,false));child.stderr.on('data',chunk=>collect(chunk,true));
+    child.on('error',error=>{clearTimeout(timer);reject(error);});
+    child.on('close',code=>{clearTimeout(timer);if(code!==0){reject(new Error('Frontend audit failed: '+stderr.slice(-2000)));return;}try{resolve(JSON.parse(stdout));}catch{reject(new Error('Invalid frontend inspection result'));}});
+    child.stdin.on('error',error=>{clearTimeout(timer);child.kill();reject(error);});child.stdin.end(JSON.stringify(request));
+  });
+  if(payload.schema_version!==1||payload.artifact_sha256!==source.receipt.artifact_sha256||payload.manifest_sha256!==source.receipt.manifest_sha256)throw new Error('Frontend inspection differs from the verified base');
+  auditEntries(payload.files);
+  for(const entry of payload.files){
+    if(fixedPagesFile(entry.target)||path.resolve(entry.path)!==path.join(client,entry.target))throw new Error('Frontend attempts to replace fixed data or Pages policy');
+    await noLinks(projectRoot,entry.path);
+  }
+  return payload.files;
+}
+export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,legacy3dOrigin,data,snapshotOrigin=null,candidateReceiptPath=null,copyOnly=false,clientDirectory=null,workerDirectory=null,pythonExecutable=process.platform==='win32'?'python':'python3'}){
   projectRoot=path.resolve(projectRoot);
   const legacy=preview(legacy3dOrigin,'korea-replay');
   const source=await verifyPagesStage(path.resolve(projectRoot,receiptPath),{projectRoot});
@@ -163,10 +189,24 @@ export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,l
   const redirectText=LEGACY_SPATIAL_PREFIXES.map(prefix=>`/${prefix}* ${legacy}/${prefix}:splat 302`).join('\n')+'\n';
   const oldRedirect=source.entries.find(entry=>entry.target==='_redirects');
   if(oldRedirect&&await readFile(path.join(source.client,'_redirects'),'utf8')!==redirectText)throw new Error('Existing redirect policy differs; explicit migration required');
-  const entries=source.entries.filter(entry=>entry.target!==policyTarget&&entry.target!=='_redirects'&&!LEGACY_SPATIAL_PREFIXES.some(prefix=>entry.target.startsWith(prefix)));
+  let entries=source.entries.filter(entry=>entry.target!==policyTarget&&entry.target!=='_redirects'&&!LEGACY_SPATIAL_PREFIXES.some(prefix=>entry.target.startsWith(prefix)));
   const sources=new Map(entries.map(entry=>[entry.target,path.join(source.client,entry.target)]));
+  if(Boolean(clientDirectory)!==Boolean(workerDirectory))throw new Error('Fresh frontend requires both clientDirectory and workerDirectory');
+  if(clientDirectory){
+    const frontend=await inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable);
+    const priorFrontend=new Map(source.entries.map(entry=>[entry.target,entry]));
+    for(const entry of entries)if(!fixedPagesFile(entry.target))sources.delete(entry.target);
+    entries=entries.filter(entry=>fixedPagesFile(entry.target));
+    for(const entry of frontend){
+      entries.push({target:entry.target,bytes:entry.bytes,sha256:entry.sha256});
+      const prior=priorFrontend.get(entry.target),unchanged=prior?.sha256===entry.sha256&&prior?.bytes===entry.bytes;
+      sources.set(entry.target,unchanged?path.join(source.client,entry.target):entry.path);
+    }
+  }
   const generated=new Map([['_redirects',Buffer.from(redirectText)]]);entries.push(fileEntry('_redirects',generated.get('_redirects')));
   const policy={...source.receipt.policy,artifact_sha256:'',snapshot_origin:snapshotOrigin?preview(snapshotOrigin,'korea-replay'):null,data:dataPin(data??source.receipt.policy.data)};
+  const policyBytes=Buffer.byteLength('export default '+JSON.stringify({...policy,artifact_sha256:'f'.repeat(64)})+';\n');
+  if(entries.reduce((sum,entry)=>sum+entry.bytes,policyBytes)>256*1024*1024)throw new Error('Lean application exceeds 256 MiB; publish large data separately');
   if(snapshotOrigin){
     if(!candidateReceiptPath)throw new Error('Production must refer to a separately verified candidate stage');
     const candidate=await verifyPagesStage(candidateReceiptPath,{projectRoot});

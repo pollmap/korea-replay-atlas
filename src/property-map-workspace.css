@@ -6,7 +6,7 @@
 .atlas-shell.is-2d.is-exploring .property-header .eyebrow{display:none}
 .atlas-shell.is-2d.is-exploring .property-type-switch{margin-top:8px;padding:0;background:transparent}
 .atlas-shell.is-2d.is-exploring .property-type-switch button{border:1px solid #e3dff1;border-radius:5px;min-height:34px}
-.atlas-shell.is-2d.is-exploring .property-type-switch button[aria-pressed=true]{color:#5145cd;background:#f0edff;border-color:#b8aee9;box-shadow:none}
+.atlas-shell.is-2d.is-exploring .property-type-switch button[aria-pressed=true]{color:var(--md-accent);background:var(--md-soft);border-color:var(--md-accent);box-shadow:none}
 .atlas-shell.is-2d.is-exploring .property-body{padding-inline:16px}
 .atlas-shell.is-2d.is-exploring .region-shortcuts{margin-inline:-16px;padding-inline:16px}
 .atlas-shell.is-2d.is-exploring .property-body .national-stat{display:grid;grid-template-columns:1fr auto;align-items:center;padding:4px 0 12px;gap:4px}

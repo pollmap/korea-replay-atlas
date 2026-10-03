@@ -26,5 +26,5 @@ export function apartmentMapLayer(source:string,release:string,trade:'sale'|'ren
       'text-allow-overlap':selected,'icon-allow-overlap':selected,'text-ignore-placement':false,'icon-ignore-placement':false,
       'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],
       'symbol-sort-key':['case',linked,0,1]},
-    paint:{'text-color':selected?'#5145cd':'#24344d','icon-opacity':1}};
+    paint:{'text-color':selected?'#1765cf':'#24344d','icon-opacity':1}};
 }

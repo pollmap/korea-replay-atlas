@@ -2,17 +2,17 @@
 
 **아파트를 우선 완성하고 오피스텔까지 확장합니다.** 검색 → 지도에서 단지 선택 → 면적·기간별 실거래 → 비교 → 관심 단지 저장을 핵심 흐름으로 둡니다. 거래 이력 확보 목표는 **연속 20년(240개 완료 계약월과 당월 잠정 별도)**입니다. 전체 10배 성능 향상 목표는 2026-09-27에 제외했으며 실제 응답 시간·오류·캐시 상한은 계속 검증합니다.
 
-**현재 집중 범위는 경기·서울·인천·천안·아산·세종·청주·대전·부산입니다.** 다른 지역의 신규 수집·확장은 보류하고 기존 자료를 보존합니다. 데이터 연결 전에도 단지정보·주변의 화면과 필터를 먼저 제공합니다.
+**현재 집중 범위는 경기·서울·인천 → 대전·세종·청주·천안·아산 → 부산 순서입니다.** 다른 지역의 신규 수집·확장은 보류하고 기존 자료를 보존합니다. 데이터 연결 전에도 단지정보·주변의 화면과 필터를 먼저 제공합니다.
 
 **공개 서비스: [korea-replay.pages.dev](https://korea-replay.pages.dev/)** · [제품 범위](docs/PRODUCT_SCOPE.md) · [기능별 인수 기준](docs/PROPERTY_PARITY_ACCEPTANCE_20260927.md) · [지역별 확보 순서](docs/PROPERTY_ACQUISITION_PRIORITY.md)
 
-2026-09-27 확인한 공개판은 서울·인천·경기·대전·세종·충남·충북의 상세 2D 건물·도로와 기존 아파트 실거래 자료를 제공합니다. 지역 선택·경계 강조·국평 필터·전용 평당가·단지 비교·관심 저장·외부 길찾기·지도 집중을 지원합니다. 3D 코드와 원본은 보존하며 새 개발의 대상으로 삼지 않습니다.
+2026-09-27 확인한 공개판은 서울·인천·경기·대전·세종·충남·충북의 상세 2D 건물·도로와 기존 아파트 실거래 자료를 제공합니다. 지역 선택·경계 강조·국평 필터·전용 평당가·단지 비교·관심 저장·외부 길찾기·지도 집중을 지원합니다. 3D 코드는 보존하며 새 개발의 대상으로 삼지 않습니다. 미사용 대용량 3D 배포 복사본은 2026-10-03 사용자 승인에 따라 정리했습니다.
 
 2026-09-28 최신 검증된 앱 artifact는 `1f4d796c585e6fd2bc2a031685ad3cfad4e176fa5143e8146f59ce8ecb2886c2`, snapshot은 `https://7d55c901.korea-replay.pages.dev`입니다. [PR #50](https://github.com/pollmap/korea-replay-atlas/pull/50)까지 병합·공개 검증됐습니다. 지정 9개 권역의 주변 시설 기록과 `property-87d1c67336e97209`의 2,276,757개 거래 행을 제공하며, 자료 누락·미확인 단지 위치는 별도로 표시합니다. 이후 서버 수집 성공과 공개 게시를 혼동하지 않습니다. [주변 시설·거래 보존](docs/NEARBY_FACILITIES_RELEASE_20260928.md), [상세 지도 검증](docs/CAPITAL_DETAIL_RELEASE_20260927.md), [Pages 운영](docs/PAGES_DEPLOYMENT.md).
 
 **전체 제품 완료 또는 경쟁 서비스와 모든 기능이 동등하다는 판정은 아직 아닙니다.** 거래 이력은 게시된 지역·월만 보여주며, 20년 선택 기능이 수집 완료를 뜻하지 않습니다. 매매는 공식 공개체계 2006-01 이후, 전월세 확정일자는 2011-01 이후입니다. 원천 제공 전·미수집·실패·실제 0건을 구분합니다. [원천과 이용조건](docs/PROPERTY_SOURCE_RIGHTS_20260927.md). 오피스텔 공개 연결, 단지 좌표와 상세정보의 전국 검증, 공급·인구·학군 및 연속 장기 이력은 남은 인수 항목으로 관리합니다.
 
-기존 자동 수집은 무료 GitHub Actions와 비공개 원본 보관을 사용합니다. 소스 변경·수집 성공·새 자료의 공개 게시가 각각 검증돼야 합니다. 원본 대량 저장의 용량 제약은 [저장 감사](docs/PROPERTY_STORAGE_AUDIT_20260927.md)에 기록하며, 무료 예산을 넘는 경우 이전 검증본을 유지합니다. [자동 수집](docs/PROPERTY_AUTOMATION.md), [자동 게시 감사](docs/PROPERTY_AUTOMATION_PUBLISH_AUDIT.md).
+현재 자동 수집은 프로젝트 전용 VPS의 `collector` 서비스에서 실행합니다. 노트북·채팅을 꺼도 체크포인트에서 이어가며, 서비스별 일일 호출 예산과 30GiB 여유 보호 조건을 지킵니다. 공개 후보 생성 중에는 대량 작업 잠금에서 기다린 뒤 자동 재개합니다. 인증 오류·공간 부족은 운영 확인이 필요한 중단 상태입니다. 수집 자동화와 검증된 새 자료의 공개 전환은 별개입니다. 소스 변경·수집 성공·새 자료의 공개 게시가 각각 검증돼야 합니다. 원본 대량 저장의 용량 제약은 [저장 감사](docs/PROPERTY_STORAGE_AUDIT_20260927.md)에 기록하며, 무료 예산을 넘는 경우 이전 검증본을 유지합니다. [자동 수집](docs/PROPERTY_AUTOMATION.md), [자동 게시 감사](docs/PROPERTY_AUTOMATION_PUBLISH_AUDIT.md).
 
 과거 릴리스와 성능 측정은 [릴리스 기록](docs/ATLAS_RELEASE_STATUS.md)에 보존합니다. 특정 장면의 프레임 측정을 모든 지역·회선·기기에서의 성능 보증으로 확대하지 않습니다.
 
@@ -27,29 +27,14 @@ npm ci
 npm run dev
 ```
 
-브라우저에서 `http://127.0.0.1:5173/`을 엽니다. 대용량 지도 자료는 Git에 포함하지 않으므로 새 체크아웃에는 [검증된 배포 백업 복원](docs/RECOVERY_AND_CLEANUP.md) 또는 아래 전국 데이터 처리가 별도로 필요합니다. 새 수집·재가공을 위한 Python 환경은 다음과 같이 준비합니다.
+브라우저에서 `http://127.0.0.1:5173/`을 엽니다. 대용량 지도 자료는 Git에 포함하지 않습니다. 현재 PC 2D 개발·배포는 [경량 Pages 운영](docs/LEAN_STORAGE_OPERATIONS.md)을 따릅니다. 폐기한 3D 전체 묶음을 복원하거나 전국 건물·지형을 다시 생성할 필요가 없습니다. 새 수집·재가공을 위한 Python 환경은 다음과 같이 준비합니다.
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 ```
 
-지도에서 지역을 선택하고 날짜·시간 슬라이더를 움직입니다. 햇빛 실험은 임의 날짜에 쓸 수 있습니다. 기록 재생은 공개된 실제 기록의 기간을 사용합니다. 건물을 클릭하면 높이의 출처·추정 여부가 나타납니다.
-
-전국 건물은 큰 원본을 한 번에 모델링하지 않고 국가 경계로 분할해 처리합니다. 아래 명령은 시간이 걸리는 실제 데이터 작업이며, 완료 셀은 재개 시 건너뜁니다. 디스크 여유 30GiB를 유지합니다.
-
-```powershell
-.venv\Scripts\python.exe -m pipeline.cli terrain --region korea --max-level 8
-.venv\Scripts\python.exe -c "from pipeline.buildings import extract; extract('korea')"
-.venv\Scripts\python.exe -m pipeline.national partition
-.venv\Scripts\python.exe -m pipeline.national process --workers 3
-.venv\Scripts\python.exe -m pipeline.national_terrain --level 12 --workers 3
-.venv\Scripts\python.exe -m pipeline.cli depth
-.venv\Scripts\python.exe -m pipeline.cli audit
-.venv\Scripts\python.exe -m pipeline.building_identity_audit
-.venv\Scripts\python.exe -m pipeline.coverage_report
-node scripts/validate-glb.mjs
-```
+현재 기본 흐름은 지역·단지 검색 → 전용면적·기간 선택 → 실거래 차트·표 → 비교입니다. 2D 화면 개발에는 기존 검증 자료를 재사용합니다. 과거 3D 처리 절차는 기록 문서로 남기며 일반 개발·배포 단계에서 실행하지 않습니다.
 
 도로·항만·공항·산업 용지의 추출·등록은 [전국 기반 시설](docs/INFRASTRUCTURE.md), 기상 프레임은 [기상 자료](docs/WEATHER.md), 공식 건물 자료 보강은 [원천 업그레이드](docs/NATIONAL_DATA_UPGRADE.md)를 따릅니다. 지도 검색은 현재 5만 개 이름 색인을 사용하며, 모든 주소·건물 이름을 검색하는 서비스는 아닙니다.
 
