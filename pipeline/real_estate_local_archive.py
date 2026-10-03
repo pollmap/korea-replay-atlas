@@ -19,7 +19,7 @@ import sqlite3
 import uuid
 
 from .real_estate import RealEstateError, canonical_bytes, sha256, _reject_links
-from .real_estate_archive import backup, restore, MAX_FILE
+from .real_estate_archive import backup, restore, MAX_FILE, encode_object, decode_object
 
 HASH = re.compile(r'^[a-f0-9]{64}$')
 HEAD = 'head.json'
@@ -106,19 +106,81 @@ class LocalArchive:
             raise RealEstateError('local_archive_object_size')
         descriptor = {'sha256': sha256(raw), 'bytes': len(raw)}
         path = self._path(descriptor['sha256'])
-        if not path.exists() and shutil.disk_usage(self.root).free - len(raw) < self.reserve_bytes:
+        encoded_path = path.with_suffix('.encoded')
+        _reject_links(path); _reject_links(encoded_path)
+        if path.exists() or encoded_path.exists():
+            self.get(descriptor['sha256'], descriptor['bytes'])
+            return descriptor
+        encoded = encode_object(raw) if len(raw) >= 1024 else raw
+        if len(encoded) < len(raw):
+            path, body = encoded_path, encoded
+        else:
+            body = raw
+        if shutil.disk_usage(self.root).free - len(body) < self.reserve_bytes:
             raise RealEstateError('disk_reserve')
-        _write_immutable(path, raw)
+        _write_immutable(path, body)
+        self.get(descriptor['sha256'], descriptor['bytes'])
         return descriptor
 
     def get(self, digest: str, size: int) -> bytes:
         _descriptor({'sha256': digest, 'bytes': size})
         path = self._path(digest)
         _reject_links(path)
-        raw = path.read_bytes()
+        try:
+            if path.stat().st_size > MAX_FILE:
+                raise RealEstateError('local_archive_object_changed')
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            encoded_path = path.with_suffix('.encoded'); _reject_links(encoded_path)
+            if not 0 < encoded_path.stat().st_size <= MAX_FILE:
+                raise RealEstateError('local_archive_object_changed')
+            return decode_object(encoded_path.read_bytes(), digest, size)
         if len(raw) != size or sha256(raw) != digest:
             raise RealEstateError('local_archive_object_changed')
         return raw
+
+    def compact(self, *, retire_raw=False, progress=None):
+        """Verify each new encoding before optionally retiring its raw duplicate.
+
+        Caller must hold the deployment's shared bulk-work lock. Deploy the dual
+        reader to every consumer first; legacy-only images cannot be rolled back
+        after retirement. Logical SHA, byte count and every head remain unchanged.
+        """
+        count = 0; before = 0; after = 0
+        with _lock(self.root / '.compaction.lock'):
+            for path in sorted((self.root / 'objects').glob('*/*.bin')):
+                _reject_links(path)
+                digest = path.stem
+                if self._path(digest) != path or not 0 < path.stat().st_size <= MAX_FILE:
+                    raise RealEstateError('local_archive_object_changed')
+                raw = path.read_bytes()
+                if sha256(raw) != digest:
+                    raise RealEstateError('local_archive_object_changed')
+                if len(raw) < 1024: continue
+                target = path.with_suffix('.encoded'); _reject_links(target)
+                if target.exists():
+                    if not 0 < target.stat().st_size <= MAX_FILE:
+                        raise RealEstateError('local_archive_object_changed')
+                    encoded = target.read_bytes()
+                else:
+                    encoded = encode_object(raw)
+                if len(encoded) >= len(raw): continue
+                if not target.exists() and shutil.disk_usage(self.root).free - len(encoded) < self.reserve_bytes:
+                    raise RealEstateError('disk_reserve')
+                _write_immutable(target, encoded)
+                if decode_object(target.read_bytes(), digest, len(raw)) != raw:
+                    raise RealEstateError('local_archive_object_changed')
+                if retire_raw:
+                    # Shared lock excludes writers; reject path replacement too.
+                    _reject_links(path)
+                    if path.read_bytes() != raw:
+                        raise RealEstateError('local_archive_object_changed')
+                    path.unlink()
+                count += 1; before += len(raw); after += len(encoded)
+                if progress: progress({'objects': count, 'raw_bytes': before,
+                    'encoded_bytes': after, 'retired': retire_raw})
+        return {'objects': count, 'raw_bytes': before, 'encoded_bytes': after,
+                'retired': retire_raw, 'source_calls': 0, 'head_changed': False}
 
     def head(self):
         path = self.root / self.head_name
