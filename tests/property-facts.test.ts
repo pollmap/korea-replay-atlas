@@ -71,7 +71,7 @@ it('renders the actual official Helio City counts and retains unknown vs zero',(
 it('keeps information slots for an unlinked complex without borrowing a same-release neighbour',()=>{
   const html=renderToStaticMarkup(createElement(ApartmentFacts,{complexId:'molit-apt:28110:28110-unknown',release:data.property_release_id}));
   for(const label of ['세대수','동수','주차','건물·관리','도로명주소','사용승인일','난방','복도 유형','시공사','관리 방식'])expect(html).toContain(label);
-  expect(html).toContain('이 단지의 기본정보는 아직 연결되지 않았습니다.');
+  expect(html).toContain('기본정보 미연결');
   expect(html).not.toMatch(/0세대|0대|aria-busy|서울시 공동주택 아파트 정보/);
 });
 it('rejects duplicate identity, numeric coercion, and invalid source dates',()=>{

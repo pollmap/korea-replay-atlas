@@ -38,7 +38,7 @@ it('validates stored notes without silently replacing malformed existing content
 it('shows empty loan inputs and missing source states without fabricating numbers',()=>{
   const loan=renderToStaticMarkup(createElement(PropertyLoanCalculator));
   expect(loan).toContain('금액과 금리를 입력하면');expect(loan).not.toContain('0원');
-  const pending=renderToStaticMarkup(createElement(DetailUnavailable,{title:'관리비',description:'월별 자료 연결 전입니다.'}));
+  const pending=renderToStaticMarkup(createElement(DetailUnavailable,{title:'관리비'}));
   expect(pending).toContain('자료 연결 전');expect(pending).not.toContain('0원');
   const region=renderToStaticMarkup(createElement(PropertyRegionAnalysis,{region:'송파구',month:'202608',metrics:[]}));
   expect(region).toContain('미수집');expect(region).not.toContain('0건');
