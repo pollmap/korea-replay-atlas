@@ -14,26 +14,33 @@ const remoteRoots=[],previewOrigin='https://1234abcd.korea-replay.pages.dev',pub
 const fixtureData={origin:'https://abcd1234.korea-replay-data.pages.dev',manifest_path:'/data/atlas/test/manifest.json',manifest_sha256:'b'.repeat(64)};
 describe('interrupted Pages uploads',()=>{
   const buckets=['a','b','c','d'].map(key=>[{key}]);
-  it('registers each accepted bucket before counting it and permits server-side reuse',async()=>{
-    const retained=new Set(),events=[],progress=[];
-    const assets={upload:async items=>{events.push('upload:'+items[0].key);},retain:async hashes=>{events.push('retain:'+hashes[0]);hashes.forEach(hash=>retained.add(hash));}};
-    const uploaded=await uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries,onProgress:value=>{expect(retained.size).toBeGreaterThanOrEqual(value.files);progress.push(value);}});
-    expect(uploaded).toBe(4);expect(progress.at(-1).files).toBe(4);
-    for(const key of retained)expect(events.indexOf('upload:'+key)).toBeLessThan(events.indexOf('retain:'+key));
-    expect(buckets.flat().filter(entry=>!retained.has(entry.key))).toEqual([]);
+  it('uploads sequentially and registers confirmed hashes once',async()=>{
+    const events=[],progress=[];let active=0,peak=0;
+    const assets={upload:async items=>{active++;peak=Math.max(peak,active);await Promise.resolve();events.push('upload:'+items[0].key);active--;},retain:vi.fn(async hashes=>events.push('retain:'+hashes.join(',')))};
+    expect(await uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries,onProgress:value=>progress.push(value)})).toBe(4);
+    expect(peak).toBe(1);expect(events).toEqual(['upload:a','upload:b','upload:c','upload:d','retain:a,b,c,d']);
+    expect(assets.retain).toHaveBeenCalledTimes(1);expect(progress.at(-1)).toEqual({phase:'upload',files:4,total:4});
   });
-  it('settles the other accepted bucket and stops new work after a rejected upload',async()=>{
-    let release;const waiting=new Promise(resolve=>{release=resolve;}),retained=[],started=[],progress=[];
-    const assets={upload:async items=>{const key=items[0].key;started.push(key);if(key==='a')throw new Error('upload rejected');await waiting;},retain:async hashes=>{retained.push(...hashes);}};
-    let settled=false;
-    const result=uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries,onProgress:value=>progress.push(value)}).then(()=>null,error=>error).finally(()=>{settled=true;});
-    await new Promise(resolve=>setTimeout(resolve,0));expect(settled).toBe(false);release();
-    expect((await result).message).toBe('upload rejected');expect(started).toEqual(['a','b']);expect(retained).toEqual(['b']);expect(progress.at(-1).files).toBe(1);
+  it('retains only accepted uploads after a failure and stops new work',async()=>{
+    const started=[],retained=[];
+    const assets={upload:async items=>{started.push(items[0].key);if(items[0].key==='b')throw new Error('upload rejected');},retain:async hashes=>retained.push(...hashes)};
+    await expect(uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries})).rejects.toThrow('upload rejected');
+    expect(started).toEqual(['a','b']);expect(retained).toEqual(['a']);
   });
-  it('does not count an ambiguous registration as confirmed or retry it locally',async()=>{
-    const progress=[],upload=vi.fn(async()=>{}),retain=vi.fn(async()=>{throw new Error('registration uncertain');});
-    await expect(uploadPagesBuckets({buckets:buckets.slice(0,1),assets:{upload,retain},loadItems:async entries=>entries,onProgress:value=>progress.push(value)})).rejects.toThrow('registration uncertain');
-    expect(progress).toEqual([]);expect(upload).toHaveBeenCalledTimes(1);expect(retain).toHaveBeenCalledTimes(1);
+  it('does not complete after failed registration',async()=>{
+    const upload=vi.fn(async()=>{}),retain=vi.fn(async()=>{throw new Error('registration uncertain');});
+    await expect(uploadPagesBuckets({buckets:buckets.slice(0,1),assets:{upload,retain},loadItems:async entries=>entries})).rejects.toThrow('registration uncertain');
+    expect(upload).toHaveBeenCalledTimes(1);expect(retain).toHaveBeenCalledTimes(1);
+  });
+  it('preserves the upload error when retention also fails',async()=>{
+    const assets={upload:async items=>{if(items[0].key==='b')throw new Error('upload rejected');},retain:async()=>{throw new Error('retain rejected');}};
+    await expect(uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries})).rejects.toThrow('upload rejected');
+  });
+  it('does not register empty or entirely rejected uploads',async()=>{
+    const retain=vi.fn(async()=>{}),assets={upload:async()=>{throw new Error('upload rejected');},retain};
+    expect(await uploadPagesBuckets({buckets:[],assets,loadItems:async entries=>entries})).toBe(0);
+    await expect(uploadPagesBuckets({buckets,assets,loadItems:async entries=>entries})).rejects.toThrow('upload rejected');
+    expect(retain).not.toHaveBeenCalled();
   });
 });
 afterEach(async()=>{
@@ -257,7 +264,7 @@ describe('bounded idempotent transport recovery',()=>{
     const pause=vi.fn(async()=>{});
     const assets=createPagesAssetSession(createPagesApi({...credentials,fetcher}),'korea-replay-data',{pause});
     await expect(assets[operation]([])).resolves.toEqual([]);
-    expect(assetsCalled).toBe(3);expect(pause.mock.calls).toEqual([[500],[1000]]);
+    expect(assetsCalled).toBe(3);expect(pause.mock.calls).toEqual([[5000],[10000]]);
   });
   it('stops after three asset attempts and never retries an uncertain deployment',async()=>{
     const fetcher=vi.fn(async(url)=>{
