@@ -40,7 +40,7 @@ export function createPagesApi({accountId,token,fetcher=fetch}){
     const operation=route.startsWith('/pages/assets/')?route.split('/').at(-1):method==='POST'&&route.endsWith('/deployments')?'deploy':'metadata';
     const timeout=operation==='upload'?300000:120000;
     let response;try{response=await fetcher(ORIGIN+PREFIX+route,{method,headers,body,redirect:'error',signal:AbortSignal.timeout(timeout)});}catch(error){throw new PagesTransportError(error,operation);}
-    let payload;try{payload=await response.json();}catch{if(response.status===401)throw new PagesApiError(401,[]);throw new Error(`Pages API invalid response (${response.status})`);}
+    let payload;try{payload=await response.json();}catch{if([401,502,503,504,524].includes(response.status))throw new PagesApiError(response.status,[]);throw new Error(`Pages API invalid response (${response.status})`);}
     if(!response.ok||payload?.success!==true){const codes=(payload?.errors??[]).map(error=>Number(error.code)).filter(Number.isFinite);throw new PagesApiError(response.status,codes);}
     return payload.result;
   }
@@ -76,7 +76,7 @@ export function createPagesAssetSession(api,project,{pause=ms=>new Promise(resol
     for(let attempt=0;;attempt++){
       try{return await api[operation](value,used);}
       catch(error){
-        if(!(error instanceof PagesTransportError)||attempt>=2)throw error;
+        if(!(error instanceof PagesTransportError)&&!(error instanceof PagesApiError&&[502,503,504,524].includes(error.status))||attempt>=2)throw error;
         // Content-addressed assets are idempotent; deployment POST never enters here.
         await pause(500*2**attempt);
       }

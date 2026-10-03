@@ -37,7 +37,17 @@ CHUNK_NAME = re.compile(r'assets/([A-Za-z0-9_][A-Za-z0-9_.-]*)-[A-Za-z0-9_-]{8}\
 # The PC price loader is shared by Map2D and PropertyExplorer, so Rollup emits
 # one additional module. Approve this source-audited build, not arbitrary JS or
 # a mutable new chunk family. Every existing data/vendor/Worker byte stays pinned.
+AUDITED_REPLACED_CHUNKS = {
+    ('property-summary-client', 'js'): {
+        'sha256': '7ed320f4b06c19a801af6a9903f40c748b0e9eec1be29c249855398d1231c09e',
+        'bytes': 12559, 'replacement': ('property-view', 'js'),
+    },
+}
 AUDITED_ADDITIONAL_CHUNKS = {
+    ('property-view', 'js'): {
+        'sha256': 'ebe9402c9cdd0e92ca9f1fe44f6b1bd8ec7fa911049f9843e6bf103adb480411',
+        'bytes': 12566,
+    },
     ('property-summary-client', 'js'): {
         'sha256': '121589dbdb3da2561d15703c2e1512a8dcfb9746e33f84cb4c0df75609e0c397',
         'bytes': 12559,
@@ -47,6 +57,7 @@ SEOUL_KAPT_GEOJSON_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c2
 SEOUL_KAPT_JOINED_SHA = '33058dae0a1d86c302b2f1c5b0dff9d71241a60031880f4f738c9fe506611792'
 SEOUL_KAPT_RECENT_SHA = 'b63b62af834062de98b142f4caef4f8a2087bd8e713c15ba3351fcf3dc06859c'
 SEOUL_KAPT_ASSET_HASHES = {
+    'b87eea7c1c03dc21': '3ec8394b76c8e2328008bf734c673d203f58514403666c807f6a6f4096a32b6c',
     '8360eb2d88be0ab4': SEOUL_KAPT_GEOJSON_SHA,
     '33058dae0a1d86c3': SEOUL_KAPT_JOINED_SHA,
     'b63b62af834062de': SEOUL_KAPT_RECENT_SHA,
@@ -59,12 +70,21 @@ SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-
 PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-(?:[a-f0-9]{16}-)?[A-Za-z0-9_-]{8}\.json\Z')
 PROPERTY_NAVIGATION_SHA = 'b93cbc63ea3e74836f349ed11dc73742ee2095f9ba258a13b9812c726879cf7e'
 PROPERTY_NAVIGATION_ASSETS = {
+    ('2f345f225c735627b1adf5da4ac9388385d9e806fcddb514db2f41b9eeaa7851', 55666),
     (PROPERTY_NAVIGATION_SHA, 55929),
     ('9ee094b267838e30d2f5117c027444d16fedc8b5348f1214011a265e93432e7c', 55930),
     ('7d1758f5552a4e0d0d20119f97813624b0bad9d30f5684cca245910580132112', 55930),
     ('4f0987966a5ea103cb4f91b1ef938fc8350640192e9f0c4ed0ad2c95d9863037', 55929),
     ('009c22e31c65d6c5def9f821bd3dab6a0083b433866c5d2ee612d78f85f6e36d', 55666),
 }
+PROPERTY_METRIC_ASSET = re.compile(r'assets/(property-region-metrics-[a-f0-9]{16}|[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
+# Exact row-audited source bytes; this never accepts arbitrary frontend JSON.
+PROPERTY_METRIC_ASSETS = {'11110': {'sha256': '0f910ced0ccf4e895aa31598cb6c0f8b4b58b26ed1444ffae483a6f173f9b9e8', 'bytes': 56424}, '11140': {'sha256': '628e64de16db75b1f85f52c4c9ddc42942178dc37507e26540633bac8553f82a', 'bytes': 61020}, '11170': {'sha256': '321d4123c076b431aea4a088e9ff2da6ba1f76e8f28950528e91537de0bbedca', 'bytes': 73257}, '11200': {'sha256': '783ba4f0f7a9fd10ada1b949ea350352f9e3a7e57ba5f5775c1a672c60d0abad', 'bytes': 110342}, '11215': {'sha256': '3b5ef86cf774111bf644fc1438b9e319b0ead91d0ccd78dd25163b0be953d617', 'bytes': 67367}, '11230': {'sha256': '087a0553dc007e3ad835cb2e899fc7ef77d4947e37f2fe7b50a5d67919eebd64', 'bytes': 117089}, '11260': {'sha256': '1a4179e4c4db9882ae793d5db7ad244f3ec4491549212856426e684b482fd58e', 'bytes': 75389}, '11290': {'sha256': '3115e48f1662edc2769f3731b69a80a9e65baa10506ec66bb1a9cff136d9826e', 'bytes': 100626}, '11305': {'sha256': '17e6f4ffdcc81ae726dc2a6d7f5b20a8ada96da70bd6f6b33fbf37b94ceb14c6', 'bytes': 60035}, '11320': {'sha256': '49e7e8c05672a520c6bf958426c559e9a25bc9413e2fa598b64cf756b7d4d7da', 'bytes': 55388}, '11350': {'sha256': 'a455577844d574d5643af8d0cc24624abc5d831731fce3b0dbcc53e6de822f8d', 'bytes': 90145}, '11380': {'sha256': '0e478c5cc15a55133e2cd4072d13197429fd8b6f4f2d4d768ddd14fe98492272', 'bytes': 141518}, '11410': {'sha256': '1663ab04d58d1ec6f60a041d329c160fe8cdeaf6ef2b0eca76e7fc509e9afd4b', 'bytes': 98065}, '11440': {'sha256': '984e83705253e698f0bc852edbae7fede6ba8903d57e7cdd2f947da8843d213f', 'bytes': 135747}, '11470': {'sha256': '5bfa5a4816726d50e2f0cc17c17b61c8e6a10315f7bf31754bd5c6670cafd06b', 'bytes': 64463}, '11500': {'sha256': '1171c8b87680834436cca5544f8a8a4bb2949279ce14f8a4808cff031a19f0fc', 'bytes': 140132}, '11530': {'sha256': 'bcd78479c130801feb47a21ec3bb2f1fce575c8d7c87c9915203db621dd36a14', 'bytes': 91756}, '11545': {'sha256': '4a49bea75ca24d97cb112d7c1ef77525524ce4af189ae9c84d251817275fe5f7', 'bytes': 59801}, '11560': {'sha256': 'e54e6c6aeb73ff8db39346daf328b99af1ba373cc8647f44fb3c2d3cfbd40b7a', 'bytes': 127280}, '11590': {'sha256': '1a1ef5ef2e3c0cb6c2371d7284236adcc1a797366c4100a48f7ae1a12970eeb7', 'bytes': 115027}, '11620': {'sha256': 'cb4dd0d6195e7234147cb8629ad134c7cf1d67adf89edf7d2658f70c683603f8', 'bytes': 68399}, '11650': {'sha256': 'd9a55ea809b7e4a1da8d921d7f840b78a3285403d19fab291ebb9c41bae291b6', 'bytes': 182319}, '11680': {'sha256': 'f05065712619217e9d59220e8ef9c4e83abcb5e8655b7a7d7922ddc3891c471e', 'bytes': 156985}, '11710': {'sha256': '7658ab28be068fb232cf1a821d56b74ed7b7fb380a17b33badbc3038f3fdd35b', 'bytes': 129636}, '11740': {'sha256': 'b7f5431224885b79a3e3ab92eabe2b7cd9c097e177cddaa48033a5388e1b08df', 'bytes': 121964}, 'property-region-metrics-8879dff1b31ac5f0': {'sha256': '592713f558bf0224951d650e778ebd502d318e80a704f5fd7d277041086cdc73', 'bytes': 4000582}, 'property-region-metrics-b87eea7c1c03dc21': {'sha256': 'c7af492a53c95678e2f7fb6a7fbf7bcd33d8e9a3c7b96096f9f116a5f5195b67', 'bytes': 4008029}}
+
+def _approved_metric_asset(name, sha, size):
+    match = PROPERTY_METRIC_ASSET.fullmatch(name)
+    return bool(match and PROPERTY_METRIC_ASSETS.get(match[1]) == {'sha256': sha, 'bytes': size})
+
 REGION_ASSET = re.compile(r'assets/(boundary-(?:[0-9]{2}|[0-9]{5})|dongs-[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
 REGION_SOURCE_ROOT = Path(__file__).resolve().parents[1] / 'src/data'
 REGION_ARCHIVE_SHA = 'f1cf0f9de453ac7eaacb273f39cee52851183372b9ddfda428a967c3a670b2c6'
@@ -311,7 +331,7 @@ def _frontend_name(name: str) -> None:
     if (any(part.startswith('.') for part in name.split('/'))
             or FORBIDDEN_NAME.search(Path(name).name)):
         raise ValueError('Private or hidden files are forbidden in the frontend')
-    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name):
+    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name) and not PROPERTY_METRIC_ASSET.fullmatch(name):
         raise ValueError('Unknown frontend file; full staging is required')
 
 
@@ -367,7 +387,7 @@ def _frontend_entries(client: Path, previous: dict):
             if family not in families:
                 additional_families.add(family)
             seen_families.add(family)
-        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name):
+        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name) and not PROPERTY_METRIC_ASSET.fullmatch(name):
             raise ValueError('Unknown frontend file; full staging is required')
         size = regular_file(path).st_size
         if not 0 <= size < release.MAX_FILE_BYTES:
@@ -378,6 +398,10 @@ def _frontend_entries(client: Path, previous: dict):
         prior = old.get(name)
         unchanged = prior and prior['sha256'] == sha and prior['bytes'] == size
         approved_point_asset = _approved_point_asset(name, sha, size)
+        metric_match = PROPERTY_METRIC_ASSET.fullmatch(name)
+        approved_metric_asset = _approved_metric_asset(name, sha, size)
+        if metric_match and not approved_metric_asset:
+            raise ValueError('Property metric asset differs from audited bytes')
         region_match = REGION_ASSET.fullmatch(name)
         approved_region_asset = bool(region_match and region_inventory.get(region_match[1]) == {'bytes': size, 'sha256': sha})
         if region_match:
@@ -394,11 +418,11 @@ def _frontend_entries(client: Path, previous: dict):
             if poi_match[1] in seen_pois:
                 raise ValueError('Duplicate published POI asset identity')
             seen_pois.add(poi_match[1])
-        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_point_asset and not approved_region_asset and not approved_poi_asset:
+        if name not in MUTABLE_ROOT and not family and not unchanged and not approved_point_asset and not approved_region_asset and not approved_poi_asset and not approved_metric_asset:
             raise ValueError('Copied frontend assets changed; full staging is required')
-        if (family or region_match or poi_match) and prior and not unchanged:
+        if (family or region_match or poi_match or metric_match) and prior and not unchanged:
             raise ValueError('An immutable frontend asset URL changed bytes')
-        if name in MUTABLE_ROOT or family or approved_point_asset or approved_region_asset or approved_poi_asset:
+        if name in MUTABLE_ROOT or family or approved_point_asset or approved_region_asset or approved_poi_asset or approved_metric_asset:
             # Reads are bounded by the same 24 MiB ceiling as static staging.
             body = path.read_bytes()
             if len(body) != size or hashlib.sha256(body).hexdigest() != sha:
@@ -416,13 +440,21 @@ def _frontend_entries(client: Path, previous: dict):
     # point or region asset need not be copied into the next app bundle.
     stable_names = set(old) - {name for name, entry in old.items()
                                if _family(name) or _approved_point_asset(name, entry['sha256'], entry['bytes'])
+                               or _approved_metric_asset(name, entry['sha256'], entry['bytes'])
                                or REGION_ASSET.fullmatch(name) and REGION_ASSET.fullmatch(name)[1] in seen_regions
                                or POI_ASSET.fullmatch(name) and poi_inventory}
     if seen_pois != set(poi_inventory):
         raise ValueError('Audited POI assets are missing from the frontend')
     if seen_regions != set(region_inventory):
         raise ValueError('Audited region assets are missing from the frontend')
-    if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != families | additional_families:
+    replaced_families = set()
+    for family in families - seen_families:
+        rule = AUDITED_REPLACED_CHUNKS.get(family)
+        members = [entry for name, entry in old.items() if _family(name) == family]
+        if (rule and rule['replacement'] in additional_families and len(members) == 1
+                and all(members[0][key] == rule[key] for key in ('sha256', 'bytes'))):
+            replaced_families.add(family)
+    if not stable_names.issubset({entry['target'] for entry in result}) or seen_families != (families - replaced_families) | additional_families:
         raise ValueError('Frontend files or chunk families are missing; full staging is required')
     return result
 

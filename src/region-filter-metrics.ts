@@ -2,6 +2,7 @@ import {atlasFetch} from './atlas-client';
 export interface RegionFilterMetric {status:'complete'|'partial'|'pending'|'failed'|'source_unavailable';count:number|null;median_per_m2:number|null;covered:number;expected:number;unavailable:number;}
 export interface RegionFilterMetrics {schema_version:1;kind:'property-region-filter-metrics';property_release_id:string;regions:Record<string,Record<string,RegionFilterMetric>>;}
 const sources:Record<string,string>={
+  'property-8879dff1b31ac5f0':new URL('./data/property-region-metrics-8879dff1b31ac5f0.json',import.meta.url).href,
   'property-b87eea7c1c03dc21':new URL('./data/property-region-metrics-b87eea7c1c03dc21.json',import.meta.url).href,
 };
 export function parseRegionFilterMetrics(value:unknown,release:string):RegionFilterMetrics {

@@ -129,7 +129,7 @@ describe('Pages REST-only deployment boundary',()=>{
     await expect(assets[operation]([])).rejects.toThrow('401; codes 8000013');
     expect(tokens).toBe(2);expect(calls).toBe(2);
   });
-  it.each([403,429,503])('does not refresh or retry a non-token HTTP %s asset error',async status=>{
+  it.each([403,429])('does not refresh or retry a non-token HTTP %s asset error',async status=>{
     let tokens=0,calls=0;
     const fetcher=vi.fn(async url=>{
       if(url.endsWith('/upload-token')){tokens++;return ok({jwt:'fixture-token'});}
@@ -285,4 +285,31 @@ describe('upload-only timeout budget',()=>{
       expect(fetcher).toHaveBeenCalledTimes(2);
     } finally { timeouts.mockRestore(); }
   });
+});
+
+
+describe('bounded upstream asset recovery',()=>{
+  it.each([502,503,504,524])('retries HTML %s only for content-addressed uploads',async status=>{
+    let attempts=0;
+    const fetcher=vi.fn(async url=>{
+      if(url.endsWith('/upload-token'))return ok({jwt:'asset-token'});
+      attempts++;return attempts<3?new Response('<html>upstream failure</html>',{status}):ok({});
+    });
+    const api=createPagesApi({accountId:'a'.repeat(32),token:'test-token',fetcher});
+    const pause=vi.fn(async()=>{});
+    await createPagesAssetSession(api,'korea-replay-data',{pause}).upload([]);
+    expect(attempts).toBe(3);expect(pause).toHaveBeenCalledTimes(2);
+    attempts=0;fetcher.mockClear();
+    await expect(api.deploy('korea-replay',new FormData())).rejects.toThrow(String(status));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+it('stops repeated upstream errors after the bounded asset retry budget',async()=>{
+  let calls=0;
+  const fetcher=vi.fn(async url=>url.endsWith('/upload-token')?ok({jwt:'asset-token'}):(calls++,new Response('upstream',{status:524})));
+  const api=createPagesApi({accountId:'a'.repeat(32),token:'test-token',fetcher});
+  await expect(createPagesAssetSession(api,'korea-replay-data',{pause:async()=>{}}).upload([])).rejects.toThrow('524');
+  expect(calls).toBe(3);
 });

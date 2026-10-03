@@ -39,3 +39,8 @@ Before public promotion, the larger release exposed a second regression: Songpa'
 The 25 Seoul assets total 2,500,174 bytes, derived from 366,787 verified summary rows. Songpa is 129,636 bytes and Gangnam 156,985 bytes, each serving all supported presets. These are payload reductions, not overall application-speed measurements. Arbitrary exact areas and older period endpoints retain the existing bounded summary fallback. Regions without linked map points no longer download apartment price history just to render no apartment markers. The separate district metrics remain usable there.
 
 After this change: typecheck, lint, 1,162 web tests and 9 focused aggregation/selection Python tests pass. Web and full pipeline CI passed on commit 970e01e. Full CI and public browser validation must pass on the final release-linked commit before production promotion.
+
+## Previous public release compatibility
+The same audited aggregation is generated for the current public release `property-8879dff1b31ac5f0`. This fixes existing pinned shares without replacing their transaction source or claiming the new candidate is published. The source publication is independently hash-checked. The previous release's missing months remain partial; a newer release's counts are never substituted.
+
+The data candidate transfer has encountered bounded timeouts. Application verification can proceed against the existing immutable data origin while this transfer continues. Registration and promotion of `property-b87eea7c1c03dc21` remain separate gates. The application will not silently reference an unverified data origin.
