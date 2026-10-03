@@ -18,6 +18,7 @@ from .real_estate_publish import publish
 from .real_estate_complex_summary import build as summarize
 from .real_estate_summary_month_pack import build as pack_summaries
 from .vps_runtime import write_json
+from .bulk_work import bulk_work
 
 RESERVE = 30 * 1024**3
 
@@ -29,7 +30,7 @@ def run(data, output, *, reserve_bytes=RESERVE, progress=None):
         raise RealEstateError('public_output_forbidden')
     output.mkdir(parents=True, exist_ok=True)
     lock = output / 'candidate.lock'; _reject_links(lock)
-    with _lock(lock):
+    with _lock(lock), bulk_work(data):
         status_path = output / 'status.json'; _reject_links(status_path)
         state = json.loads(status_path.read_bytes()) if status_path.exists() else {}
         # Resume the exact input after interruption, never mix ledger generations.

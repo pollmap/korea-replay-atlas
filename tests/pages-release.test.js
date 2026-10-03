@@ -3,7 +3,7 @@ import {mkdtemp,mkdir,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {stagePagesApp,stagePagesData,verifyPagesStage,copyImmutable,pagesHeaders} from '../scripts/pages-release.mjs';
+import {stagePagesApp,stagePagesData,verifyPagesStage,copyImmutable,pagesHeaders,stagePagesLeanApp,LEGACY_SPATIAL_PREFIXES} from '../scripts/pages-release.mjs';
 import {deployPagesStage,verifyPagesRemote} from '../scripts/pages-api.mjs';
 const roots=[],sha=value=>createHash('sha256').update(value).digest('hex'),json=value=>JSON.stringify(value);
 const release='pub-0123456789abcdef',data={origin:'https://1234abcd.korea-replay-data.pages.dev',manifest_path:'/data/atlas/atlas-fixture/manifest.json',manifest_sha256:'a'.repeat(64)};
@@ -51,6 +51,24 @@ describe('independent Pages release stages',()=>{
     expect(checked.configuration.services).toEqual([{binding:'KOREA_API',service:'korea-replay'}]);
     expect(JSON.parse(await readFile(path.join(checked.client,'_routes.json'),'utf8'))).toEqual({version:1,include:['/api/*'],exclude:[]});
     await expect(stagePagesApp({...f,data})).rejects.toThrow(/exist/i);
+  });
+  it('stages 2D without large spatial payloads, preserving 2D data and an immutable legacy route',async()=>{
+    const f=await fixture();
+    const mf=path.join(f.bundle,'asset-manifest.json'),manifest=JSON.parse(await readFile(mf,'utf8'));
+    for(const prefix of LEGACY_SPATIAL_PREFIXES){const target=prefix+'sample.bin',body='spatial';await put(path.join(f.client,target),body);manifest.push({target,sha256:sha(body),bytes:body.length});}
+    await put(mf,json(manifest));const receipt=JSON.parse(await readFile(f.receiptPath,'utf8'));receipt.manifest_hash=sha(json(manifest));receipt.count=manifest.length;await put(f.receiptPath,json(receipt));
+    const full=await stagePagesApp({...f,data});
+    const lean=await stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:full.receiptPath,legacy3dOrigin:'https://abcdef12.korea-replay.pages.dev'});
+    const checked=await verifyPagesStage(lean.receiptPath,{projectRoot:f.projectRoot});
+    expect(checked.entries.some(entry=>LEGACY_SPATIAL_PREFIXES.some(prefix=>entry.target.startsWith(prefix)))).toBe(false);
+    expect(checked.entries.some(entry=>entry.target==='data/sample.geojson')).toBe(true);
+    expect(checked.receipt.policy.data).toEqual(data);
+    expect(await readFile(path.join(checked.client,'_redirects'),'utf8')).toContain('/data/retiled/* https://abcdef12.korea-replay.pages.dev/data/retiled/:splat 302');
+    await expect(stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:lean.receiptPath,legacy3dOrigin:'https://korea-replay.pages.dev'})).rejects.toThrow('immutable');
+    await expect(stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:lean.receiptPath,legacy3dOrigin:'https://11112222.korea-replay.pages.dev'})).rejects.toThrow('redirect policy');
+    // Reuse the lean base after old spatial copies are removed, no rehydration.
+    await rm(full.directory,{recursive:true});await rm(f.bundle,{recursive:true});
+    await expect(stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:lean.receiptPath,legacy3dOrigin:'https://abcdef12.korea-replay.pages.dev',snapshotOrigin:'https://1234abcd.korea-replay.pages.dev'})).rejects.toThrow('separately verified candidate');
   });
   it('supports exclusive copy fallback without ever replacing an existing file',async()=>{
     const f=await fixture(),destination=path.join(f.projectRoot,'.local/copied.html');
