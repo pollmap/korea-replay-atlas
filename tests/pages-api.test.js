@@ -129,7 +129,7 @@ describe('Pages REST-only deployment boundary',()=>{
     await expect(assets[operation]([])).rejects.toThrow('401; codes 8000013');
     expect(tokens).toBe(2);expect(calls).toBe(2);
   });
-  it.each([403,429,503])('does not refresh or retry a non-token HTTP %s asset error',async status=>{
+  it.each([403,429])('does not refresh or retry a non-token HTTP %s asset error',async status=>{
     let tokens=0,calls=0;
     const fetcher=vi.fn(async url=>{
       if(url.endsWith('/upload-token')){tokens++;return ok({jwt:'fixture-token'});}
@@ -243,4 +243,73 @@ describe('Pages remote origin and immutable sharing verification',()=>{
     expect(report).toMatchObject({passed:true,origin_kind:'production',snapshot_origin:null});
     expect(fetcher.mock.calls.some(([url])=>url.includes('/api/'))).toBe(false);expect(report.samples).toHaveLength(2);
   });
+});
+
+
+describe('bounded idempotent transport recovery',()=>{
+  it.each(['missing','upload','retain'])('retries only the %s asset transport and reuses its identity',async operation=>{
+    let assetsCalled=0;
+    const fetcher=vi.fn(async(url)=>{
+      if(url.endsWith('/upload-token'))return Response.json({success:true,result:{jwt:'fixture-token'}});
+      assetsCalled++;if(assetsCalled<3)throw new Error('transport interruption');
+      return Response.json({success:true,result:[]});
+    });
+    const pause=vi.fn(async()=>{});
+    const assets=createPagesAssetSession(createPagesApi({...credentials,fetcher}),'korea-replay-data',{pause});
+    await expect(assets[operation]([])).resolves.toEqual([]);
+    expect(assetsCalled).toBe(3);expect(pause.mock.calls).toEqual([[500],[1000]]);
+  });
+  it('stops after three asset attempts and never retries an uncertain deployment',async()=>{
+    const fetcher=vi.fn(async(url)=>{
+      if(url.endsWith('/upload-token'))return Response.json({success:true,result:{jwt:'fixture-token'}});
+      throw Error('transport interruption');
+    });
+    const api=createPagesApi({...credentials,fetcher});
+    await expect(createPagesAssetSession(api,'korea-replay-data',{pause:async()=>{}}).upload([])).rejects.toThrow('transport failed');
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    fetcher.mockClear();await expect(api.deploy('korea-replay',new FormData())).rejects.toThrow('transport failed');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('upload-only timeout budget',()=>{
+  it('allows large audited assets more transfer time without changing deployment retries',async()=>{
+    const timeouts=vi.spyOn(AbortSignal,'timeout');
+    const fetcher=vi.fn(async()=>ok({}));
+    try {
+      const api=createPagesApi({accountId:'a'.repeat(32),token:'test-token',fetcher});
+      await api.upload([], 'asset-token');
+      await api.deploy('korea-replay',new FormData());
+      expect(timeouts.mock.calls.map(call=>call[0])).toEqual([300000,120000]);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally { timeouts.mockRestore(); }
+  });
+});
+
+
+describe('bounded upstream asset recovery',()=>{
+  it.each([502,503,504,524])('retries HTML %s only for content-addressed uploads',async status=>{
+    let attempts=0;
+    const fetcher=vi.fn(async url=>{
+      if(url.endsWith('/upload-token'))return ok({jwt:'asset-token'});
+      attempts++;return attempts<3?new Response('<html>upstream failure</html>',{status}):ok({});
+    });
+    const api=createPagesApi({accountId:'a'.repeat(32),token:'test-token',fetcher});
+    const pause=vi.fn(async()=>{});
+    await createPagesAssetSession(api,'korea-replay-data',{pause}).upload([]);
+    expect(attempts).toBe(3);expect(pause).toHaveBeenCalledTimes(2);
+    attempts=0;fetcher.mockClear();
+    await expect(api.deploy('korea-replay',new FormData())).rejects.toThrow(String(status));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+it('stops repeated upstream errors after the bounded asset retry budget',async()=>{
+  let calls=0;
+  const fetcher=vi.fn(async url=>url.endsWith('/upload-token')?ok({jwt:'asset-token'}):(calls++,new Response('upstream',{status:524})));
+  const api=createPagesApi({accountId:'a'.repeat(32),token:'test-token',fetcher});
+  await expect(createPagesAssetSession(api,'korea-replay-data',{pause:async()=>{}}).upload([])).rejects.toThrow('524');
+  expect(calls).toBe(3);
 });
