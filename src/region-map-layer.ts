@@ -84,25 +84,26 @@ export function provinceMapData(input:RegionMapInput|null|undefined):FeatureColl
   for(const row of input.regions.regions){const name=row.name.trim().split(/\s+/)[0];const group=groups.get(name)??[];group.push(row);groups.set(name,group);}
   for(const [name,rows] of groups){
     const navigation=regionNavigation({name},input.map);if(!navigation||navigation.sourceRecordId.split(':')[2]!=='sido')continue;
-    const seen=new Set<string>();let count=0,valid=true,complete=true;
+    const seen=new Set<string>();let count=0,valid=true,complete=true,observed=false;
     for(const row of rows){
       const metric=row.latest[trade],value=metric.eligible_rows;
       if(seen.has(row.lawd_code)||!/^[0-9]{5}$/.test(row.lawd_code)||metric.lawd_code!==row.lawd_code||metric.trade_type!==trade){valid=false;break;}
       seen.add(row.lawd_code);
       const selected=selectedRegionMetric(input.filterMetrics,input.property.release_id,row.lawd_code,month,input.historyMonths??1,input.area??'',trade,input.rentKind??'all');
       if(selected){
-        if(selected.status!=='complete'||selected.count===null){complete=false;continue;}
-        count+=selected.count;if(!Number.isSafeInteger(count)){valid=false;break;}
+        if(selected.status!=='complete')complete=false;
+        if(selected.count===null){complete=false;continue;}
+        observed=true;count+=selected.count;if(!Number.isSafeInteger(count)){valid=false;break;}
         continue;
       }
       if(metric.deal_month!==month||!!input.area||!!input.historyMonths&&input.historyMonths!==1||!!input.rentKind&&input.rentKind!=='all'){complete=false;continue;}
       if(!['complete','empty'].includes(metric.status)){complete=false;continue;}
       if(!Number.isSafeInteger(value)||value===null||value<0||metric.status==='empty'&&value!==0){valid=false;break;}
-      count+=value;
+      observed=true;count+=value;
       if(!Number.isSafeInteger(count)){valid=false;break;}
     }
     if(!valid||!rows.length)continue;
-    data.features.push({type:'Feature',id:`${input.property.release_id}:${name}`,geometry:{type:'Point',coordinates:[navigation.place.lon,navigation.place.lat]},properties:{property_province_name:name,property_release:input.property.release_id,display_name:provinceShortName(name),count_label:complete?`${count.toLocaleString('ko-KR')}건`:'미수집',member_count:rows.length,contract_month:month,trade_type:trade,anchor_purpose:'province-navigation-only'}});
+    data.features.push({type:'Feature',id:`${input.property.release_id}:${name}`,geometry:{type:'Point',coordinates:[navigation.place.lon,navigation.place.lat]},properties:{property_province_name:name,property_release:input.property.release_id,display_name:provinceShortName(name),count_label:complete?`${count.toLocaleString('ko-KR')}건`:observed?`${count.toLocaleString('ko-KR')}건 · 일부`:'미수집',member_count:rows.length,contract_month:month,trade_type:trade,anchor_purpose:'province-navigation-only'}});
   }
   return data;
 }

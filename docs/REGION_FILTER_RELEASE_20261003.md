@@ -10,7 +10,7 @@ The new source is `property-b87eea7c1c03dc21`. Its private publication audit rep
 - Region statistics use eligible individual reports, not averages of monthly or complex medians. Equal-looking reports retain distinct IDs. Cancelled and ineligible reports are excluded by the audited source eligibility field.
 - Supported presets: 1/3/6/12/36/60/120/240 months ending at the release's latest completed or provisional month; all exclusive areas or `84-band`; sale, all rent, jeonse and monthly rent.
 - Other exact areas and older period end dates remain explicitly unsupported by this small map aggregation asset. Transaction detail and its filters remain available. Never substitute another month's or area's price.
-- A complete window can show zero. A window with missing months is partial; a wholly unavailable source period is not zero. Province totals require every constituent region to be complete.
+- A complete window can show zero. A window with missing months is partial; a wholly unavailable source period is not zero. Complete province totals require every constituent region to be complete; observed partial counts carry an explicit partial label.
 - Region anchors remain SGIS navigation anchors, not apartment locations or a historical administrative-code crosswalk.
 - 256 preserved publication regions were derived without collecting outside the user's acquisition scope. Source rows: 10,977,282; transaction assets reverified: 2,704; output: 4,008,029 bytes.
 
@@ -31,3 +31,11 @@ Local retained transactions and summary publications passed 11,520 asset SHA che
 
 ## Verification status
 Typecheck, lint, production build and 1,158 web tests passed. The related Python suite passed 47 tests. A full local Python run could not collect 26 modules because the minimal staging environment lacks optional mapping/scientific dependencies; full locked-environment CI is required before merge. Public browser and deployment results are recorded after candidate completion, not assumed from these checks.
+## Map-marker payload correction
+Before public promotion, the larger release exposed a second regression: Songpa's region-wide 36-month summaries total 19,216,951 bytes and Gangnam's 26,514,100 bytes, exceeding the existing 16MiB map query limit. The limit was not raised.
+
+`pipeline.real_estate_map_price_presets` now extracts only condition-matched latest reports for the already linked provider-point IDs. It retains the original transaction ID, contract date, amount and exclusive area. Selection is deterministic, each preset lists at most one actual report per complex, and rent kinds remain separate. Monthly rows are never reported as an actual point position.
+
+The 25 Seoul assets total 2,500,174 bytes, derived from 366,787 verified summary rows. Songpa is 129,636 bytes and Gangnam 156,985 bytes, each serving all supported presets. These are payload reductions, not overall application-speed measurements. Arbitrary exact areas and older period endpoints retain the existing bounded summary fallback. Regions without linked map points no longer download apartment price history just to render no apartment markers. The separate district metrics remain usable there.
+
+After this change: typecheck, lint, 1,162 web tests and 9 focused aggregation/selection Python tests pass. Full CI must pass on the final commit. The initial draft's web and full pipeline CI have already passed.

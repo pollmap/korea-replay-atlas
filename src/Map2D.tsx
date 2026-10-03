@@ -1,3 +1,4 @@
+import {loadMapPricePreset} from './property-map-presets';
 import {loadRegionFilterMetrics,type RegionFilterMetrics} from './region-filter-metrics';
 import {selectedRegionBoundary,regionAdministrativeDongs,clearRegionBoundaryCache} from './region-selection';
 import {regionSelectionLayers,SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED_DONG_SOURCE,DONG_HIT_LAYER} from './region-selection-layers';
@@ -108,7 +109,8 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const publish=(data:MapPriceData)=>{if(!controller.signal.aborted)setPriceData({key:filterKey,data:propertyMapPrices(base,release,view,data)});};
       publish({state:'loading',rows:[],partitions:[]});
       try{
-        const result=view.propertyType!=='officetel'&&view.region?await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal):null;
+        const linked=base.features.some(feature=>feature.properties?.property_release_id===release&&String(feature.properties?.property_complex_id).startsWith(`molit-apt:${view.region}:`));
+        const result=view.propertyType!=='officetel'&&view.region&&linked?(await loadMapPricePreset(release,view,controller.signal)??await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal)):null;
         publish(result?{state:'ready',...result}:{state:'missing',rows:[],partitions:[]});
       }catch(error){if(controller.signal.aborted)return;publish({state:'error',rows:[],partitions:[]});if(element.current)element.current.dataset.propertySummaryError=error instanceof Error?error.message:'가격 요약 조회 실패';}
     })().catch(()=>{if(!controller.signal.aborted&&element.current)element.current.dataset.propertySummaryError='단지 표식 조회 실패';});
