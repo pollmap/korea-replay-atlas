@@ -54,7 +54,7 @@ def build(publication_path, output_root, *, reserve_bytes=30 * 1024**3, target_b
 
     def emit(name, value):
         raw = canonical_bytes(value)
-        if len(raw) > target_bytes or len(assets) >= 18_000: raise RealEstateError('transaction_pack_asset_budget')
+        if len(raw) > (target_bytes if name.startswith('transaction-packs/') else MAX_ASSET) or len(assets) >= 18_000: raise RealEstateError('transaction_pack_asset_budget')
         if shutil.disk_usage(stage).free - len(raw) - 4096 < reserve_bytes: raise RealEstateError('disk_reserve')
         path = prefix + name; target = stage / path; target.parent.mkdir(parents=True, exist_ok=True)
         with target.open('xb') as stream: stream.write(raw)

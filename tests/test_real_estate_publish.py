@@ -11,6 +11,16 @@ from pipeline.real_estate_publish import publish
 from test_real_estate_fetch import registry, xml, rent, STAMP, KEY
 
 
+@pytest.fixture(autouse=True)
+def fixture_disk_space(monkeypatch):
+    # Unit fixtures are tiny and must not depend on the host's production reserve.
+    # The dedicated reserve test overrides this with its constrained device.
+    from collections import namedtuple
+    import pipeline.real_estate_publish as module
+    Usage = namedtuple('Usage', 'total used free')
+    monkeypatch.setattr(module.shutil, 'disk_usage', lambda _: Usage(200*1024**3, 10*1024**3, 190*1024**3))
+
+
 def sale(cancelled=False):
     return {'sggCd':'11110','umdCd':'10100','umdNm':'검증동','aptNm':'가상단지','aptSeq':'11110-99999',
         'jibun':'1-2','excluUseAr':'84.99','dealYear':'2026','dealMonth':'9','dealDay':'1',

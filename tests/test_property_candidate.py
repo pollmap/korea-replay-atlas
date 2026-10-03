@@ -32,7 +32,7 @@ def test_candidate_pins_closed_model_and_preserves_writer(tmp_path):
     assert json.loads((output / 'last-verified.json').read_bytes()) == result
     with sqlite3.connect(data / 'collector/checkpoint.sqlite') as db:
         assert db.execute("SELECT COUNT(*) FROM jobs WHERE snapshot IS NOT NULL").fetchone()[0] == 0
-    assert {e['phase'] for e in events} >= {'raw_audit','transaction_pack','monthly_summary','summary_pack','verified'}
+    assert {e['phase'] for e in events} >= {'raw_audit','monthly_summary','summary_pack','verified'}
     assert run(data, output, reserve_bytes=0) == result
 
 

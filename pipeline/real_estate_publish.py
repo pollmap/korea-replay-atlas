@@ -5,6 +5,7 @@ import argparse
 from collections import Counter, defaultdict
 from decimal import Decimal, ROUND_HALF_EVEN
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,7 @@ from .real_estate import (RealEstateError, canonical_bytes, sha256, _reject_link
                          normalize_xml_page, build_partitions, utc_instant)
 from .real_estate_regions import load_registry, SOURCE_PAGE
 from .real_estate_storage import decode_snapshot
+from .property_transaction_assets import emit_month_packs
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
@@ -181,7 +183,8 @@ def collect_complexes(records):
     return result
 
 
-def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=18_000, checkpoint=None, progress=None):
+def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=18_000, checkpoint=None, progress=None, packed_transactions=False):
+    if type(packed_transactions) is not bool:raise RealEstateError('invalid_transaction_layout')
     if not isinstance(reserve_bytes,int) or isinstance(reserve_bytes,bool) or reserve_bytes<0:
         raise RealEstateError('invalid_disk_reserve')
     if type(max_files) is not int or not 18_000 <= max_files <= 100_000:
@@ -209,6 +212,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
     if any(j['lawd_code'] not in official for j in jobs):raise RealEstateError('unknown_legal_region')
     fingerprint={'policy':POLICY,'registry_sha256':registry_hash,
         'jobs':[{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at','_last_attempt_at')} for j in jobs]}
+    if packed_transactions:fingerprint['transaction_layout']='direct-bounded-month-packs-v1'
     release='property-'+sha256(canonical_bytes(fingerprint))[:16]
     months=sorted({j['deal_month'] for j in jobs});latest=int(months[-1][:4])*12+int(months[-1][4:])-2
     period={'from':months[0],'to':months[-1],'latest_complete_month':f'{latest//12:04d}{latest%12+1:02d}'}
@@ -239,6 +243,10 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
         files.append({'path':name,'sha256':digest,'byte_length':len(payload)})
         return {'url':'/'+name,'sha256':digest,'bytes':len(payload)}
 
+    input_ids=hashlib.sha256();output_ids=hashlib.sha256();packed_rows=0
+    def record_output(identity):
+        nonlocal packed_rows
+        output_ids.update(identity.encode('utf-8')+b'\n');packed_rows+=1
     regions=[];complex_total=0;source_rows=0;groups=defaultdict(list);published_jobs=[]
     for job in jobs:groups[job['lawd_code']].append(job)
     for region_number, (code,region_jobs) in enumerate(sorted(groups.items()), 1):
@@ -257,21 +265,34 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
             if partition:
                 rows=[public_row(r,job) for r in partition['records']]
                 source_rows+=len(rows);all_rows.extend(rows);by_month[job['deal_month']].extend(rows)
-        for month,rows in sorted(by_month.items()):
-            rows.sort(key=lambda r:r['id']);chunks=[];chunk=[];size=0
-            for row in rows:
-                row_size=len(canonical_bytes(row))
-                if chunk and size+row_size>TARGET_ASSET:chunks.append(chunk);chunk=[];size=0
-                chunk.append(row);size+=row_size
-            chunks.append(chunk)
-            for i,chunk in enumerate(chunks):
-                asset=emit(f'transactions/{code}/{month}-{i:03d}.json',{'schema_version':1,
-                    'kind':'property-transactions','release_id':release,'lawd_code':code,
-                    'deal_month':month,'transactions':chunk})
-                types={r['trade_type'] for r in chunk} if chunk else {'sale','rent'}
-                for trade in types:
-                    if (month,trade) in by_job and by_job[(month,trade)]['status'] in ('complete','empty'):
-                        by_job[(month,trade)]['transactions'].append(asset)
+        for rows in by_month.values():rows.sort(key=lambda r:r['id'])
+        if packed_transactions:
+            seen=set()
+            for month,rows in sorted(by_month.items()):
+                for row in rows:
+                    if row['id'] in seen:raise RealEstateError('transaction_pack_duplicate_identity')
+                    seen.add(row['id']);input_ids.update(row['id'].encode('utf-8')+b'\n')
+            refs=emit_month_packs(by_month,emit,release=release,code=code,target_bytes=TARGET_ASSET,record_id=record_output)
+            for key,item in by_job.items():
+                item['transactions']=refs[key]
+                if item['status'] not in ('complete','empty') and refs[key]:
+                    raise RealEstateError('transaction_pack_noncomplete_rows')
+        else:
+            for month,rows in sorted(by_month.items()):
+                rows.sort(key=lambda r:r['id']);chunks=[];chunk=[];size=0
+                for row in rows:
+                    row_size=len(canonical_bytes(row))
+                    if chunk and size+row_size>TARGET_ASSET:chunks.append(chunk);chunk=[];size=0
+                    chunk.append(row);size+=row_size
+                chunks.append(chunk)
+                for i,chunk in enumerate(chunks):
+                    asset=emit(f'transactions/{code}/{month}-{i:03d}.json',{'schema_version':1,
+                        'kind':'property-transactions','release_id':release,'lawd_code':code,
+                        'deal_month':month,'transactions':chunk})
+                    types={r['trade_type'] for r in chunk} if chunk else {'sale','rent'}
+                    for trade in types:
+                        if (month,trade) in by_job and by_job[(month,trade)]['status'] in ('complete','empty'):
+                            by_job[(month,trade)]['transactions'].append(asset)
         complexes=collect_complexes(all_rows);complex_total+=len(complexes)
         complex_asset=emit(f'complexes/{code}.json',{'schema_version':1,'kind':'property-complexes',
             'release_id':release,'lawd_code':code,'complexes':complexes}) if complexes else None
@@ -297,6 +318,9 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
             '공식 건물·단지 식별자와 좌표의 연결 검증 전에는 단지 위치를 생성하지 않습니다.',
             '비표준 지번은 위치 연결 검토 대상으로 남기되, 유효한 지역·계약일·면적·금액의 통계 적격성과 구분합니다.',
             '지역 제곱미터당 중앙값은 서로 다른 거래의 분포입니다. 같은 전용면적 단지 비교와 구별하세요.']}
+    if packed_transactions:
+        if source_rows!=packed_rows or input_ids.digest()!=output_ids.digest():raise RealEstateError('transaction_pack_identity_mismatch')
+        manifest['transaction_assets']={'layout':'bounded-month-packs-v1','target_bytes':TARGET_ASSET,'legacy_row_schema':True,'direct_source_audit':True}
     entry=emit('manifest.json',manifest)
     if len(files)>max_files:raise RealEstateError('publication_file_limit')
     publication={'schema_version':1,'kind':'property-publication','release_id':release,
@@ -306,6 +330,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
                  'raw_pages_reparsed':True,'source_hashes_verified':True,'position_policy':'no_unverified_coordinates',
                  'files':len(files),'bytes':sum(f['byte_length'] for f in files),'coverage':coverage(published_jobs),
                  'collection_coverage':coverage(jobs),'stale_jobs':sum('refresh' in j for j in published_jobs)}}
+    if packed_transactions:publication['audit'].update({'all_transaction_ids_preserved':True,'source_transaction_identity_sha256':input_ids.hexdigest(),'direct_source_audit':True,'source_calls':0,'ledger_writes':0})
     receipt=canonical_bytes(publication)
     if shutil.disk_usage(stage).free-len(receipt)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
     with (stage/'publication.json').open('xb') as handle:handle.write(receipt)

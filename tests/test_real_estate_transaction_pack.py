@@ -110,3 +110,64 @@ def test_two_months_share_pack_but_keep_separate_rows_and_summary_month_referenc
     assert {ref['deal_month'] for ref in summary_region['summaries']} == {'202608', '202609'}
     assert len({ref['url'] for ref in summary_region['summaries']}) == 1
     assert monthly['audit']['summary_groups_preserved'] == 4
+
+
+def test_direct_source_packs_preserve_every_id_without_raw_json_duplicate(tmp_path):
+    from pipeline.property_continuity import compare
+    root = setup(tmp_path)
+    original = publish(root, registry(), tmp_path/'raw', reserve_bytes=0)
+    direct = publish(root, registry(), tmp_path/'direct', reserve_bytes=0, packed_transactions=True)
+    assert direct['release_id'] != original['release_id']
+    assert direct['audit']['raw_pages_reparsed'] and direct['audit']['all_transaction_ids_preserved']
+    assert direct['audit']['source_calls'] == direct['audit']['ledger_writes'] == 0
+    assert not any('/transactions/' in f['path'] for f in direct['files'])
+    report = compare(tmp_path/'raw'/original['release_id']/'publication.json', tmp_path/'direct'/direct['release_id']/'publication.json')
+    assert report['old_rows'] == report['retained_ids'] == 4
+    assert report['automatic_transition_eligible']
+    assert publish(root, registry(), tmp_path/'direct', reserve_bytes=0, packed_transactions=True) == direct
+
+
+def test_large_complex_metadata_is_independent_from_transaction_target(tmp_path, monkeypatch):
+    from pipeline.real_estate_fetch import Collector
+    import pipeline.real_estate_publish as publisher
+    names = [dict(sale(), aptNm='검증용 이름 변형이 있는 긴 단지 이름 '+str(i), dealDay=str(i%28+1)) for i in range(90)]
+    def transport(*args, **kwargs): return xml(names) if args[1]=='sale' else xml()
+    root = tmp_path/'checkpoint'
+    collector = Collector(root,registry(),months=1,clock=lambda:STAMP,transport=transport,reserve_bytes=0)
+    collector.collect(KEY,max_requests=2,min_interval=0);collector.close()
+    normal = publish(root,registry(),tmp_path/'raw',reserve_bytes=0)
+    source = tmp_path/'raw'/normal['release_id']/'publication.json'
+    packed = build(source,tmp_path/'packed',reserve_bytes=0,target_bytes=2048)
+    assert any('/complexes/' in x['path'] and x['byte_length']>2048 for x in packed['files'])
+    assert all(x['byte_length']<=2048 for x in packed['files'] if '/transaction-packs/' in x['path'])
+    monkeypatch.setattr(publisher,'TARGET_ASSET',2048)
+    direct = publish(root,registry(),tmp_path/'direct',reserve_bytes=0,packed_transactions=True)
+    assert direct['audit']['source_rows']==90
+    assert any('/complexes/' in x['path'] and x['byte_length']>2048 for x in direct['files'])
+    assert all(x['byte_length']<=2048 for x in direct['files'] if '/transaction-packs/' in x['path'])
+
+
+def test_direct_packs_keep_partial_and_failed_month_states(tmp_path):
+    root=setup(tmp_path,1)
+    direct=publish(root,registry(),tmp_path/'direct',reserve_bytes=0,packed_transactions=True)
+    base=tmp_path/'direct'/direct['release_id']
+    region=json.loads((base/next(x['path'] for x in direct['files'] if '/regions/' in x['path'])).read_bytes())
+    pending=next(p for p in region['partitions'] if p['status']=='pending')
+    assert pending['source_rows'] is None and not pending['transactions']
+
+
+def test_direct_pack_envelope_budget_and_multi_month_identity_order():
+    from pipeline.property_transaction_assets import emit_month_packs
+    from pipeline.real_estate import canonical_bytes
+    emitted=[];ids=[]
+    monthly={'202608':[{'id':str(i),'trade_type':'sale','name':'검증'*30} for i in range(3)],
+             '202609':[{'id':str(i),'trade_type':'rent','name':'검증'*30} for i in range(3,6)]}
+    def emit(name,value):
+        assert len(canonical_bytes(value))<=700
+        emitted.append(value)
+        return {'url':name}
+    refs=emit_month_packs(monthly,emit,release='property-'+'a'*16,code='11110',target_bytes=700,record_id=ids.append)
+    assert ids==[str(i) for i in range(6)]
+    assert refs['202608','sale'] and refs['202609','rent']
+    with pytest.raises(RealEstateError,match='transaction_pack_single_row_budget'):
+        emit_month_packs({'202609':[{'id':'x','trade_type':'sale','name':'검증'*1000}]},emit,release='property-'+'a'*16,code='11110',target_bytes=700,record_id=ids.append)
