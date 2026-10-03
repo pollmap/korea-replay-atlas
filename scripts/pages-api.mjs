@@ -17,7 +17,7 @@ class PagesTransportError extends Error {
   constructor(cause,operation){const code=cause?.name==='TimeoutError'?'timeout':['UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_SOCKET','ECONNRESET','ETIMEDOUT'].includes(cause?.cause?.code)?cause.cause.code:'network';super(`Pages API transport failed (${operation}; ${code}); no deployment retry was made`);}
 }
 class PagesApiError extends Error {
-  constructor(status,codes){super(`Pages API rejected request (${status}; codes ${codes.join(',')||'unknown'})`);this.status=status;this.codes=codes;}
+  constructor(status,codes,operation){super(`Pages API rejected request (${status}; codes ${codes.join(',')||'unknown'}; ${operation})`);this.status=status;this.codes=codes;}
 }
 function uploadTokenExpiresAt(token){
   // Unverified JWT metadata is only a refresh hint; it never grants authorization.
@@ -40,8 +40,8 @@ export function createPagesApi({accountId,token,fetcher=fetch}){
     const operation=route.startsWith('/pages/assets/')?route.split('/').at(-1):method==='POST'&&route.endsWith('/deployments')?'deploy':'metadata';
     const timeout=operation==='upload'?300000:120000;
     let response;try{response=await fetcher(ORIGIN+PREFIX+route,{method,headers,body,redirect:'error',signal:AbortSignal.timeout(timeout)});}catch(error){throw new PagesTransportError(error,operation);}
-    let payload;try{payload=await response.json();}catch{if([401,502,503,504,524].includes(response.status))throw new PagesApiError(response.status,[]);throw new Error(`Pages API invalid response (${response.status})`);}
-    if(!response.ok||payload?.success!==true){const codes=(payload?.errors??[]).map(error=>Number(error.code)).filter(Number.isFinite);throw new PagesApiError(response.status,codes);}
+    let payload;try{payload=await response.json();}catch{if([401,502,503,504,524].includes(response.status))throw new PagesApiError(response.status,[],operation);throw new Error(`Pages API invalid response (${response.status})`);}
+    if(!response.ok||payload?.success!==true){const codes=(payload?.errors??[]).map(error=>Number(error.code)).filter(Number.isFinite);throw new PagesApiError(response.status,codes,operation);}
     return payload.result;
   }
   return {
@@ -78,7 +78,7 @@ export function createPagesAssetSession(api,project,{pause=ms=>new Promise(resol
       catch(error){
         if(!(error instanceof PagesTransportError)&&!(error instanceof PagesApiError&&[502,503,504,524].includes(error.status))||attempt>=2)throw error;
         // Content-addressed assets are idempotent; deployment POST never enters here.
-        await pause(500*2**attempt);
+        await pause(5000*2**attempt);
       }
     }
   };
@@ -94,26 +94,26 @@ export function createPagesAssetSession(api,project,{pause=ms=>new Promise(resol
   };
   return {missing:hashes=>run('missing',hashes),upload:items=>run('upload',items),retain:hashes=>run('retain',hashes)};
 }
-/** Register only confirmed uploads, so check-missing can reuse them after an interruption. */
+/** Sequential upload avoids concurrent gateway pressure; retain confirmed hashes together. */
 export async function uploadPagesBuckets({buckets,assets,loadItems,onProgress=()=>{}}){
-  let cursor=0,uploaded=0,failure=null;
+  const confirmed=[];let failure=null;
   const total=buckets.reduce((count,bucket)=>count+bucket.length,0);
-  await Promise.all(Array.from({length:2},async()=>{
-    while(!failure&&cursor<buckets.length){
-      const current=buckets[cursor++];
-      try{
-        const items=await loadItems(current);
-        if(failure)return;
-        await assets.upload(items);
-        // A concurrent failure does not invalidate this bucket's confirmed success.
-        await assets.retain(current.map(entry=>entry.key));
-        uploaded+=current.length;onProgress({phase:'upload',files:uploaded,total});
-      }catch(error){failure??=error;}
-    }
-  }));
-  // Settle both active buckets before returning; no background lane keeps uploading.
+  for(const current of buckets){
+    try{
+      const items=await loadItems(current);
+      await assets.upload(items);
+      confirmed.push(...current.map(entry=>entry.key));
+      onProgress({phase:'upload',files:confirmed.length,total});
+    }catch(error){failure=error;break;}
+  }
+  // Register only accepted content and retain progress even after an interruption.
+  // Avoid an extra upsert-hashes request after every small bucket.
+  if(confirmed.length){
+    try{await assets.retain(confirmed);}
+    catch(error){failure??=error;}
+  }
   if(failure)throw failure;
-  return uploaded;
+  return confirmed.length;
 }
 export async function workerBundle(checked){
   const modules=checked.entries.filter(entry=>entry.target.startsWith('_worker.js/')),form=new FormData();
@@ -133,7 +133,7 @@ export async function deployPagesStage({receiptPath,projectRoot=process.cwd(),ap
   const assets=createPagesAssetSession(api,project),hashes=[...new Set([...map.values()].map(entry=>entry.key))],missing=await assets.missing(hashes);
   if(!Array.isArray(missing)||missing.some(hash=>!hashes.includes(hash)))throw new Error('Pages returned an unexpected missing-asset list');
   const missingSet=new Set(missing),unique=new Map();for(const entry of map.values())if(missingSet.has(entry.key))unique.set(entry.key,entry);
-  // Two bounded 4 MiB buckets avoid oversized requests on slow links. A single
+  // Sequential bounded 4 MiB buckets avoid oversized requests. A single
   // asset can still be up to the independently audited 25 MiB platform limit.
   const buckets=[];let bucket=[],bytes=0;for(const entry of unique.values()){if(bucket.length&&(bytes+entry.bytes>4*1024*1024||bucket.length>=200)){buckets.push(bucket);bucket=[];bytes=0;}bucket.push(entry);bytes+=entry.bytes;}if(bucket.length)buckets.push(bucket);
   onProgress({phase:'missing',files:unique.size,total:hashes.length,cached:hashes.length-unique.size});
