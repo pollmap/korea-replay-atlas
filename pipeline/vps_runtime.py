@@ -19,6 +19,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import urlopen
 
 from .real_estate import RealEstateError, canonical_bytes, _reject_links
 from .real_estate_archive import audit_checkpoint, checked_path
@@ -29,6 +30,7 @@ from .real_estate_regions import load_registry
 from .real_estate_storage import decode_snapshot
 from .property_automation import requeue_safe_failures
 from .property_read_model import ReadModel, publish as publish_read_model
+from .property_read_model_retention import reclaim_generations
 
 RESERVE = 30 * 1024**3
 MAX_RESPONSE = 1024**2
@@ -107,11 +109,13 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
         if not trades:
             return {'finished_at': stamp, 'collection': {'stop_reason': 'local_daily_budget', 'requests': 0},
                     'public_release': False}
+        # A retained fallback does not complete a pending/partial refresh. Only
+        # unfinished jobs are selected; completed jobs are never force-refreshed.
         retries = requeue_safe_failures(collector.db, stamp, limit=5,
-                                       first_acquisition_only=True, scope='priority-nine')
+                                       first_acquisition_only=False, scope='priority-nine')
         report = collector.collect(read_key(secret_file), max_requests=max_requests,
                                    max_bytes=64 * 1024**2, daily_budget=8000, min_interval=.3,
-                                   timeout=60, first_acquisition_only=True, collect_trades=trades, progress=progress)
+                                   timeout=60, first_acquisition_only=False, collect_trades=trades, progress=progress)
     finally:
         collector.close()
     if progress:
@@ -119,6 +123,27 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
     recovery = backup(root, backups, progress=progress)
     return {'finished_at': instant(), 'collection': report, 'safe_retries': retries,
             'backup': recovery, 'public_release': False}
+
+
+def retire_acknowledged_read_models(data, model):
+    """The API must adopt this exact verified generation before old copies expire."""
+    cleanup_started = False
+    try:
+        with urlopen('http://api:8330/api/v1/property/acquisition', timeout=10) as response:
+            body = response.read(MAX_RESPONSE + 1)
+        if len(body) > MAX_RESPONSE:
+            raise ValueError('oversized acknowledgement')
+        status = json.loads(body)
+        if (status.get('service') != 'korea-replay' or status.get('read_model_error')
+                or status.get('read_model', {}).get('generation') != model['generation']):
+            raise ValueError('reader did not adopt candidate')
+        cleanup_started = True
+        result = reclaim_generations(data, acknowledged_generation=model['generation'])
+        write_json(Path(data) / 'read-model-retention.json', {'at': instant(), **result})
+    except Exception:
+        # Retention failure cannot discard the reader fallback or stop acquisition.
+        write_json(Path(data) / 'read-model-retention.json',
+                   {'at': instant(), 'state': 'deferred', 'deleted_files': None if cleanup_started else 0})
 
 
 def worker(data, backups, secret_file, *, interval=300, max_requests=500):
@@ -156,6 +181,7 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                         model = publish_read_model(data)
                         write_json(data / 'read-model-status.json', {'at': instant(), 'state': 'ready',
                                    'generation': model['generation']})
+                        retire_acknowledged_read_models(data, model)
                     except Exception:
                         # A reader publication failure must not reset collection or its quota.
                         write_json(data / 'read-model-status.json', {'at': instant(), 'state': 'failed',
