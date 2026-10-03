@@ -76,6 +76,13 @@ describe('independent Pages release stages',()=>{
     await expect(copyImmutable(path.join(f.client,'index.html'),destination,{copyOnly:true})).rejects.toThrow();
     expect(await readFile(destination,'utf8')).toBe(f.bodies['index.html']);
   });
+  it('requires both fresh build inputs and rejects paths outside dist before invoking inspection',async()=>{
+    const f=await fixture(),full=await stagePagesApp({...f,data});
+    const options={projectRoot:f.projectRoot,receiptPath:full.receiptPath,legacy3dOrigin:'https://abcdef12.korea-replay.pages.dev'};
+    await expect(stagePagesLeanApp({...options,clientDirectory:'dist/client'})).rejects.toThrow('both clientDirectory');
+    await expect(stagePagesLeanApp({...options,clientDirectory:'.local/private',workerDirectory:'dist/worker'})).rejects.toThrow('escapes');
+    await expect(stagePagesLeanApp({...options,workerDirectory:'dist/worker'})).rejects.toThrow('both clientDirectory');
+  });
   it('allows only the share destination to differ between candidate and production',async()=>{
     const f=await fixture(),candidate=await stagePagesApp({...f,data});
     await expect(stagePagesApp({...f,data,snapshotOrigin:'https://abcd1234.korea-replay.pages.dev',candidateReceiptPath:candidate.receiptPath})).rejects.toThrow();
