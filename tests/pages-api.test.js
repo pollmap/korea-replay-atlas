@@ -244,3 +244,30 @@ describe('Pages remote origin and immutable sharing verification',()=>{
     expect(fetcher.mock.calls.some(([url])=>url.includes('/api/'))).toBe(false);expect(report.samples).toHaveLength(2);
   });
 });
+
+
+describe('bounded idempotent transport recovery',()=>{
+  it.each(['missing','upload','retain'])('retries only the %s asset transport and reuses its identity',async operation=>{
+    let assetsCalled=0;
+    const fetcher=vi.fn(async(url)=>{
+      if(url.endsWith('/upload-token'))return Response.json({success:true,result:{jwt:'fixture-token'}});
+      assetsCalled++;if(assetsCalled<3)throw new Error('transport interruption');
+      return Response.json({success:true,result:[]});
+    });
+    const pause=vi.fn(async()=>{});
+    const assets=createPagesAssetSession(createPagesApi({...credentials,fetcher}),'korea-replay-data',{pause});
+    await expect(assets[operation]([])).resolves.toEqual([]);
+    expect(assetsCalled).toBe(3);expect(pause.mock.calls).toEqual([[500],[1000]]);
+  });
+  it('stops after three asset attempts and never retries an uncertain deployment',async()=>{
+    const fetcher=vi.fn(async(url)=>{
+      if(url.endsWith('/upload-token'))return Response.json({success:true,result:{jwt:'fixture-token'}});
+      throw Error('transport interruption');
+    });
+    const api=createPagesApi({...credentials,fetcher});
+    await expect(createPagesAssetSession(api,'korea-replay-data',{pause:async()=>{}}).upload([])).rejects.toThrow('transport failed');
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    fetcher.mockClear();await expect(api.deploy('korea-replay',new FormData())).rejects.toThrow('transport failed');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});

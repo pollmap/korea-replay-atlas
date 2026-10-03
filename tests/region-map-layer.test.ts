@@ -109,3 +109,27 @@ describe('region volume map integration contracts',()=>{
     expect(pixel(0,0)).toEqual([0,0,0,0]);expect(pixel(40,32)).toEqual([255,255,255,255]);expect(pixel(40,0)).toEqual([37,99,235,255]);
   });
 });
+
+
+describe('audited selected-period region labels',()=>{
+  it('uses the selected 3-year 84 band instead of the latest unrestricted month',()=>{
+    const input=fixture();input.historyMonths=36;input.area='84-band';
+    input.filterMetrics={schema_version:1,kind:'property-region-filter-metrics',property_release_id:release,regions:{'11710':{'202608|36|84-band|sale':{status:'complete',count:987,median_per_m2:8000000,covered:36,expected:36,unavailable:0}}}};
+    const result=regionMapData(input);
+    expect(result.data.features[0].properties).toMatchObject({count:987,value_label:'2,645만/평',count_label:'987건'});
+    expect(result.caption).toContain('2023.09~2026.08');
+    expect(result.provinces.features[0].properties.count_label).toBe('987건');
+  });
+  it('marks a partial sample and never calls it a complete provincial total',()=>{
+    const input=fixture();input.historyMonths=36;input.area='84-band';
+    input.filterMetrics={schema_version:1,kind:'property-region-filter-metrics',property_release_id:release,regions:{'11710':{'202608|36|84-band|sale':{status:'partial',count:987,median_per_m2:8000000,covered:30,expected:36,unavailable:0}}}};
+    expect(regionMapData(input).data.features[0].properties).toMatchObject({count:987,value_label:'2,645만/평 · 일부',value_kind:'partial-reported-exclusive-pyeong-median'});
+    expect(regionMapData(input).provinces.features[0].properties.count_label).toBe('미수집');
+  });
+  it('does not label unsupported filters as uncollected or invent zero',()=>{
+    const input=fixture();input.historyMonths=36;input.area='82.1';
+    expect(regionMapData(input).data.features[0].properties).toMatchObject({count:null,value_label:'면적 집계 없음'});
+    input.filterMetricState='loading';expect(regionMapData(input).data.features[0].properties.value_label).toBe('불러오는 중');
+    input.filterMetricState='error';expect(regionMapData(input).data.features[0].properties.value_label).toBe('조회 실패');
+  });
+});

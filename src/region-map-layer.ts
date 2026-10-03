@@ -1,3 +1,5 @@
+import {historyMonths,HISTORY_RANGES} from '../shared/property-history';
+import {selectedRegionMetric,type RegionFilterMetrics} from './region-filter-metrics';
 import type {FeatureCollection,Point} from 'geojson';
 import type {LayerSpecification} from 'maplibre-gl';
 import type {MapCatalog2D} from '../shared/map-tiles';
@@ -9,11 +11,11 @@ export const REGION_MAP_SOURCE='property-region-navigation';
 export const REGION_MAP_LAYER='property-region-volume-labels';
 export const PROVINCE_MAP_LAYER='property-province-volume-labels';
 export const REGION_MAP_IMAGE='property-region-volume-bubble';
-export interface RegionMapInput {map:Pick<MapCatalog2D,'reference_dates'>;property:Pick<PropertyRelease,'release_id'|'period'>;regions:PropertyRegions;trade?:'sale'|'rent';month?:string;historyMonths?:number;area?:string;rentKind?:string;}
+export interface RegionMapInput {map:Pick<MapCatalog2D,'reference_dates'>;property:Pick<PropertyRelease,'release_id'|'period'>;regions:PropertyRegions;trade?:'sale'|'rent';month?:string;historyMonths?:number;area?:string;rentKind?:string;filterMetrics?:RegionFilterMetrics|null;filterMetricState?:'loading'|'ready'|'error';}
 export interface RegionMapProperties {
   property_region_code:string;property_release:string;region_name:string;display_name:string;
   contract_month:string;trade_type:'sale'|'rent';count:number|null;count_label:string;month_label:string;sort_key:number;
-  value_label:string;value_kind:'reported-exclusive-pyeong-median'|'reported-count'|'unavailable';
+  value_label:string;value_kind:'reported-exclusive-pyeong-median'|'reported-count'|'partial-reported-exclusive-pyeong-median'|'partial-reported-count'|'unavailable';
   anchor_purpose:'region-navigation-only';anchor_source_record_id:string;anchor_reference_date:string;
 }
 export interface RegionMapData {
@@ -27,7 +29,7 @@ export interface ProvinceMapProperties {
 }
 const shortName=(name:string)=>name.trim().replace(/\s+/g,' ').replace(/^(서울|부산|대구|인천|광주|대전|울산)(?:특별시|광역시) /,'$1 ').replace(/^경기도 /,'경기 ').replace(/^강원특별자치도 /,'강원 ').replace(/^전북특별자치도 /,'전북 ').replace(/^제주특별자치도 /,'제주 ').replace(/^충청북도 /,'충북 ').replace(/^충청남도 /,'충남 ').replace(/^전라남도 /,'전남 ').replace(/^경상북도 /,'경북 ').replace(/^경상남도 /,'경남 ');
 const provinceShortName=(name:string)=>({서울특별시:'서울',부산광역시:'부산',대구광역시:'대구',인천광역시:'인천',광주광역시:'광주',대전광역시:'대전',울산광역시:'울산',세종특별자치시:'세종',경기도:'경기',강원특별자치도:'강원',충청북도:'충북',충청남도:'충남',전북특별자치도:'전북',전라남도:'전남',경상북도:'경북',경상남도:'경남',제주특별자치도:'제주'} as Record<string,string>)[name]??name;
-function regionValueLabel(trade:'sale'|'rent',perM2:number|null,count:number):Pick<RegionMapProperties,'value_label'|'value_kind'> {
+function regionValueLabel(trade:'sale'|'rent',perM2:number|null,count:number):{value_label:string;value_kind:'reported-exclusive-pyeong-median'|'reported-count'|'unavailable'} {
   if(trade==='sale'&&count>0&&perM2!==null&&Number.isSafeInteger(perM2)&&perM2>0){
     const perPyeongMan=Math.round(perM2*M2_PER_PYEONG/10_000);
     if(Number.isSafeInteger(perPyeongMan))return {value_label:`${perPyeongMan.toLocaleString('ko-KR')}만/평`,value_kind:'reported-exclusive-pyeong-median'};
@@ -52,16 +54,24 @@ export function regionMapData(input:RegionMapInput|null|undefined):RegionMapData
       const metric=row.latest[trade],count=metric.eligible_rows,conditionsMatch=metric.deal_month===month&&(!input.historyMonths||input.historyMonths===1)&&!input.area&&(!input.rentKind||input.rentKind==='all'),published=conditionsMatch&&['complete','empty'].includes(metric.status);
       if(occurrences.get(row.lawd_code)!==1||!/^\d{5}$/.test(row.lawd_code)||metric.lawd_code!==row.lawd_code||metric.trade_type!==trade||metric.deal_month!==input.property.period.latest_complete_month||published&&(!Number.isSafeInteger(count)||count===null||count<0||metric.status==='empty'&&count!==0))continue;
       const location=regionNavigation(row,input.map);if(!location)continue;
+      const selected=selectedRegionMetric(input.filterMetrics,releaseId,row.lawd_code,month,input.historyMonths??1,input.area??'',trade,input.rentKind??'all');
+      const unavailable=conditionsMatch?missingMetricLabel(metric.status):input.filterMetricState==='loading'?'불러오는 중':input.filterMetricState==='error'?'조회 실패':input.area&&input.area!=='84-band'?'면적 집계 없음':'기간 집계 없음';
+      const selectedCount=selected?.count??null;
+      const selectedValue=selected&&selectedCount!==null?regionValueLabel(trade,selected.median_per_m2,selectedCount):null;
+      const selectedLabel=selectedValue?{value_label:selectedValue.value_label+(selected!.status==='partial'?' · 일부':''),value_kind:selected!.status==='partial'&&selectedValue.value_kind!=='unavailable'?`partial-${selectedValue.value_kind}` as const:selectedValue.value_kind}:null;
       data.features.push({type:'Feature',id:`${releaseId}:${row.lawd_code}`,geometry:{type:'Point',coordinates:[location.place.lon,location.place.lat]},
-        properties:{property_region_code:row.lawd_code,property_release:releaseId,region_name:row.name.trim(),display_name:shortName(row.name),contract_month:month,trade_type:trade,count:published?count:null,count_label:published?`${count!.toLocaleString('ko-KR')}건`:missingMetricLabel(metric.status),month_label:`${month.slice(2,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'}`,sort_key:published?-count!:0,
-          ...(published?regionValueLabel(trade,metric.median_price_per_m2_krw,count!):{value_label:conditionsMatch?missingMetricLabel(metric.status):'조건별 집계 전',value_kind:'unavailable' as const}),
+        properties:{property_region_code:row.lawd_code,property_release:releaseId,region_name:row.name.trim(),display_name:shortName(row.name),contract_month:month,trade_type:trade,count:selected?selectedCount:published?count:null,count_label:selected?selectedCount===null?missingMetricLabel(selected.status):`${selectedCount.toLocaleString('ko-KR')}건${selected.status==='partial'?' · 일부':''}`:published?`${count!.toLocaleString('ko-KR')}건`:unavailable,month_label:`${month.slice(2,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'}`,sort_key:selectedCount!==null?-selectedCount:published?-count!:0,
+          ...(selected?(selectedLabel??{value_label:missingMetricLabel(selected.status),value_kind:'unavailable' as const}):published?regionValueLabel(trade,metric.median_price_per_m2_krw,count!):{value_label:unavailable,value_kind:'unavailable' as const}),
           anchor_purpose:'region-navigation-only',anchor_source_record_id:location.sourceRecordId,anchor_reference_date:location.boundaryReferenceDate}});
     }
   }
+  const range=HISTORY_RANGES.find(value=>value===input?.historyMonths)??1;
+  const window=valid?historyMonths(month,range):[],start=window[0]??month;
+  const periodLabel=start===month?`${month.slice(0,4)}.${month.slice(4)}`:`${start.slice(0,4)}.${start.slice(4)}~${month.slice(0,4)}.${month.slice(4)}`;
   const uncollected=data.features.filter(feature=>feature.properties.count===null).length;
   return {data,provinces:provinceMapData(valid?input:null),month,releaseId,total,excluded:total-data.features.length,uncollected,
-    caption:valid?`${month.slice(0,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'} · 지역 탐색`:`${trade==='sale'?'매매':'전월세'} · 자료 확인 중`,
-    notice:`패널과 같은 계약월·거래 유형·면적 조건을 사용합니다. 조건별 집계가 연결되지 않은 지역은 이름과 집계 전 상태만 표시하며 다른 월 가격으로 대체하지 않습니다. 매매 평당가는 전용면적 기준 신고금액 중앙값이며 시세가 아닙니다. 점은 SGIS ${input?.map.reference_dates.sgis??''}의 지역 탐색 위치입니다. 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. 미수집·미연결은 0건과 다릅니다.`};
+    caption:valid?`${periodLabel} ${trade==='sale'?'매매':'전월세'}${input?.area==='84-band'?' · 전용 84㎡대':''} · 지역 탐색`:`${trade==='sale'?'매매':'전월세'} · 자료 확인 중`,
+    notice:`패널과 같은 계약월·거래 유형·면적 조건을 사용합니다. 선택 기간의 유효 거래를 집계하며 다른 월 가격으로 대체하지 않습니다. 일부 표시는 미수집 월이 포함된 표본입니다. 미지원 면적·기간 집계는 별도로 표시합니다. 매매 평당가는 전용면적 기준 신고금액 중앙값이며 시세가 아닙니다. 점은 SGIS ${input?.map.reference_dates.sgis??''}의 지역 탐색 위치입니다. 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. 미수집·미연결은 0건과 다릅니다.`};
 }
 
 /** National overview never reports a partial province sum as a complete total. */
@@ -79,6 +89,12 @@ export function provinceMapData(input:RegionMapInput|null|undefined):FeatureColl
       const metric=row.latest[trade],value=metric.eligible_rows;
       if(seen.has(row.lawd_code)||!/^[0-9]{5}$/.test(row.lawd_code)||metric.lawd_code!==row.lawd_code||metric.trade_type!==trade){valid=false;break;}
       seen.add(row.lawd_code);
+      const selected=selectedRegionMetric(input.filterMetrics,input.property.release_id,row.lawd_code,month,input.historyMonths??1,input.area??'',trade,input.rentKind??'all');
+      if(selected){
+        if(selected.status!=='complete'||selected.count===null){complete=false;continue;}
+        count+=selected.count;if(!Number.isSafeInteger(count)){valid=false;break;}
+        continue;
+      }
       if(metric.deal_month!==month||!!input.area||!!input.historyMonths&&input.historyMonths!==1||!!input.rentKind&&input.rentKind!=='all'){complete=false;continue;}
       if(!['complete','empty'].includes(metric.status)){complete=false;continue;}
       if(!Number.isSafeInteger(value)||value===null||value<0||metric.status==='empty'&&value!==0){valid=false;break;}

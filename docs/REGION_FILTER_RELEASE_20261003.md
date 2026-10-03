@@ -1,0 +1,33 @@
+# Audited property publication and selected-period region metrics — 2026-10-03
+
+## Change
+The map previously accepted only the latest single-month, unrestricted region metric. The default 36-month / 84㎡ band therefore displayed an aggregation placeholder even when transactions were available. Region markers now use exact row-derived statistics for the selected standard window and distinguish incomplete coverage, unsupported filters, loading, errors and verified zero.
+
+The new source is `property-b87eea7c1c03dc21`. Its private publication audit reparsed originals, verified SHA hashes, and preserved every previous transaction ID: 3,161,421 previous rows, 10,977,282 candidate rows, 0 removed IDs. This is a release snapshot, not the continuously advancing collection ledger and not a 20-year completion claim.
+
+## Data contract
+- `pipeline/real_estate_region_metrics.py` processes one region at a time from a hash-verified immutable publication; no source requests or checkpoint writes.
+- Region statistics use eligible individual reports, not averages of monthly or complex medians. Equal-looking reports retain distinct IDs. Cancelled and ineligible reports are excluded by the audited source eligibility field.
+- Supported presets: 1/3/6/12/36/60/120/240 months ending at the release's latest completed or provisional month; all exclusive areas or `84-band`; sale, all rent, jeonse and monthly rent.
+- Other exact areas and older period end dates remain explicitly unsupported by this small map aggregation asset. Transaction detail and its filters remain available. Never substitute another month's or area's price.
+- A complete window can show zero. A window with missing months is partial; a wholly unavailable source period is not zero. Province totals require every constituent region to be complete.
+- Region anchors remain SGIS navigation anchors, not apartment locations or a historical administrative-code crosswalk.
+- 256 preserved publication regions were derived without collecting outside the user's acquisition scope. Source rows: 10,977,282; transaction assets reverified: 2,704; output: 4,008,029 bytes.
+
+Examples for 2023.10–2026.09 sale / exclusive 84–85㎡: Songpa 4,274 reports and 36/36 months; Gangnam 2,177 and 36/36; Ansan Danwon 1,951 and 36/36. Daejeon Seo, Sejong and Cheongju Sangdang have 14/36 months in this snapshot, so their observed values are explicitly partial.
+
+## Release linkage
+Official source matching was repeated for the candidate using independent district/road/building-number and name evidence. It produced 844 linked Seoul provider points and 839 official basic-information records. Point CRS/geometry accuracy is still unconfirmed; no guessed coordinate or polygon was promoted. Earlier release sources remain registered for pinned shares.
+
+The candidate static data stage contains 13,512 files / 18,658,589,460 bytes. All 13,509 source assets are hardlinks, not additional byte-for-byte disk copies. Files remain within the existing Pages limits. Publication requires a verified immutable data URL, application pin, browser verification, CI, merge and production promotion.
+
+## Upload reliability
+Content-addressed missing/upload/retain operations retry transport interruptions at most twice with bounded backoff. HTTP authorization handling retains its existing single-refresh rule. Deployment POST is never automatically retried because its outcome can be uncertain. Confirmed buckets are retained so interrupted runs reuse already uploaded bytes.
+
+## Storage and acquisition
+Collection remains single-owner on the VPS, with shared daily budgets and the 30GiB reserve. The last inspected scope ledger was 31,951 / 48,048 available region-month-trade jobs; acquisition and publication are separate. Historical code changes and source-unavailable rental years remain distinct limitations.
+
+Local retained transactions and summary publications passed 11,520 asset SHA checks. Reproducible intermediate candidates totalling 9,806,238,740 logical bytes were approved for retirement, but the tool's automatic approval review rejected deletion (`blocked by policy`), so they remain. Transparent NTFS compression of separately retained static JSON archives is a non-deleting storage reduction; its result and post-compression hashes are recorded privately. Source checkpoints, CAS backups, dirty user checkout and other services are preserved.
+
+## Verification status
+Typecheck, lint, production build and 1,158 web tests passed. The related Python suite passed 47 tests. A full local Python run could not collect 26 modules because the minimal staging environment lacks optional mapping/scientific dependencies; full locked-environment CI is required before merge. Public browser and deployment results are recorded after candidate completion, not assumed from these checks.

@@ -1,3 +1,4 @@
+import {loadRegionFilterMetrics,type RegionFilterMetrics} from './region-filter-metrics';
 import {selectedRegionBoundary,regionAdministrativeDongs,clearRegionBoundaryCache} from './region-selection';
 import {regionSelectionLayers,SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED_DONG_SOURCE,DONG_HIT_LAYER} from './region-selection-layers';
 import {MAP2D_RAIL_NEUTRAL} from '../shared/map2d-rail-style';
@@ -48,6 +49,7 @@ const SEOUL_KAPT_SOURCES:Readonly<Record<string,string>>={
   'property-2da3955e5d587c40':new URL('./data/seoul-kapt-points-2da3955e5d587c40.geojson',import.meta.url).href,
   'property-8deba5b9951e48da':new URL('./data/seoul-kapt-points-8deba5b9951e48da.geojson',import.meta.url).href,
   'property-8879dff1b31ac5f0':new URL('./data/seoul-kapt-points-8879dff1b31ac5f0.geojson',import.meta.url).href,
+  'property-b87eea7c1c03dc21':new URL('./data/seoul-kapt-points-b87eea7c1c03dc21.geojson',import.meta.url).href,
 };
 const SEOUL_KAPT_BASE=new URL('./data/seoul-kapt-points-8360eb2d88be0ab4.geojson',import.meta.url).href;
 const seoulKaptUrl=(release:string)=>SEOUL_KAPT_SOURCES[release]??SEOUL_KAPT_BASE;
@@ -81,7 +83,19 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   const regionName=props.propertyRegionName||(props.vectorData?.regions?.regions.find(row=>row.lawd_code===props.propertyRegion)?.name??'');
   const refreshBoundaryRef=useRef<(()=>void)|null>(null);
   const refreshSelectedPointRef=useRef<(()=>void)|null>(null);
-  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);},[props.vectorData,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
+  const metricRelease=props.vectorData?.property?.release_id??'';
+  const [filterMetrics,setFilterMetrics]=useState<{release:string;state:'loading'|'ready'|'error';data:RegionFilterMetrics|null}|null>(null);
+  useEffect(()=>{
+    if(!metricRelease)return;
+    const controller=new AbortController();
+    setFilterMetrics({release:metricRelease,state:'loading',data:null});
+    void loadRegionFilterMetrics(metricRelease,controller.signal).then(data=>{
+      if(!controller.signal.aborted)setFilterMetrics({release:metricRelease,state:'ready',data});
+    }).catch(()=>{if(!controller.signal.aborted)setFilterMetrics({release:metricRelease,state:'error',data:null});});
+    return()=>controller.abort();
+  },[metricRelease]);
+  const activeMetrics=filterMetrics?.release===metricRelease?filterMetrics:null;
+  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,filterMetrics:activeMetrics?.data,filterMetricState:activeMetrics?.state,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);},[props.vectorData,activeMetrics,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
   useEffect(()=>{
     const view=latest.current.propertyView,release=latest.current.vectorData?.property?.release_id;

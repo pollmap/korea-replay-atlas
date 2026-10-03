@@ -13,6 +13,9 @@ const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 export function pagesAssetHash(bytes,name){return blake3.hash(bytes.toString('base64')+path.extname(name).slice(1)).toString('hex').slice(0,32);}
 function projectName(project){if(!PROJECTS.has(project))throw new Error('Only this application\'s two Pages projects are permitted');return project;}
 function mime(name){return ({'.html':'text/html; charset=utf-8','.js':'application/javascript','.css':'text/css','.json':'application/json','.geojson':'application/geo+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.ico':'image/x-icon','.wasm':'application/wasm','.woff':'font/woff','.woff2':'font/woff2','.glb':'model/gltf-binary','.terrain':'application/vnd.quantized-mesh','.gz':'application/gzip'})[path.extname(name)]??'application/octet-stream';}
+class PagesTransportError extends Error {
+  constructor(){super('Pages API transport failed; no deployment retry was made');}
+}
 class PagesApiError extends Error {
   constructor(status,codes){super(`Pages API rejected request (${status}; codes ${codes.join(',')||'unknown'})`);this.status=status;this.codes=codes;}
 }
@@ -34,7 +37,7 @@ export function createPagesApi({accountId,token,fetcher=fetch}){
       &&!/^\/pages\/assets\/(?:check-missing|upload|upsert-hashes)$/.test(route))throw new Error('Non-Pages endpoint rejected');
     const headers=new Headers({Authorization:`Bearer ${uploadToken??token}`});
     if(body!==undefined&&!(body instanceof FormData)){headers.set('Content-Type','application/json');body=JSON.stringify(body);}
-    let response;try{response=await fetcher(ORIGIN+PREFIX+route,{method,headers,body,redirect:'error',signal:AbortSignal.timeout(120000)});}catch{throw new Error('Pages API transport failed; no automatic deployment retry was made');}
+    let response;try{response=await fetcher(ORIGIN+PREFIX+route,{method,headers,body,redirect:'error',signal:AbortSignal.timeout(120000)});}catch{throw new PagesTransportError();}
     let payload;try{payload=await response.json();}catch{if(response.status===401)throw new PagesApiError(401,[]);throw new Error(`Pages API invalid response (${response.status})`);}
     if(!response.ok||payload?.success!==true){const codes=(payload?.errors??[]).map(error=>Number(error.code)).filter(Number.isFinite);throw new PagesApiError(response.status,codes);}
     return payload.result;
@@ -52,7 +55,7 @@ export function createPagesApi({accountId,token,fetcher=fetch}){
   };
 }
 /** Only idempotent content-addressed asset APIs may refresh/retry; never deployment POST. */
-export function createPagesAssetSession(api,project){
+export function createPagesAssetSession(api,project,{pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){
   projectName(project);let current=null,expiresAt=null,pending=null;
   const refresh=failedToken=>{
     if(pending)return pending;
@@ -67,14 +70,24 @@ export function createPagesAssetSession(api,project){
   };
   // Check every asset operation, including the final retain, without idle refresh timers.
   const token=()=>pending??(current!==null&&(expiresAt===null||expiresAt>Date.now()+60000)?Promise.resolve(current):refresh(current));
+  const invoke=async(operation,value,used)=>{
+    for(let attempt=0;;attempt++){
+      try{return await api[operation](value,used);}
+      catch(error){
+        if(!(error instanceof PagesTransportError)||attempt>=2)throw error;
+        // Content-addressed assets are idempotent; deployment POST never enters here.
+        await pause(500*2**attempt);
+      }
+    }
+  };
   const run=async(operation,value)=>{
     const used=await token();
-    try{return await api[operation](value,used);}
+    try{return await invoke(operation,value,used);}
     catch(error){
       if(!(error instanceof PagesApiError)||(error.status!==401&&!error.codes.includes(8000013)))throw error;
       const renewed=await refresh(used);
       // Deliberately outside the catch: a second failure terminates this bucket.
-      return api[operation](value,renewed);
+      return invoke(operation,value,renewed);
     }
   };
   return {missing:hashes=>run('missing',hashes),upload:items=>run('upload',items),retain:hashes=>run('retain',hashes)};
