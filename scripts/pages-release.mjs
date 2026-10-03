@@ -152,6 +152,30 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
   }
   return createStage(projectRoot,'korea-replay',entries,generated,sources,policy,copyOnly);
 }
+// Large 3D payloads stay in a verified immutable legacy deployment, never in
+// the active 2D staging closure. The small catalog and all 2D/traffic data stay.
+export const LEGACY_SPATIAL_PREFIXES=Object.freeze(['data/retiled/','data/terrain/','data/hierarchy/','data/building-streams/','data/building-parts/']);
+export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,legacy3dOrigin,data,snapshotOrigin=null,candidateReceiptPath=null,copyOnly=false}){
+  projectRoot=path.resolve(projectRoot);
+  const legacy=preview(legacy3dOrigin,'korea-replay');
+  const source=await verifyPagesStage(path.resolve(projectRoot,receiptPath),{projectRoot});
+  if(source.receipt.project!=='korea-replay')throw new Error('A verified application stage is required');
+  const redirectText=LEGACY_SPATIAL_PREFIXES.map(prefix=>`/${prefix}* ${legacy}/${prefix}:splat 302`).join('\n')+'\n';
+  const oldRedirect=source.entries.find(entry=>entry.target==='_redirects');
+  if(oldRedirect&&await readFile(path.join(source.client,'_redirects'),'utf8')!==redirectText)throw new Error('Existing redirect policy differs; explicit migration required');
+  const entries=source.entries.filter(entry=>entry.target!==policyTarget&&entry.target!=='_redirects'&&!LEGACY_SPATIAL_PREFIXES.some(prefix=>entry.target.startsWith(prefix)));
+  const sources=new Map(entries.map(entry=>[entry.target,path.join(source.client,entry.target)]));
+  const generated=new Map([['_redirects',Buffer.from(redirectText)]]);entries.push(fileEntry('_redirects',generated.get('_redirects')));
+  const policy={...source.receipt.policy,artifact_sha256:'',snapshot_origin:snapshotOrigin?preview(snapshotOrigin,'korea-replay'):null,data:dataPin(data??source.receipt.policy.data)};
+  if(snapshotOrigin){
+    if(!candidateReceiptPath)throw new Error('Production must refer to a separately verified candidate stage');
+    const candidate=await verifyPagesStage(candidateReceiptPath,{projectRoot});
+    if(candidate.receipt.project!=='korea-replay'||candidate.receipt.policy.snapshot_origin!==null||candidate.receipt.artifact_sha256!==artifact(entries,config('korea-replay'),policy))throw new Error('Candidate and production application/data/configuration differ');
+    const verified=JSON.parse(await readFile(path.join(candidate.directory,'verified-preview-'+new URL(snapshotOrigin).hostname.slice(0,8)+'.json'),'utf8'));
+    if(verified.passed!==true||verified.origin!==snapshotOrigin||verified.artifact_sha256!==candidate.receipt.artifact_sha256||verified.project!=='korea-replay')throw new Error('Candidate preview has not passed remote verification');
+  }
+  return createStage(projectRoot,'korea-replay',entries,generated,sources,policy,copyOnly);
+}
 async function publication(projectRoot,filename,kind){
   filename=path.resolve(projectRoot,filename);descendant(path.join(projectRoot,'.local'),filename);await noLinks(projectRoot,filename);
   const root=path.dirname(filename),value=JSON.parse(await readFile(filename,'utf8')),rawReference=value[kind];
@@ -186,9 +210,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
     const [command,file]=process.argv.slice(2);
     if(command==='check'){const result=await verifyPagesStage(file);process.stdout.write(json({passed:true,project:result.receipt.project,files:result.receipt.files,artifact_sha256:result.receipt.artifact_sha256}));}
-    else if(command==='app'||command==='data'){
+    else if(command==='app'||command==='data'||command==='lean-app'){
       const options=JSON.parse(await readFile(file,'utf8'));
-      const result=await(command==='app'?stagePagesApp(options):stagePagesData(options));process.stdout.write(json({receipt:result.receiptPath,...result.receipt}));
-    }else throw new Error('Usage: node scripts/pages-release.mjs app|data <private-options.json> | check <receipt.json>');
+      const result=await(command==='app'?stagePagesApp(options):command==='lean-app'?stagePagesLeanApp(options):stagePagesData(options));process.stdout.write(json({receipt:result.receiptPath,...result.receipt}));
+    }else throw new Error('Usage: node scripts/pages-release.mjs app|lean-app|data <private-options.json> | check <receipt.json>');
   }catch(error){process.stderr.write(String(error.message)+'\n');process.exitCode=1;}
 }

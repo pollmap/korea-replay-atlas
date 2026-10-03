@@ -86,6 +86,12 @@ def backup(root, backups, *, progress=None):
 
 
 def collect_once(root, backups, secret_file, *, max_requests=500, progress=None):
+    from .bulk_work import bulk_work
+    with bulk_work(Path(root).parent):
+        return _collect_once(root, backups, secret_file, max_requests=max_requests, progress=progress)
+
+
+def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None):
     root = Path(root)
     use = shutil.disk_usage(root)
     if use.used / use.total >= .8 or use.free < RESERVE + 5 * 1024**3:
@@ -159,6 +165,9 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                                    'public_release': False})
             except Exception as error:
                 code = error.code if isinstance(error, RealEstateError) else 'vps_collection_failed'
+                if code == 'vps_bulk_work_busy':
+                    write_json(state, {'at': instant(), 'state': 'waiting', 'stop_reason': code, 'public_release': False})
+                    time.sleep(interval); continue
                 hold = {'at': instant(), 'error_code': code}
                 write_json(data / 'collection-hold.json', hold)
                 write_json(state, {**hold, 'state': 'held', 'public_release': False})

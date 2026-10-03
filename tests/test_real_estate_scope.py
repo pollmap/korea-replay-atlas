@@ -19,7 +19,7 @@ from test_real_estate_archive import LocalD1
 
 SCOPE = 'priority-nine'
 OUTSIDE = ('44150', '50110')
-ORDER = ('41111', '11110', '28125', '44131', '44200', '36110', '43111', '30110', '26110')
+ORDER = ('41111', '11110', '28125', '30110', '36110', '43111', '44131', '44200', '26110')
 
 
 def fixture_registry():
@@ -34,8 +34,8 @@ def test_pinned_scope_matches_official_current_codes_and_exact_nine_region_order
     actual = {r['lawd_code']: r for r in reg['regions']}
     assert len(FOCUS_RANKS) == 112 and set(FOCUS_RANKS) <= set(actual)
     assert [(name, len(codes)) for name, codes in CODE_GROUPS] == [
-        ('경기',47), ('서울',25), ('인천',11), ('천안',2), ('아산',1),
-        ('세종',1), ('청주',4), ('대전',5), ('부산',16)]
+        ('경기',47), ('서울',25), ('인천',11), ('대전',5), ('세종',1),
+        ('청주',4), ('천안',2), ('아산',1), ('부산',16)]
     for prefix, name in [('41','경기'), ('11','서울'), ('28','인천'), ('30','대전'), ('26','부산')]:
         assert set(dict(CODE_GROUPS)[name]) == {code for code in actual if code[:2] == prefix}
     expected_city_codes = {'천안': ('44131','44133'), '아산': ('44200',),
