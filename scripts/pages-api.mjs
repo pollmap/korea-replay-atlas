@@ -14,7 +14,7 @@ export function pagesAssetHash(bytes,name){return blake3.hash(bytes.toString('ba
 function projectName(project){if(!PROJECTS.has(project))throw new Error('Only this application\'s two Pages projects are permitted');return project;}
 function mime(name){return ({'.html':'text/html; charset=utf-8','.js':'application/javascript','.css':'text/css','.json':'application/json','.geojson':'application/geo+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.ico':'image/x-icon','.wasm':'application/wasm','.woff':'font/woff','.woff2':'font/woff2','.glb':'model/gltf-binary','.terrain':'application/vnd.quantized-mesh','.gz':'application/gzip'})[path.extname(name)]??'application/octet-stream';}
 class PagesTransportError extends Error {
-  constructor(){super('Pages API transport failed; no deployment retry was made');}
+  constructor(cause){const code=cause?.name==='TimeoutError'?'timeout':['UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_SOCKET','ECONNRESET','ETIMEDOUT'].includes(cause?.cause?.code)?cause.cause.code:'network';super(`Pages API transport failed (${code}); no deployment retry was made`);}
 }
 class PagesApiError extends Error {
   constructor(status,codes){super(`Pages API rejected request (${status}; codes ${codes.join(',')||'unknown'})`);this.status=status;this.codes=codes;}
@@ -37,7 +37,7 @@ export function createPagesApi({accountId,token,fetcher=fetch}){
       &&!/^\/pages\/assets\/(?:check-missing|upload|upsert-hashes)$/.test(route))throw new Error('Non-Pages endpoint rejected');
     const headers=new Headers({Authorization:`Bearer ${uploadToken??token}`});
     if(body!==undefined&&!(body instanceof FormData)){headers.set('Content-Type','application/json');body=JSON.stringify(body);}
-    let response;try{response=await fetcher(ORIGIN+PREFIX+route,{method,headers,body,redirect:'error',signal:AbortSignal.timeout(120000)});}catch{throw new PagesTransportError();}
+    let response;try{response=await fetcher(ORIGIN+PREFIX+route,{method,headers,body,redirect:'error',signal:AbortSignal.timeout(120000)});}catch(error){throw new PagesTransportError(error);}
     let payload;try{payload=await response.json();}catch{if(response.status===401)throw new PagesApiError(401,[]);throw new Error(`Pages API invalid response (${response.status})`);}
     if(!response.ok||payload?.success!==true){const codes=(payload?.errors??[]).map(error=>Number(error.code)).filter(Number.isFinite);throw new PagesApiError(response.status,codes);}
     return payload.result;
@@ -131,8 +131,9 @@ export async function deployPagesStage({receiptPath,projectRoot=process.cwd(),ap
   const assets=createPagesAssetSession(api,project),hashes=[...new Set([...map.values()].map(entry=>entry.key))],missing=await assets.missing(hashes);
   if(!Array.isArray(missing)||missing.some(hash=>!hashes.includes(hash)))throw new Error('Pages returned an unexpected missing-asset list');
   const missingSet=new Set(missing),unique=new Map();for(const entry of map.values())if(missingSet.has(entry.key))unique.set(entry.key,entry);
-  // Two bounded uploads. At most two individual 25 MiB files plus base64/JSON are resident.
-  const buckets=[];let bucket=[],bytes=0;for(const entry of unique.values()){if(bucket.length&&(bytes+entry.bytes>16*1024*1024||bucket.length>=200)){buckets.push(bucket);bucket=[];bytes=0;}bucket.push(entry);bytes+=entry.bytes;}if(bucket.length)buckets.push(bucket);
+  // Two bounded 4 MiB buckets avoid oversized requests on slow links. A single
+  // asset can still be up to the independently audited 25 MiB platform limit.
+  const buckets=[];let bucket=[],bytes=0;for(const entry of unique.values()){if(bucket.length&&(bytes+entry.bytes>4*1024*1024||bucket.length>=200)){buckets.push(bucket);bucket=[];bytes=0;}bucket.push(entry);bytes+=entry.bytes;}if(bucket.length)buckets.push(bucket);
   onProgress({phase:'missing',files:unique.size,total:hashes.length,cached:hashes.length-unique.size});
   const uploaded=await uploadPagesBuckets({buckets,assets,onProgress,loadItems:async current=>{const items=[];
     for(const entry of current){const content=await readFile(path.join(checked.client,entry.target));if(sha(content)!==entry.sha256)throw new Error('Asset changed during upload');items.push({key:entry.key,value:content.toString('base64'),metadata:{contentType:mime(entry.target)},base64:true});}
