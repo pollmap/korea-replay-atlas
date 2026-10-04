@@ -66,7 +66,7 @@ it.each([120,240] as const)('shows %s-month detail and comparison periods withou
   expect(history.indexOf('history-coverage')).toBeLessThan(history.indexOf('history-chart-toolbar'));
   expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('history-secondary-tools'));
   expect(history.indexOf('history-secondary-tools')).toBeLessThan(history.indexOf('거래 기간 이동'));
-  expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('월별 자료 확보 상태'));
+  expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('월별 자료 보기'));
   const comparison=renderToStaticMarkup(createElement(ComplexComparison,{atlas:atlas(),items:[complex],month:'202608',range,onRange:()=>{},trade:'sale',area:'84-band',onArea:()=>{},onRemove:()=>{}}));
   expect(comparison).toContain(`${range===240?'2006':'2016'}.09–2026.08`);expect(comparison).toContain('비교 조회 기간');
   expect(comparison).not.toContain('0건');
