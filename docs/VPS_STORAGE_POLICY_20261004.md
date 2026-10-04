@@ -1,0 +1,3 @@
+# VPS storage policy — 2026-10-04
+
+The user revoked the fixed 30 GiB reserve. The collector now keeps a 2 GiB emergency margin and preflights a bounded 64 MiB batch with 16x staging allowance plus three checkpoint database copies. The 80% utilization and 35 GiB start gates are removed. Backup continues its own incremental object-size check; read-model publication checks three database copies plus the same emergency margin. Storage shortage waits and retries; authentication/hash errors still latch. Existing raw files, quotas, ownership and public releases are unchanged. This does not complete automatic Pages publication.

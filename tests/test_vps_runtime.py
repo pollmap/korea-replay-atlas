@@ -397,3 +397,19 @@ def test_failed_coverage_refresh_keeps_previous_cache_without_marking_new_genera
     with pytest.raises(RealEstateError): api.acquisition()
     assert api.coverage == before['acquisition']
     assert api.coverage_generation == before['read_model']['generation']
+
+
+def test_collection_start_uses_workload_not_disk_percentage(tmp_path, monkeypatch):
+    from collections import namedtuple
+    Usage = namedtuple('Usage', 'total used free')
+    root = tmp_path / 'collector'; root.mkdir()
+    (root / 'checkpoint.sqlite').write_bytes(b'checkpoint')
+    class ReachedDatabase(Exception): pass
+    def reached(*args, **kwargs): raise ReachedDatabase()
+    monkeypatch.setattr(vps_runtime.sqlite3, 'connect', reached)
+    monkeypatch.setattr(vps_runtime.shutil, 'disk_usage', lambda _: Usage(1000 * 1024**3, 995 * 1024**3, 5 * 1024**3))
+    with pytest.raises(ReachedDatabase):
+        vps_runtime._collect_once(root, tmp_path / 'backups', tmp_path / 'secret')
+    monkeypatch.setattr(vps_runtime.shutil, 'disk_usage', lambda _: Usage(1000 * 1024**3, 998 * 1024**3, 2 * 1024**3))
+    with pytest.raises(RealEstateError, match='vps_storage_review_required'):
+        vps_runtime._collect_once(root, tmp_path / 'backups', tmp_path / 'secret')
