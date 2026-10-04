@@ -32,7 +32,8 @@ from .property_automation import requeue_safe_failures
 from .property_read_model import ReadModel, publish as publish_read_model
 from .property_read_model_retention import reclaim_generations
 
-RESERVE = 30 * 1024**3
+RESERVE = 2 * 1024**3
+COLLECTION_BYTES = 64 * 1024**2
 MAX_RESPONSE = 1024**2
 MAX_API_SNAPSHOT = 16 * 1024**2
 ACCEPTED_STOPS = {'run_budget', 'work_complete', 'local_daily_budget'}
@@ -96,7 +97,8 @@ def collect_once(root, backups, secret_file, *, max_requests=500, progress=None)
 def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None):
     root = Path(root)
     use = shutil.disk_usage(root)
-    if use.used / use.total >= .8 or use.free < RESERVE + 5 * 1024**3:
+    required = RESERVE + COLLECTION_BYTES * 16 + (root / "checkpoint.sqlite").stat().st_size * 3
+    if use.free < required:
         raise RealEstateError('vps_storage_review_required')
     with closing(sqlite3.connect((root / 'checkpoint.sqlite').as_uri() + '?mode=ro', uri=True)) as db:
         registry_hash = db.execute("SELECT value FROM meta WHERE key='registry_sha256'").fetchone()[0]
@@ -114,7 +116,7 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
         retries = requeue_safe_failures(collector.db, stamp, limit=5,
                                        first_acquisition_only=False, scope='priority-nine')
         report = collector.collect(read_key(secret_file), max_requests=max_requests,
-                                   max_bytes=64 * 1024**2, daily_budget=8000, min_interval=.3,
+                                   max_bytes=COLLECTION_BYTES, daily_budget=8000, min_interval=.3,
                                    timeout=60, first_acquisition_only=False, collect_trades=trades, progress=progress)
     finally:
         collector.close()
@@ -178,7 +180,7 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                     raise RealEstateError(stop)
                 if report['collection']['requests'] or not (data / 'read-model/current.json').is_file():
                     try:
-                        model = publish_read_model(data)
+                        model = publish_read_model(data, reserve_bytes=RESERVE)
                         write_json(data / 'read-model-status.json', {'at': instant(), 'state': 'ready',
                                    'generation': model['generation']})
                         retire_acknowledged_read_models(data, model)
@@ -191,7 +193,7 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                                    'public_release': False})
             except Exception as error:
                 code = error.code if isinstance(error, RealEstateError) else 'vps_collection_failed'
-                if code == 'vps_bulk_work_busy':
+                if code in {'vps_bulk_work_busy', 'vps_storage_review_required', 'disk_reserve', 'read_model_storage_reserve'}:
                     write_json(state, {'at': instant(), 'state': 'waiting', 'stop_reason': code, 'public_release': False})
                     time.sleep(interval); continue
                 hold = {'at': instant(), 'error_code': code}
