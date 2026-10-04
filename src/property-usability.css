@@ -188,6 +188,12 @@
  .atlas-shell.is-2d.is-exploring .pc-detail .property-discovery{display:flex;flex-direction:column}
  .atlas-shell.is-2d.is-exploring .pc-detail .property-discovery .property-saved-filters{order:8;margin:12px 0 0}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-search{margin:4px 0 8px;font-size:12px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-primary-selects{display:grid;grid-template-columns:90px minmax(0,1fr) minmax(0,1fr)}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-primary-selects label{min-width:0}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-primary-selects select{width:100%;min-width:0}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-advanced-conditions{margin-top:12px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-source-note{font-size:12px;line-height:16px;margin:2px 0}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-trade-only{margin:3px 0}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-search input{height:34px;min-height:34px;margin-top:4px;font-size:12px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-filter-chips{gap:4px;margin:0 0 7px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-filter-chips button{min-height:30px;font-size:12px;padding:4px 7px}
@@ -280,3 +286,22 @@
 .app-shell.atlas-shell.is-2d.is-exploring.is-focused .workspace-header-tools>button{display:none}
 .app-shell.atlas-shell.is-2d.is-exploring.is-focused .workspace-search input{height:44px;background:#fff;box-shadow:0 3px 12px #122e4c12}
 .app-shell.atlas-shell.is-2d.is-exploring.is-focused .workspace-search-results{top:46px}
+
+/* Keep the selected boundary and marker controls out of the central map. */
+@media(min-width:781px){
+ .atlas-shell.is-2d .selected-region-caption{top:60px;gap:8px;padding:4px 7px;border-radius:4px;box-shadow:none;background:#fff;max-width:calc(100% - 120px)}
+ .atlas-shell.is-2d.has-property .selected-region-caption{left:calc(var(--atlas-rail-width) + 12px);max-width:calc(100% - var(--atlas-rail-width) - 110px)}
+ .atlas-shell.is-2d .selected-region-caption strong{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .atlas-shell.is-2d .selected-region-caption .boundary-meta{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .atlas-shell.is-2d .selected-region-caption select{min-height:30px;border-radius:3px;background:#fff}
+ .atlas-shell.is-2d .selected-region-caption button{min-height:30px;font-size:12px}
+ .atlas-shell.is-2d .map-apartment-label-control{top:104px;right:80px;border-radius:4px;box-shadow:none;background:#fff}
+ .atlas-shell.is-2d .map-apartment-label-control select{min-height:30px;border-radius:3px}
+}
+
+@media(min-width:781px){
+ .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-header>div{display:flex;align-items:center;gap:8px;min-width:0}
+ .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-header h2{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-header .property-back{margin:0;white-space:nowrap}
+ .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-type-switch{margin:0}
+}
