@@ -58,9 +58,9 @@ export function regionMapData(input:RegionMapInput|null|undefined):RegionMapData
       const unavailable=conditionsMatch?missingMetricLabel(metric.status):input.filterMetricState==='loading'?'불러오는 중':input.filterMetricState==='error'?'조회 실패':input.area&&input.area!=='84-band'?'면적 집계 없음':'기간 집계 없음';
       const selectedCount=selected?.count??null;
       const selectedValue=selected&&selectedCount!==null?regionValueLabel(trade,selected.median_per_m2,selectedCount):null;
-      const selectedLabel=selectedValue?{value_label:selectedValue.value_label+(selected!.status==='partial'?' · 일부':''),value_kind:selected!.status==='partial'&&selectedValue.value_kind!=='unavailable'?`partial-${selectedValue.value_kind}` as const:selectedValue.value_kind}:null;
+      const selectedLabel=selectedValue?{value_label:selectedValue.value_label,value_kind:selected!.status==='partial'&&selectedValue.value_kind!=='unavailable'?`partial-${selectedValue.value_kind}` as const:selectedValue.value_kind}:null;
       data.features.push({type:'Feature',id:`${releaseId}:${row.lawd_code}`,geometry:{type:'Point',coordinates:[location.place.lon,location.place.lat]},
-        properties:{property_region_code:row.lawd_code,property_release:releaseId,region_name:row.name.trim(),display_name:shortName(row.name),contract_month:month,trade_type:trade,count:selected?selectedCount:published?count:null,count_label:selected?selectedCount===null?missingMetricLabel(selected.status):`${selectedCount.toLocaleString('ko-KR')}건${selected.status==='partial'?' · 일부':''}`:published?`${count!.toLocaleString('ko-KR')}건`:unavailable,month_label:`${month.slice(2,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'}`,sort_key:selectedCount!==null?-selectedCount:published?-count!:0,
+        properties:{property_region_code:row.lawd_code,property_release:releaseId,region_name:row.name.trim(),display_name:shortName(row.name),contract_month:month,trade_type:trade,count:selected?selectedCount:published?count:null,count_label:selected?selectedCount===null?missingMetricLabel(selected.status):`${selectedCount.toLocaleString('ko-KR')}건`:published?`${count!.toLocaleString('ko-KR')}건`:unavailable,month_label:`${month.slice(2,4)}.${month.slice(4)} ${trade==='sale'?'매매':'전월세'}`,sort_key:selectedCount!==null?-selectedCount:published?-count!:0,
           ...(selected?(selectedLabel??{value_label:missingMetricLabel(selected.status),value_kind:'unavailable' as const}):published?regionValueLabel(trade,metric.median_price_per_m2_krw,count!):{value_label:unavailable,value_kind:'unavailable' as const}),
           anchor_purpose:'region-navigation-only',anchor_source_record_id:location.sourceRecordId,anchor_reference_date:location.boundaryReferenceDate}});
     }
@@ -103,7 +103,7 @@ export function provinceMapData(input:RegionMapInput|null|undefined):FeatureColl
       if(!Number.isSafeInteger(count)){valid=false;break;}
     }
     if(!valid||!rows.length)continue;
-    data.features.push({type:'Feature',id:`${input.property.release_id}:${name}`,geometry:{type:'Point',coordinates:[navigation.place.lon,navigation.place.lat]},properties:{property_province_name:name,property_release:input.property.release_id,display_name:provinceShortName(name),count_label:complete?`${count.toLocaleString('ko-KR')}건`:observed?`${count.toLocaleString('ko-KR')}건 · 일부`:'미수집',member_count:rows.length,contract_month:month,trade_type:trade,anchor_purpose:'province-navigation-only'}});
+    data.features.push({type:'Feature',id:`${input.property.release_id}:${name}`,geometry:{type:'Point',coordinates:[navigation.place.lon,navigation.place.lat]},properties:{property_province_name:name,property_release:input.property.release_id,display_name:provinceShortName(name),count_label:complete?`${count.toLocaleString('ko-KR')}건`:observed?`${count.toLocaleString('ko-KR')}건`:'미수집',member_count:rows.length,contract_month:month,trade_type:trade,anchor_purpose:'province-navigation-only'}});
   }
   return data;
 }
