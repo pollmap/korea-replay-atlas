@@ -82,7 +82,6 @@ it('applies identical reviewed-name scope to working files and historical Git bl
 },30_000);
 
 // A reviewed public complex name must not become a general JSON exception.
-import {readFileSync} from 'node:fs';
 it('reviews exact official name tokens in the pinned search index only',()=>{
  const name='src/data/property-search-index-ceeff63959643461.json',body=readFileSync(name);
  const checked=scanPublicFile(body,name);expect(checked.findings).toEqual([]);expect(checked.reviewedComplexNames).toHaveLength(3);
