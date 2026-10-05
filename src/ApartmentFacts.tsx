@@ -1,3 +1,4 @@
+import completedSource from './data/seoul-apartment-facts-ceeff63959643461.json';
 import {useMemo} from 'react';
 import source from './data/seoul-apartment-facts.json';
 import historySource from './data/seoul-apartment-facts-54bf1817fdcc7bd9.json';
@@ -30,7 +31,7 @@ export function createApartmentFactsLookup(sources:readonly unknown[]){
   };
 }
 // Add new audited generated sources here; preserve older sources for pinned shares.
-const index=createApartmentFactsLookup([source,historySource,refreshedSource,currentSource,nextSource,pcSource,auditedSource]);
+const index=createApartmentFactsLookup([completedSource,source,historySource,refreshedSource,currentSource,nextSource,pcSource,auditedSource]);
 export default function ApartmentFacts({complexId,release}:{complexId:string;release:string}){
   const result=useMemo(()=>{try{const data=index(release);return {data,facts:data?.rows.get(complexId),invalid:false};}catch{return {data:undefined,facts:undefined,invalid:true};}},[complexId,release]);
   const {data,facts,invalid}=result,parking=facts?parkingPerHousehold(facts):null;

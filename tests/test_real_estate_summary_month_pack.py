@@ -52,3 +52,23 @@ def test_changed_month_input_and_public_output_are_rejected(tmp_path):
     (input_path.parent / asset['path']).write_bytes(b'changed')
     with pytest.raises(RealEstateError, match='checkpoint_size_mismatch|checkpoint_hash_mismatch'):
         build(input_path, tmp_path / 'packed', reserve_bytes=0)
+
+
+def test_compressed_input_and_output_preserve_summary_identity_and_decode_bounds(tmp_path):
+    from pipeline.real_estate_publish import checked_read
+    root=setup(tmp_path);pub=publish(root,registry(),tmp_path/'source',reserve_bytes=0,packed_transactions=True,compressed_transactions=True)
+    summary=summarize(tmp_path/'source'/pub['release_id']/'publication.json',tmp_path/'summary',reserve_bytes=0,compressed_assets=True)
+    assert any('transport' in row for row in summary['files'])
+    source=tmp_path/'summary'/summary['summary_release_id']/'publication.json'
+    packed=build(source,tmp_path/'packed',reserve_bytes=0,compressed_assets=True)
+    plain=build(source,tmp_path/'packed',reserve_bytes=0)
+    assert packed['summary_release_id']!=plain['summary_release_id']
+    assert packed['audit']['grouped_rows']==plain['audit']['grouped_rows']==3
+    assert packed['audit']['summary_group_identity_sha256']==plain['audit']['summary_group_identity_sha256']
+    assert build(source,tmp_path/'packed',reserve_bytes=0,compressed_assets=True)==packed
+    for row in packed['files']:
+        decoded=checked_read(tmp_path/'packed'/packed['summary_release_id'],{**row,'bytes':row['byte_length']},24*1024**2)
+        assert json.loads(decoded)['property_release_id']==pub['release_id']
+    bad=next(row for row in packed['files'] if 'transport' in row)
+    target=tmp_path/'packed'/packed['summary_release_id']/bad['path'];target.write_bytes(target.read_bytes()[:-8])
+    with pytest.raises(RealEstateError):build(source,tmp_path/'packed',reserve_bytes=0,compressed_assets=True)

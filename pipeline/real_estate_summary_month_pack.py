@@ -17,12 +17,13 @@ import tempfile
 
 from .real_estate import RealEstateError, canonical_bytes, sha256, _reject_links
 from .real_estate_publish import checked_read, MAX_ASSET
+from .property_transport import encode
 
 POLICY = 'property-summary-month-pack-v1'
 TARGET_ASSET = 4 * 1024**2
 
 
-def build(publication_path, output_root, *, reserve_bytes=30 * 1024**3, target_bytes=TARGET_ASSET):
+def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_bytes=TARGET_ASSET, compressed_assets=False):
     if type(reserve_bytes) is not int or reserve_bytes < 0 or type(target_bytes) is not int or not 1024 <= target_bytes <= TARGET_ASSET:
         raise RealEstateError('summary_pack_invalid_budget')
     publication_path = Path(publication_path).absolute(); _reject_links(publication_path)
@@ -39,8 +40,10 @@ def build(publication_path, output_root, *, reserve_bytes=30 * 1024**3, target_b
         name = row.get('path')
         if not isinstance(name, str) or not name.startswith(old_prefix) or name in files:
             raise RealEstateError('summary_pack_source_invalid')
-        files[name] = {'path': name, 'sha256': row.get('sha256'), 'bytes': row.get('byte_length')}
+        files[name] = {'path': name, 'sha256': row.get('sha256'), 'bytes': row.get('byte_length'), **({'transport':row['transport']} if 'transport' in row else {})}
     identity = {'policy': POLICY, 'parent_publication_sha256': sha256(raw)}
+    if type(compressed_assets) is not bool:raise RealEstateError('summary_pack_invalid_transport')
+    if compressed_assets:identity['transport']='explicit-gzip-summary-v1'
     if target_bytes != TARGET_ASSET:
         identity['target_bytes'] = target_bytes
     summary_id = 'summary-' + sha256(canonical_bytes(identity))[:16]
@@ -50,7 +53,7 @@ def build(publication_path, output_root, *, reserve_bytes=30 * 1024**3, target_b
     if final.exists():
         result = json.loads((final / 'publication.json').read_bytes())
         for row in result['files']:
-            checked_read(final, {'path': row['path'], 'sha256': row['sha256'], 'bytes': row['byte_length']}, MAX_ASSET)
+            checked_read(final, {'path': row['path'], 'sha256': row['sha256'], 'bytes': row['byte_length'], **({'transport':row['transport']} if 'transport' in row else {})}, MAX_ASSET)
         return result
     if shutil.disk_usage(output).free < reserve_bytes + 512 * 1024**2: raise RealEstateError('disk_reserve')
     stage = Path(tempfile.mkdtemp(prefix='.summary-pack-incomplete-', dir=output))
@@ -62,13 +65,19 @@ def build(publication_path, output_root, *, reserve_bytes=30 * 1024**3, target_b
         return json.loads(checked_read(source_root, files[name], MAX_ASSET))
 
     def emit(name, value):
-        payload = canonical_bytes(value)
-        if len(payload) > target_bytes or len(assets) >= 18_000: raise RealEstateError('summary_pack_asset_budget')
-        if shutil.disk_usage(stage).free - len(payload) - 4096 < reserve_bytes: raise RealEstateError('disk_reserve')
-        path = prefix + name; target = stage / path; target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open('xb') as stream: stream.write(payload)
-        digest = sha256(payload); assets.append({'path': path, 'sha256': digest, 'byte_length': len(payload)})
-        return {'url': '/' + path, 'sha256': digest, 'bytes': len(payload)}
+        payload=canonical_bytes(value)
+        if len(payload)>target_bytes or len(assets)>=18_000:raise RealEstateError('summary_pack_asset_budget')
+        compressed=compressed_assets and name.startswith(('month-packs/','complexes/'))
+        encoded=encode(payload) if compressed else payload
+        if shutil.disk_usage(stage).free-len(encoded)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
+        path=prefix+name;target=stage/path;target.parent.mkdir(parents=True,exist_ok=True)
+        with target.open('xb') as stream:stream.write(encoded)
+        entry={'path':path,'sha256':sha256(encoded),'byte_length':len(encoded)}
+        reference={'url':'/'+path,'sha256':sha256(payload),'bytes':len(payload)}
+        if compressed:
+            entry['transport']={'encoding':'gzip','decoded_sha256':sha256(payload),'decoded_bytes':len(payload)}
+            reference['transport']={'encoding':'gzip','sha256':sha256(encoded),'bytes':len(encoded)}
+        assets.append(entry);return reference
 
     manifest = read(old_prefix + 'manifest.json')
     region_refs = []; total_count = 0; groups_count = 0; input_digest = hashlib.sha256(); output_digest = hashlib.sha256()
