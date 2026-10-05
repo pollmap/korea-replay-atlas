@@ -70,3 +70,8 @@ describe('PC list period controls and pending state',()=>{
     expect(html).toContain('단지·투자 조건');expect(html).toContain('disabled="" title="공식 자료 연결 전">공급면적');expect(html).toContain('갭가격 · 연결 전');
   });
 });
+
+it('uses the shared area range when local list bounds are absent',()=>{
+  const rows=[summary('a','202609',{area_m2:'60',transaction_count:2}),summary('a','202609',{area_m2:'85',transaction_count:3}),summary('a','202609',{area_m2:'86',transaction_count:99})];
+  expect(search([complex('a')],rows,['202609'],{},undefined,'sale','range:60:85').items[0].count).toBe(5);
+});

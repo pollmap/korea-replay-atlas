@@ -4,7 +4,7 @@ import {discoverPropertyComplexes,EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDisco
 import {transactionPrice} from '../shared/property-pricing';
 import {moneyLabel,monthLabel} from '../shared/property-view';
 import {HISTORY_RANGES,historyMonths,historyRangeLabel,type HistoryRange} from '../shared/property-history';
-import {areaMatches,exclusivePyeong,NATIONAL_AREA} from '../shared/property-area';
+import {areaMatches,areaRangeBounds,areaFromBounds,exclusivePyeong,NATIONAL_AREA} from '../shared/property-area';
 import {propertyFilterChips} from '../shared/property-filter-chips';
 import PropertySavedFilters from './PropertySavedFilters';
 import type {RentKind} from '../shared/property-rent';
@@ -26,11 +26,11 @@ const PAGE_SIZE=40;
 
 export default function PropertyComplexList({complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea}:PropertyComplexListProps){
   const [localFilters,setFilters]=useState<PropertyDiscoveryFilters>(EMPTY_PROPERTY_DISCOVERY_FILTERS),[page,setPage]=useState(0);
-  const filters=useMemo(()=>({...localFilters,...(area?{areaMinM2:area===NATIONAL_AREA?'84':area,areaMaxM2:area===NATIONAL_AREA?'84.99999':area}:{}),...(dong!==undefined?{dong}:{}),...(rentKind!==undefined?{rentKind}:{})}),[localFilters,rentKind,dong,area]);
+  const filters=useMemo(()=>{const range=area?areaRangeBounds(area):null;return {...localFilters,...(area?{areaMinM2:range?.min??(area===NATIONAL_AREA?'84':area),areaMaxM2:range?.max??(area===NATIONAL_AREA?'84.99999':area)}:{}),...(dong!==undefined?{dong}:{}),...(rentKind!==undefined?{rentKind}:{})};},[localFilters,rentKind,dong,area]);
   useEffect(()=>setPage(0),[rentKind,dong,area,periodMonths,month]);
   const summaryRequested=!!release&&!!savedFilterRegion&&!!month&&periodMonths!==undefined&&HISTORY_RANGES.includes(periodMonths);
   const months=useMemo(()=>summaryRequested?historyMonths(month!,periodMonths!):[],[summaryRequested,month,periodMonths]);
-  const summaryKey=summaryRequested?`${release}:${savedFilterRegion}:${month}:${periodMonths}`:'';
+  const summaryKey=summaryRequested?JSON.stringify([release,savedFilterRegion,month,periodMonths,trade,area??'',rentKind??'all']):'';
   const [summary,setSummary]=useState<{key:string;state:'loading'|'ready'|'unavailable'|'error';data?:MonthlySummaryData;error?:string}>({key:'',state:'loading'});
   const [attempt,setAttempt]=useState(0);
   useEffect(()=>{if(!summaryRequested)return;const controller=new AbortController();
@@ -54,11 +54,11 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
   const dongs=useMemo(()=>propertyDiscoveryDongs(complexes),[complexes]);
   const lastPage=Math.max(0,Math.ceil(result.items.length/PAGE_SIZE)-1),currentPage=Math.min(page,lastPage),start=currentPage*PAGE_SIZE;
   const visible=items.slice(start,start+PAGE_SIZE);
-  const change=<K extends keyof PropertyDiscoveryFilters>(key:K,value:PropertyDiscoveryFilters[K])=>{setFilters(current=>({...current,...(area?{areaMinM2:filters.areaMinM2,areaMaxM2:filters.areaMaxM2}:{}),[key]:value}));if(key==='dong')onDong?.(String(value));if(key==='areaMinM2'||key==='areaMaxM2')onArea?.('');setPage(0);};
+  const change=<K extends keyof PropertyDiscoveryFilters>(key:K,value:PropertyDiscoveryFilters[K])=>{setFilters(current=>({...current,...(area?{areaMinM2:filters.areaMinM2,areaMaxM2:filters.areaMaxM2}:{}),[key]:value}));if(key==='dong')onDong?.(String(value));if(key==='areaMinM2'||key==='areaMaxM2')onArea?.(areaFromBounds(key==='areaMinM2'?String(value):filters.areaMinM2,key==='areaMaxM2'?String(value):filters.areaMaxM2));setPage(0);};
   const chips=propertyFilterChips(filters,trade),active=chips.length>0;
   const nationalArea=area===NATIONAL_AREA||filters.areaMinM2==='84'&&filters.areaMaxM2==='84.99999';
   return <section className="property-discovery" aria-label="아파트 단지 찾기">
-    {savedFilterRegion&&<PropertySavedFilters region={savedFilterRegion} trade={trade} filters={filters} onApply={value=>{setFilters(value);onArea?.(value.areaMinM2==='84'&&value.areaMaxM2==='84.99999'?NATIONAL_AREA:value.areaMinM2&&value.areaMinM2===value.areaMaxM2?value.areaMinM2:'');onDong?.(value.dong);onRentKind?.(value.rentKind??'all');setPage(0);setFilterPanel(null);}}/>}
+    {savedFilterRegion&&<PropertySavedFilters region={savedFilterRegion} trade={trade} filters={filters} onApply={value=>{setFilters(value);onArea?.(areaFromBounds(value.areaMinM2,value.areaMaxM2));onDong?.(value.dong);onRentKind?.(value.rentKind??'all');setPage(0);setFilterPanel(null);}}/>}
     <label className="discovery-search"><span className="sr-only">단지 찾기</span><input type="search" value={filters.query} placeholder="아파트 이름 또는 법정동" onChange={event=>change('query',event.target.value)} autoComplete="off"/></label>
     <div className="discovery-filter-chips" ref={filterButtons} role="group" aria-label="단지 조건 빠른 선택">{([['price',trade==='sale'?'매매가':'보증금',filters.priceMinEok||filters.priceMaxEok],['area','전용면적',filters.areaMinM2||filters.areaMaxM2],['year','건축연도',filters.buildYearMin||filters.buildYearMax]] as const).map(([id,label,enabled])=><button key={id} aria-expanded={filterPanel===id} aria-controls={panelId} data-filter={id} data-active={!!enabled} onClick={()=>setFilterPanel(current=>current===id?null:id)}>{label}{enabled?<span className="filter-active-dot" aria-label="적용 중"/>:<span aria-hidden="true">⌄</span>}</button>)}<button className="national-area-chip" aria-label="국평 전용 84㎡대 빠른 선택" aria-pressed={nationalArea} data-active={nationalArea} onClick={()=>{setFilters(current=>({...current,areaMinM2:nationalArea?'':'84',areaMaxM2:nationalArea?'':'84.99999'}));onArea?.(nationalArea?'':NATIONAL_AREA);setFilterPanel(null);setPage(0);}}>국평</button></div>
     <div className="discovery-selects discovery-primary-selects">
@@ -76,7 +76,7 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
         <label>최대<input inputMode="decimal" value={filters.priceMaxEok} onChange={event=>change('priceMaxEok',event.target.value)} placeholder="제한 없음" aria-label={`최대 ${trade==='sale'?'매매가':'보증금'} (억원)`}/></label>
       </fieldset>
       {trade==='rent'&&<p className="discovery-note">보증금만 필터합니다. 월세는 최근 계약에 따로 표시합니다.</p>}</>}
-      {filterPanel==='area'&&<><div className="filter-presets">{[['국평 · 84㎡대','84','84.99999'],['60㎡ 이하','','60'],['60–85㎡','60','85'],['85–102㎡','85','102'],['102㎡ 이상','102','']].map(([label,min,max])=><button key={label} aria-pressed={filters.areaMinM2===min&&filters.areaMaxM2===max} onClick={()=>{setFilters(current=>({...current,areaMinM2:min,areaMaxM2:max}));onArea?.(min==='84'&&max==='84.99999'?NATIONAL_AREA:'');setPage(0);}}>{label}</button>)}</div><fieldset>
+      {filterPanel==='area'&&<><div className="filter-presets">{[['국평 · 84㎡대','84','84.99999'],['60㎡ 이하','','60'],['60–85㎡','60','85'],['85–102㎡','85','102'],['102㎡ 이상','102','']].map(([label,min,max])=><button key={label} aria-pressed={filters.areaMinM2===min&&filters.areaMaxM2===max} onClick={()=>{setFilters(current=>({...current,areaMinM2:min,areaMaxM2:max}));onArea?.(areaFromBounds(min,max));setPage(0);}}>{label}</button>)}</div><fieldset>
         <legend>전용면적 · ㎡</legend>
         <label>최소<input inputMode="decimal" value={filters.areaMinM2} onChange={event=>change('areaMinM2',event.target.value)} placeholder="제한 없음" aria-label="최소 전용면적 (제곱미터)"/></label>
         <span aria-hidden="true">–</span>

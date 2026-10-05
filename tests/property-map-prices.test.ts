@@ -49,3 +49,11 @@ describe('summary contract audit',()=>{
     expect(()=>parseComplexMonthSummaryPack({...pack,months:[...pack.months,...pack.months]},release,'11710','202608')).toThrow();
   });
 });
+
+it('keeps the same shared range in map prices and rejects out-of-range reports',()=>{
+  const selected=readPropertyView('#regionCode=11710&month=202608&historyMonths=3&area=range:60:85',{from:'200610',to:'202610',latest_complete_month:'202609'});
+  expect(selected.area).toBe('range:60:85');
+  expect(labels(selected).filtered_price_label).toBe('9억');
+  expect(labels({...selected,area:'range::60'}).filtered_label).toBe('해당 거래 없음');
+  expect(propertyMapFilterKey(release,selected)).not.toBe(propertyMapFilterKey(release,{...selected,area:'range::60'}));
+});
