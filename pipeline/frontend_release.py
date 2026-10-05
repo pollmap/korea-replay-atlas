@@ -44,6 +44,7 @@ AUDITED_REPLACED_CHUNKS = {
     },
 }
 AUDITED_ADDITIONAL_CHUNKS = {
+    ('property-search.worker', 'js'): {'sha256': 'cdc6fb9b123acb7ae859683a4fa28e584c16178020d73ff2e4c6126caef1545f', 'bytes': 3080},
     ('property-view', 'js'): {
         'sha256': 'ebe9402c9cdd0e92ca9f1fe44f6b1bd8ec7fa911049f9843e6bf103adb480411',
         'bytes': 12566,
