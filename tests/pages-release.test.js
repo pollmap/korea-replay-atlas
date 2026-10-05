@@ -1,3 +1,4 @@
+import {gzipSync} from 'node:zlib';
 import {afterEach,describe,expect,it} from 'vitest';
 import {mkdtemp,mkdir,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -163,4 +164,14 @@ describe('independent Pages release stages',()=>{
     const f=await fixture(),staged=await stagePagesApp({...f,data});
     await expect(verifyPagesRemote({receiptPath:staged.receiptPath,projectRoot:f.projectRoot,origin:'https://1234abcd.korea-replay.pages.dev',fetcher:async()=>Response.json({schema_version:2,artifact_sha256:'0'.repeat(64)})})).rejects.toThrow('Remote runtime');
   });
+});
+
+it('checks compressed file bytes and decoded hash before accepting a data stage',async()=>{
+ const f=await fixture(),mapPublication=await dataFixture(f.projectRoot,'map_catalog'),propertyPublication=await dataFixture(f.projectRoot,'property_release');
+ const receipt=JSON.parse(await readFile(propertyPublication,'utf8')),raw=Buffer.from('{"price":365000000}'),encoded=gzipSync(raw),target='data/property-fixture/transaction.json';
+ const entry={path:target,sha256:sha(encoded),byte_length:encoded.length,transport:{encoding:'gzip',decoded_sha256:sha(raw),decoded_bytes:raw.length}};
+ await put(path.join(path.dirname(propertyPublication),target),encoded);receipt.files.push(entry);await put(propertyPublication,json(receipt));
+ await expect(stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication})).resolves.toBeDefined();
+ entry.transport.decoded_sha256='0'.repeat(64);await put(propertyPublication,json(receipt));
+ await expect(stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication})).rejects.toThrow('Decoded publication');
 });

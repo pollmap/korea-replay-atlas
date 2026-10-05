@@ -30,16 +30,18 @@ RELEASE = re.compile(r'^property-[a-f0-9]{16}$')
 STATES = {'complete', 'empty', 'pending', 'partial', 'failed', 'source_unavailable'}
 
 
-def _checked_publication(path):
+def _checked_publication(path, *, allow_public_baseline=False):
     path = Path(path).absolute()
     _reject_links(path)
     body = path.read_bytes()
     value = json.loads(body)
     release = value.get('release_id')
-    if (value.get('schema_version') != 1 or value.get('kind') != 'property-publication'
-            or not isinstance(release, str) or not RELEASE.fullmatch(release)
-            or value.get('audit', {}).get('raw_pages_reparsed') is not True
-            or value.get('audit', {}).get('source_hashes_verified') is not True):
+    source_audited=(value.get('kind')=='property-publication' and value.get('audit',{}).get('raw_pages_reparsed') is True and value.get('audit',{}).get('source_hashes_verified') is True)
+    public_baseline=(allow_public_baseline and value.get('kind')=='verified-public-property-baseline' and value.get('audit',{}).get('public_reference_hashes_verified') is True
+        and re.fullmatch(r'https://[a-f0-9]{8}\.korea-replay-data\.pages\.dev',value.get('audit',{}).get('source_origin',''))
+        and re.fullmatch(r'[a-f0-9]{64}',value.get('audit',{}).get('atlas_manifest_sha256','')))
+    if (value.get('schema_version') != 1 or not (source_audited or public_baseline)
+            or not isinstance(release, str) or not RELEASE.fullmatch(release)):
         raise RealEstateError('summary_source_not_audited')
     files = value.get('files')
     if not isinstance(files, list) or not 1 <= len(files) <= MAX_SOURCE_FILES:
@@ -50,7 +52,7 @@ def _checked_publication(path):
         name = row.get('path') if isinstance(row, dict) else None
         if not isinstance(name, str) or not name.startswith(prefix) or name in indexed:
             raise RealEstateError('summary_source_path_invalid')
-        indexed[name] = {'path': name, 'sha256': row.get('sha256'), 'bytes': row.get('byte_length')}
+        indexed[name] = {'path': name, 'sha256': row.get('sha256'), 'bytes': row.get('byte_length'), **({'transport': row['transport']} if 'transport' in row else {})}
     return path.parent, value, indexed, sha256(body)
 
 
@@ -141,7 +143,7 @@ def summarize_rows(rows):
     return result, audit
 
 
-def build(publication_path, output_root, *, reserve_bytes=30 * 1024**3, target_bytes=TARGET_ASSET, max_files=MAX_FILES):
+def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_bytes=TARGET_ASSET, max_files=MAX_FILES):
     if type(reserve_bytes) is not int or reserve_bytes < 0 or type(target_bytes) is not int or not 1024 <= target_bytes <= TARGET_ASSET:
         raise RealEstateError('summary_invalid_budget')
     if type(max_files) is not int or not MAX_FILES <= max_files <= 100_000:

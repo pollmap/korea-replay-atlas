@@ -1,3 +1,4 @@
+import {decodeGzip,validTransport,type AssetTransport} from '../shared/asset-transport';
 import {AssetLoadQueue} from '../shared/asset-loader';
 import {safeDataPath,validateAtlasManifest,type AtlasReleaseManifest,type RuntimeV2} from '../shared/runtime-v2';
 
@@ -34,7 +35,7 @@ export const atlasFetch:typeof fetch=async(input,init)=>{
     if(!response||controller.signal.aborted)throw new DOMException('Aborted','AbortError');return response;
   }finally{clearTimeout(timer);external?.removeEventListener('abort',abort);}
 };
-export interface PinnedJson {path?:string;url?:string;sha256:string;bytes?:number;byte_length?:number;}
+export interface PinnedJson {path?:string;url?:string;sha256:string;bytes?:number;byte_length?:number;transport?:AssetTransport;}
 export async function fetchPinnedJson(reference:PinnedJson,origin:string,signal:AbortSignal):Promise<unknown>{
   const path=reference.path??reference.url;
   if(!safeDataPath(path)||!/^[a-f0-9]{64}$/.test(reference.sha256))throw new Error('자료의 고정 참조를 확인하지 못했습니다.');
@@ -50,14 +51,16 @@ export async function fetchPinnedPoiJson(url:string,reference:PinnedJson,signal:
 }
 async function fetchVerifiedJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
-  const key=url+':'+reference.sha256,expected=reference.byte_length??reference.bytes,cached=jsonCache.get(key);
+  const expected=reference.byte_length??reference.bytes;
+  if(reference.transport!==undefined&&(!validTransport(reference.transport)||!Number.isSafeInteger(expected)||Number(expected)<=0||Number(expected)>24*1024*1024))throw new Error('자료의 압축 참조를 확인하지 못했습니다.');
+  const key=url+':'+reference.sha256+':'+(reference.transport?JSON.stringify(reference.transport):'identity'),cached=jsonCache.get(key);
   if(cached){if(expected!==undefined&&cached.bytes!==expected)throw new Error('자료의 크기가 검증된 목록과 다릅니다.');jsonCache.delete(key);jsonCache.set(key,cached);return cached.data;}
   let request=jsonRequests.get(key);
   if(request?.controller.signal.aborted){jsonRequests.delete(key);request=undefined;}
   if(!request){
     if(jsonRequests.size>=128)throw new Error('자료 요청이 많습니다. 잠시 후 다시 시도해 주세요.');
     const controller=new AbortController();
-    request={controller,promise:loadPinnedJson(url,reference.sha256,key,controller.signal),subscribers:0};
+    request={controller,promise:loadPinnedJson(url,reference,key,controller.signal),subscribers:0};
     jsonRequests.set(key,request);
     const current=request;
     const settled=()=>{if(jsonRequests.get(key)===current)jsonRequests.delete(key);};
@@ -73,12 +76,18 @@ async function fetchVerifiedJson(url:string,reference:PinnedJson,signal:AbortSig
     void current.promise.then(result=>{if(!finish())return;if(expected!==undefined&&result.bytes!==expected)reject(new Error('자료의 크기가 검증된 목록과 다릅니다.'));else resolve(result.data);},error=>{if(finish())reject(error);});
   });
 }
-async function loadPinnedJson(url:string,expectedHash:string,key:string,signal:AbortSignal):Promise<JsonResult>{
+async function loadPinnedJson(url:string,reference:PinnedJson,key:string,signal:AbortSignal):Promise<JsonResult>{
   const response=await atlasFetch(url,{signal});
   if(!response.ok)throw new Error(`자료를 불러오지 못했습니다. (${response.status})`);
-  const body=await response.arrayBuffer();
+  let body=await response.arrayBuffer();
+  if(reference.transport){
+    if(body.byteLength!==reference.transport.bytes)throw new Error('압축 자료의 크기가 검증된 목록과 다릅니다.');
+    const encodedHash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',body))].map(v=>v.toString(16).padStart(2,'0')).join('');
+    if(encodedHash!==reference.transport.sha256)throw new Error('압축 자료의 내용이 검증된 버전과 다릅니다.');
+    body=await decodeGzip(body,reference.byte_length??reference.bytes!,signal);
+  }
   const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',body))].map(v=>v.toString(16).padStart(2,'0')).join('');
-  if(sha!==expectedHash)throw new Error('자료의 내용이 검증된 버전과 다릅니다.');
+  if(sha!==reference.sha256)throw new Error('자료의 내용이 검증된 버전과 다릅니다.');
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const data=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(body));
   // Bounded by source bytes, not an assertion about measured JS heap size.

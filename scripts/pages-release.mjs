@@ -2,6 +2,7 @@ import {readFile,writeFile,mkdir,readdir,lstat,realpath,link,copyFile,constants}
 import {createHash} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
+import {gunzipSync} from 'node:zlib';
 import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {hashFile,verifyStagedDeployment} from './deploy-preflight.mjs';
@@ -225,7 +226,8 @@ async function publication(projectRoot,filename,kind){
   const entries=value.files.map(item=>({target:safePath(item.path.replace(/^\//,'')),sha256:item.sha256,bytes:item.byte_length}));auditEntries(entries);
   if(entries.some(entry=>!entry.target.startsWith('data/')||entry.target.endsWith('.pmtiles')&&entry.bytes>PAGE_LIMITS.archiveBytes))throw new Error('Non-data file or PMTiles archive above 1 MiB');
   const actual=await filesIn(path.join(root,'data'),'data/');if(json(actual)!==json(entries.map(entry=>entry.target).sort()))throw new Error('Publication does not contain its exact declared data closure');
-  await parallel(entries,async entry=>{const file=path.join(root,entry.target);await noLinks(root,file);if((await lstat(file)).size!==entry.bytes||await hashFile(file)!==entry.sha256)throw new Error('Data publication hash/size mismatch');});
+  await parallel(entries,async entry=>{const file=path.join(root,entry.target);await noLinks(root,file);if((await lstat(file)).size!==entry.bytes||await hashFile(file)!==entry.sha256)throw new Error('Data publication hash/size mismatch');const metadata=value.files.find(item=>item.path.replace(/^\//,'')===entry.target)?.transport;
+    if(metadata){if(metadata.encoding!=='gzip'||!SHA.test(metadata.decoded_sha256)||!Number.isSafeInteger(metadata.decoded_bytes)||metadata.decoded_bytes<=0||metadata.decoded_bytes>24*1024*1024)throw new Error('Invalid compressed publication metadata');const decoded=gunzipSync(await readFile(file),{maxOutputLength:metadata.decoded_bytes});if(decoded.length!==metadata.decoded_bytes||digest(decoded)!==metadata.decoded_sha256)throw new Error('Decoded publication hash/size mismatch');}});
   const referenced=entries.find(entry=>entry.target===referencePath);if(referenced?.sha256!==reference.sha256)throw new Error('Publication entry is absent or has a different hash');
   const body=JSON.parse(await readFile(path.join(root,referencePath),'utf8'));if((kind==='summary_release'?body.summary_release_id:body.release_id)!==reference.release_id)throw new Error('Publication release differs from entry body');
   if(kind==='summary_release'&&(body.kind!=='property-complex-summary-release'||body.property_release_id!==value.property_release_id))throw new Error('Summary property release differs from publication');

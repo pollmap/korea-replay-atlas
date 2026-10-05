@@ -1,9 +1,10 @@
+import {validTransport,type AssetTransport} from './asset-transport';
 import {areaMatches,NATIONAL_AREA} from './property-area';
 /** Immutable official-report release. Counts never turn missing/failed queries into zero. */
 export type PropertyTradeType = 'sale' | 'rent';
 export type PropertyStatus = 'complete' | 'empty' | 'failed' | 'pending' | 'partial' | 'source_unavailable';
 export interface PropertyRefresh {status:'pending'|'partial'|'failed';error_code:string|null;attempted_at:string|null;}
-export interface PropertyAsset { url:string; sha256:string; bytes:number; }
+export interface PropertyAsset { url:string; sha256:string; bytes:number; transport?:AssetTransport; }
 export interface PropertyPeriod { from:string; to:string; latest_complete_month:string; }
 export interface PropertyCoverage {
   expected:number; complete:number; empty:number; failed:number; pending:number; partial:number; source_unavailable?:number;
@@ -104,7 +105,8 @@ function code(v:unknown):v is string{return typeof v==='string'&&LAWD.test(v);}
 function hash(v:unknown):v is string{return typeof v==='string'&&HASH.test(v);}
 function asset(v:unknown):v is PropertyAsset{return obj(v)&&typeof v.url==='string'
   &&/^\/data\/property\/property-[a-f0-9]{16}\/[A-Za-z0-9/_-]+\.json$/.test(v.url)
-  &&hash(v.sha256)&&nat(v.bytes)&&v.bytes>0&&v.bytes<=24*1024*1024;}
+  &&hash(v.sha256)&&nat(v.bytes)&&v.bytes>0&&v.bytes<=24*1024*1024
+  &&(v.transport===undefined||validTransport(v.transport));}
 function coverage(v:unknown):v is PropertyCoverage{return obj(v)
   &&['expected','complete','empty','failed','pending','partial'].every(k=>nat(v[k]))
   &&(v.source_unavailable===undefined||nat(v.source_unavailable))
