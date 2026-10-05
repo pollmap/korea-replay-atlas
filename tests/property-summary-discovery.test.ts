@@ -75,3 +75,12 @@ it('uses the shared area range when local list bounds are absent',()=>{
   const rows=[summary('a','202609',{area_m2:'60',transaction_count:2}),summary('a','202609',{area_m2:'85',transaction_count:3}),summary('a','202609',{area_m2:'86',transaction_count:99})];
   expect(search([complex('a')],rows,['202609'],{},undefined,'sale','range:60:85').items[0].count).toBe(5);
 });
+
+it('restores shared recent-price bounds in the list even before summaries load, and clearing overrides local values',()=>{
+  const html=renderToStaticMarkup(createElement(PropertyComplexList,{complexes:[complex('a')],rows:[],dataReady:false,trade:'sale',onSelect:()=>{},latestPrice:{min:'3',max:'5'},area:'',release:'property-a'.padEnd(25,'a'),savedFilterRegion:'11110',month:'202609',periodMonths:36}));
+  expect(html).toContain('매매 3–5억');
+  expect(html).not.toContain('현재 조건 0건');
+  expect(html).toContain('data-filter="price" data-active="true"');
+  const cleared=renderToStaticMarkup(createElement(PropertyComplexList,{complexes:[],rows:[],dataReady:false,trade:'sale',onSelect:()=>{},latestPrice:{min:'',max:''},area:''}));
+  expect(cleared).not.toContain('매매 3–5억');
+});

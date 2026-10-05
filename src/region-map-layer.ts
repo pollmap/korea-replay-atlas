@@ -11,7 +11,7 @@ export const REGION_MAP_SOURCE='property-region-navigation';
 export const REGION_MAP_LAYER='property-region-volume-labels';
 export const PROVINCE_MAP_LAYER='property-province-volume-labels';
 export const REGION_MAP_IMAGE='property-region-volume-bubble';
-export interface RegionMapInput {map:Pick<MapCatalog2D,'reference_dates'>;property:Pick<PropertyRelease,'release_id'|'period'>;regions:PropertyRegions;trade?:'sale'|'rent';month?:string;historyMonths?:number;area?:string;rentKind?:string;filterMetrics?:RegionFilterMetrics|null;filterMetricState?:'loading'|'ready'|'error';}
+export interface RegionMapInput {complexPriceFiltered?:boolean;map:Pick<MapCatalog2D,'reference_dates'>;property:Pick<PropertyRelease,'release_id'|'period'>;regions:PropertyRegions;trade?:'sale'|'rent';month?:string;historyMonths?:number;area?:string;rentKind?:string;filterMetrics?:RegionFilterMetrics|null;filterMetricState?:'loading'|'ready'|'error';}
 export interface RegionMapProperties {
   property_region_code:string;property_release:string;region_name:string;display_name:string;
   contract_month:string;trade_type:'sale'|'rent';count:number|null;count_label:string;month_label:string;sort_key:number;
@@ -65,13 +65,16 @@ export function regionMapData(input:RegionMapInput|null|undefined):RegionMapData
           anchor_purpose:'region-navigation-only',anchor_source_record_id:location.sourceRecordId,anchor_reference_date:location.boundaryReferenceDate}});
     }
   }
+  // Region aggregates cannot answer a last-contract apartment qualification.
+  // Preserve navigable names, never show unfiltered prices/counts as matches.
+  if(input?.complexPriceFiltered)for(const feature of data.features){Object.assign(feature.properties,{count:null,count_label:'',value_label:'',value_kind:'unavailable',sort_key:0});}
   const range=HISTORY_RANGES.find(value=>value===input?.historyMonths)??1;
   const window=valid?historyMonths(month,range):[],start=window[0]??month;
   const periodLabel=start===month?`${month.slice(0,4)}.${month.slice(4)}`:`${start.slice(0,4)}.${start.slice(4)}~${month.slice(0,4)}.${month.slice(4)}`;
-  const uncollected=data.features.filter(feature=>feature.properties.count===null).length;
+  const uncollected=input?.complexPriceFiltered?0:data.features.filter(feature=>feature.properties.count===null).length;
   return {data,provinces:provinceMapData(valid?input:null),month,releaseId,total,excluded:total-data.features.length,uncollected,
-    caption:valid?`${periodLabel} ${trade==='sale'?'매매':'전월세'}${input?.area==='84-band'?' · 전용 84㎡대':''} · 지역 탐색`:`${trade==='sale'?'매매':'전월세'} · 자료 확인 중`,
-    notice:`패널과 같은 계약월·거래 유형·면적 조건을 사용합니다. 선택 기간의 유효 거래를 집계하며 다른 월 가격으로 대체하지 않습니다. 일부 표시는 미수집 월이 포함된 표본입니다. 미지원 면적·기간 집계는 별도로 표시합니다. 매매 평당가는 전용면적 기준 신고금액 중앙값이며 시세가 아닙니다. 점은 SGIS ${input?.map.reference_dates.sgis??''}의 지역 탐색 위치입니다. 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. 미수집·미연결은 0건과 다릅니다.`};
+    caption:input?.complexPriceFiltered?'단지 최근가격 조건 · 지역 탐색':valid?`${periodLabel} ${trade==='sale'?'매매':'전월세'}${input?.area==='84-band'?' · 전용 84㎡대':''} · 지역 탐색`:`${trade==='sale'?'매매':'전월세'} · 자료 확인 중`,
+    notice:input?.complexPriceFiltered?'최근 계약가격 조건은 단지에 적용합니다. 지역별 가격·거래량은 이 조건으로 집계되지 않아 이름만 표시합니다.':`패널과 같은 계약월·거래 유형·면적 조건을 사용합니다. 선택 기간의 유효 거래를 집계하며 다른 월 가격으로 대체하지 않습니다. 일부 표시는 미수집 월이 포함된 표본입니다. 미지원 면적·기간 집계는 별도로 표시합니다. 매매 평당가는 전용면적 기준 신고금액 중앙값이며 시세가 아닙니다. 점은 SGIS ${input?.map.reference_dates.sgis??''}의 지역 탐색 위치입니다. 단지 좌표나 현행 법정동 경계의 통계 결합이 아닙니다. 미수집·미연결은 0건과 다릅니다.`};
 }
 
 /** National overview never reports a partial province sum as a complete total. */
@@ -103,7 +106,7 @@ export function provinceMapData(input:RegionMapInput|null|undefined):FeatureColl
       if(!Number.isSafeInteger(count)){valid=false;break;}
     }
     if(!valid||!rows.length)continue;
-    data.features.push({type:'Feature',id:`${input.property.release_id}:${name}`,geometry:{type:'Point',coordinates:[navigation.place.lon,navigation.place.lat]},properties:{property_province_name:name,property_release:input.property.release_id,display_name:provinceShortName(name),count_label:complete?`${count.toLocaleString('ko-KR')}건`:observed?`${count.toLocaleString('ko-KR')}건`:'미수집',member_count:rows.length,contract_month:month,trade_type:trade,anchor_purpose:'province-navigation-only'}});
+    data.features.push({type:'Feature',id:`${input.property.release_id}:${name}`,geometry:{type:'Point',coordinates:[navigation.place.lon,navigation.place.lat]},properties:{property_province_name:name,property_release:input.property.release_id,display_name:provinceShortName(name),count_label:input.complexPriceFiltered?'':complete?`${count.toLocaleString('ko-KR')}건`:observed?`${count.toLocaleString('ko-KR')}건`:'미수집',member_count:rows.length,contract_month:month,trade_type:trade,anchor_purpose:'province-navigation-only'}});
   }
   return data;
 }

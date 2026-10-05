@@ -133,3 +133,11 @@ describe('audited selected-period region labels',()=>{
     input.filterMetricState='error';expect(regionMapData(input).data.features[0].properties.value_label).toBe('조회 실패');
   });
 });
+
+it('retains region navigation without pretending the apartment latest-price qualifier filters regional statistics',()=>{
+  const result=regionMapData({...fixture(),complexPriceFiltered:true});
+  expect(result.data.features[0].properties).toMatchObject({region_name:'서울특별시 송파구',count:null,count_label:'',value_label:'',value_kind:'unavailable'});
+  expect(result.provinces.features[0].properties.count_label).toBe('');
+  expect(result.uncollected).toBe(0);expect(result.notice).toContain('이름만 표시');
+  expect(regionMapData(fixture()).data.features[0].properties.count).toBe(1234);
+});

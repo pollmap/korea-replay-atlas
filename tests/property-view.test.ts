@@ -99,3 +99,11 @@ it('keeps a syntactically valid but unavailable dong explicit instead of falling
   expect(readPropertyView('#regionCode=41287&legalDong='+encodeURIComponent('이 버전에 없는 동'),period)).toMatchObject({region:'41287',legalDong:'이 버전에 없는 동'});
   expect(readPropertyView('#regionCode=41287',period).legalDong).toBeUndefined();
 });
+
+it('restores bounded recent-contract price qualifiers, preserving an inverted range as an explicit validation error',()=>{
+  const value=readPropertyView('#latestPriceMinEok=0&latestPriceMaxEok=4.5001&area=84-band',period);
+  expect(value).toMatchObject({latestPriceMinEok:'0',latestPriceMaxEok:'4.5001',area:'84-band'});
+  for(const suffix of ['latestPriceMinEok=Infinity','latestPriceMinEok=-1','latestPriceMaxEok=1e2','latestPriceMaxEok=90000001','latestPriceMinEok=2&latestPriceMinEok=3','latestPriceMinEok=1.123456789'])expect(readPropertyView('#'+suffix,period).latestPriceMinEok??readPropertyView('#'+suffix,period).latestPriceMaxEok).toBeUndefined();
+  expect(readPropertyView('#latestPriceMinEok=5&latestPriceMaxEok=3',period)).toMatchObject({latestPriceMinEok:'5',latestPriceMaxEok:'3'});
+  expect(readPropertyView('',period).latestPriceMinEok).toBeUndefined();
+});

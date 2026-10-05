@@ -20,7 +20,7 @@ export function apartmentMapLayer(source:string,release:string,trade:'sale'|'ren
     ?['case',['all',hasSale,['has','recent_sale_area_m2']],['concat',['to-string',['get','recent_sale_area_m2']],'㎡'],unavailable]
     :['case',hasSale,priceLabel,unavailable];
   return {id:selected?APARTMENT_SELECTED_LAYER:APARTMENT_MAP_LAYER,type:'symbol',source,minzoom:selected?10:12.5,
-    filter:selected?['==',['get','kapt_code'],'']:['has','name'],
+    filter:selected?['==',['get','kapt_code'],'']:['all',['has','name'],['!=',['get','filtered_price_match'],false]],
     layout:{'text-field':selected&&mode!=='name'?['format',['get','name'],{'font-scale':.9},'\n',{},detail,{'font-scale':1}]:detail,
       'text-font':['Malgun Gothic','sans-serif'],'text-size':selected?13:12,'text-line-height':1.1,'text-max-width':10,'text-padding':3,
       'text-allow-overlap':selected,'icon-allow-overlap':selected,'text-ignore-placement':false,'icon-ignore-placement':false,

@@ -57,3 +57,19 @@ it('keeps the same shared range in map prices and rejects out-of-range reports',
   expect(labels({...selected,area:'range::60'}).filtered_label).toBe('해당 거래 없음');
   expect(propertyMapFilterKey(release,selected)).not.toBe(propertyMapFilterKey(release,{...selected,area:'range::60'}));
 });
+
+it('qualifies latest prices without substituting an older matching report, and keeps selected records available',()=>{
+  const before={...report,deal_month:'202607',latest_contract_date:'2026-07-15',latest_price_krw:300_000_000};
+  const result=labels({...view,latestPriceMaxEok:'5'},{...ready,rows:[before,report]});
+  expect(result).toMatchObject({filtered_price_match:false,filtered_label:'최근 가격 조건 밖',filtered_contract_date:'2026-08-15'});
+  expect(labels({...view,latestPriceMinEok:'9',latestPriceMaxEok:'9'})).toMatchObject({filtered_price_match:true,filtered_price_label:'9억'});
+  expect(propertyMapFilterKey(release,view)).not.toBe(propertyMapFilterKey(release,{...view,latestPriceMaxEok:'5'}));
+  expect(labels({...view,latestPriceMaxEok:'5'},{...ready,state:'loading',rows:[]})).toMatchObject({filtered_price_match:true,filtered_label:'조건 확인 중'});
+  expect(labels({...view,latestPriceMaxEok:'5'},{...ready,rows:[]})).toMatchObject({filtered_price_match:false,filtered_label:'해당 거래 없음'});
+  expect(labels({...view,latestPriceMinEok:'10',latestPriceMaxEok:'5'}).filtered_price_match).toBe(false);
+});
+it('keeps zero deposit qualifiers independent of the monthly payment',()=>{
+  const monthly={...report,trade_type:'rent' as const,rent_kind:'monthly' as const,latest_price_krw:null,latest_deposit_krw:0,latest_monthly_rent_krw:1_500_000};
+  const selected={...view,trade:'rent' as const,rentKind:'monthly' as const,latestPriceMinEok:'0',latestPriceMaxEok:'0'};
+  expect(labels(selected,{...ready,rows:[monthly]})).toMatchObject({filtered_price_match:true,filtered_price_label:'0만 / 월 150만'});
+});
