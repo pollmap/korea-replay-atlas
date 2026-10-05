@@ -120,9 +120,14 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
                                    timeout=60, first_acquisition_only=False, collect_trades=trades, progress=progress)
     finally:
         collector.close()
-    if progress:
-        progress({'phase': 'backup', 'collection': report})
-    recovery = backup(root, backups, progress=progress)
+    from .property_backup_idle import reuse as reuse_backup, remember as remember_backup
+    store = LocalArchiveSet(backups, reserve_bytes=RESERVE)
+    recovery = reuse_backup(root, store) if report['requests'] == 0 and retries['requeued'] == 0 else None
+    if recovery is None:
+        if progress:
+            progress({'phase': 'backup', 'collection': report})
+        recovery = backup(root, backups, progress=progress)
+        remember_backup(root, store, recovery['head'])
     return {'finished_at': instant(), 'collection': report, 'safe_retries': retries,
             'backup': recovery, 'public_release': False}
 
