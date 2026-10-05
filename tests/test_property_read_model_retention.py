@@ -86,7 +86,6 @@ def test_vps_finishes_pending_jobs_with_retained_snapshots(tmp_path, monkeypatch
     monkeypatch.setattr(shutil, 'disk_usage', lambda p: disk)
     monkeypatch.setattr(vps_runtime, 'Collector', lambda *a, **k: c)
     monkeypatch.setattr(vps_runtime, 'read_key', lambda p: KEY)
-    monkeypatch.setattr(vps_runtime, 'backup', lambda *a, **k: {'status': 'verified'})
     result = vps_runtime._collect_once(root, tmp_path / 'backup', 'fixture', max_requests=1)
     assert result['collection']['requests'] == 1
     with sqlite3.connect(root / 'checkpoint.sqlite') as db:
