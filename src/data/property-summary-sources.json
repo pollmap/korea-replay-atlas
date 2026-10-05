@@ -14,5 +14,13 @@
       "path": "/data/property-summary/summary-49ad802d41baf9f8/manifest.json",
       "sha256": "a190b8c21dcb94ec5577a60d73747f919ee13d717a4eb1a9e594a06cbe52da49"
     }
+  },
+  {
+    "release_id": "property-ceeff63959643461",
+    "origin": "https://0348ea51.korea-replay-data.pages.dev",
+    "manifest": {
+      "path": "/data/property-summary/summary-0a75e6b1788cbfa8/manifest.json",
+      "sha256": "b9a7edebdaa3839ef6736382692322eeba33bef4297ea5ac373f8b384aec1a53"
+    }
   }
 ]

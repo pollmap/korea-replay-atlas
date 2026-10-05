@@ -34,9 +34,9 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
   const [summary,setSummary]=useState<{key:string;state:'loading'|'ready'|'unavailable'|'error';data?:MonthlySummaryData;error?:string}>({key:'',state:'loading'});
   const [attempt,setAttempt]=useState(0);
   useEffect(()=>{if(!summaryRequested)return;const controller=new AbortController();
-    void loadComplexPriceSummaries(release!,savedFilterRegion!,months,controller.signal).then(data=>{if(!controller.signal.aborted)setSummary(data?{key:summaryKey,state:'ready',data}:{key:summaryKey,state:'unavailable'});}).catch(reason=>{if(!controller.signal.aborted)setSummary({key:summaryKey,state:'error',error:reason instanceof Error?reason.message:'선택 기간의 목록 요약을 불러오지 못했습니다.'});});
+    void loadComplexPriceSummaries(release!,savedFilterRegion!,months,controller.signal,undefined,{trade,area,rentKind}).then(data=>{if(!controller.signal.aborted)setSummary(data?{key:summaryKey,state:'ready',data}:{key:summaryKey,state:'unavailable'});}).catch(reason=>{if(!controller.signal.aborted)setSummary({key:summaryKey,state:'error',error:reason instanceof Error?reason.message:'선택 기간의 목록 요약을 불러오지 못했습니다.'});});
     return()=>controller.abort();
-  },[summaryRequested,release,savedFilterRegion,months,summaryKey,attempt]);
+  },[summaryRequested,release,savedFilterRegion,months,summaryKey,attempt,trade,area,rentKind]);
   const summaryActive=summaryRequested&&!(summary.key===summaryKey&&summary.state==='unavailable');
   const summaryReady=summaryActive&&summary.key===summaryKey&&summary.state==='ready';
   const summaryError=summaryActive&&summary.key===summaryKey&&summary.state==='error'?summary.error:undefined;

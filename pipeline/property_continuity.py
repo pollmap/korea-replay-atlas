@@ -93,9 +93,11 @@ def compare(previous, candidate, *, progress=None):
               'old_rows': 0, 'new_rows': 0, 'retained_ids': 0, 'added_ids': 0, 'removed_ids': 0,
               'blockers': [], 'changed_jobs': [], 'public_release': False,
               'source_calls': 0, 'ledger_writes': 0}
+    old_partition_count = 0
     for code in sorted(old_regions.keys() | new_regions.keys()):
         before, old_rows = _region(read_old, old_regions[code]) if code in old_regions else ({}, {})
         after, new_rows = _region(read_new, new_regions[code]) if code in new_regions else ({}, {})
+        old_partition_count += sum(job.get('source_rows') or 0 for job in before.values())
         result['new_rows'] += sum(len(rows) for rows in new_rows.values())
         if code in old_regions and code not in new_regions:
             result['blockers'].append({'region': code, 'reason': 'region_lost'})
@@ -125,7 +127,9 @@ def compare(previous, candidate, *, progress=None):
         if progress:
             progress({'region': code, 'retained_ids': result['retained_ids'], 'removed_ids': result['removed_ids'],
                       'blockers': len(result['blockers'])})
-    if result['old_rows'] != old['audit']['source_rows'] or result['new_rows'] != new['audit']['source_rows']:
+    old_expected = old_partition_count if old['kind'] == 'verified-public-property-baseline' else old['audit']['source_rows']
+    result['previous_count_basis'] = 'hash_checked_public_partitions' if old['kind'] == 'verified-public-property-baseline' else 'audited_raw_publication'
+    if result['old_rows'] != old_expected or result['new_rows'] != new['audit']['source_rows']:
         raise RealEstateError('continuity_release_count')
     result['added_ids'] = result['new_rows'] - result['retained_ids']
     result['checked_all_previous_ids'] = True

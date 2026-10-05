@@ -43,3 +43,10 @@
   .atlas-shell.is-2d.is-exploring .property-panel.sheet-peek .property-region-picker{display:none}
   .atlas-shell.is-2d.is-exploring .dashboard-nav button,.atlas-shell.is-2d.is-exploring .property-type-switch button{min-height:44px}
 }
+
+/* Earlier observations are confined to an optional 2D record table. */
+.atlas-shell.is-2d .property-source-revisions .revision-records{max-height:260px;overflow:auto}
+.atlas-shell.is-2d .property-source-revisions table{width:100%;border-collapse:collapse;font-size:12px}
+.atlas-shell.is-2d .property-source-revisions th,.atlas-shell.is-2d .property-source-revisions td{padding:6px 3px;text-align:left;border-bottom:1px solid #e5e7eb}
+.atlas-shell.is-2d .property-source-revisions td:nth-child(3){text-align:right;font-variant-numeric:tabular-nums}
+.atlas-shell.is-2d .property-source-revisions a{color:var(--md-accent)}
