@@ -80,3 +80,11 @@ it('applies identical reviewed-name scope to working files and historical Git bl
     expect(report.reviewedFacilityNames.every(row=>row.sha256===hashes[0]&&row.recordId==='way/712200046')).toBe(true);
   }finally{rmSync(root,{recursive:true,force:true});}
 },30_000);
+
+// A reviewed public complex name must not become a general JSON exception.
+it('reviews exact official name tokens in the pinned search index only',()=>{
+ const name='src/data/property-search-index-ceeff63959643461.json',body=readFileSync(name);
+ const checked=scanPublicFile(body,name);expect(checked.findings).toEqual([]);expect(checked.reviewedComplexNames).toHaveLength(3);
+ expect(scanPublicFile(body,'src/data/unreviewed.json').findings.some(row=>row.category==='personal-salutation')).toBe(true);
+ const changed=Buffer.concat([body,Buffer.from(' ')]);expect(scanPublicFile(changed,name).findings.some(row=>row.category==='personal-salutation')).toBe(true);
+});

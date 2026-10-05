@@ -27,6 +27,8 @@ const reviewedNames=new Map([
   ['8c3ec12d45cbfad3000420b447042fe7dc7458abb2d84dea34c6ddfef46cb2b5',[
     ['node/9362949543','\ud558\ub098\ub2d8\uc758\uad50\ud68c\uc55e'],['node/9362949544','\ud558\ub098\ub2d8\uc758\uad50\ud68c\uc55e']]],
 ]);
+// Official reported complex names; only these name tokens in one pinned index are reviewed.
+const reviewedComplexRows=[["molit-apt:26290:26290-1916","\uc6a9\ud638\ub3d9\uc77c\uc2e0\ub2d8(\uf9f4)\u2161"],["molit-apt:28200:28200-163","\uc778\ud3c9\uc2a4\ud398\uc2a4\ud790\ud587\ub2d8\ub9c8\uc744"],["molit-apt:30170:30170-82","\uc601\uc9c4\ud587\ub2d8"]];
 function scanText(text,salutationSpans=[]){
   const result=[];
   for(const [category,pattern] of rules){pattern.lastIndex=0;let match;
@@ -44,7 +46,7 @@ function scanText(text,salutationSpans=[]){
 }
 export function scanPublicText(text){return scanText(text);}
 export function scanPublicFile(body,name){
-  const text=body.toString('utf8'),spans=[],reviewedFacilityNames=[];
+  const text=body.toString('utf8'),spans=[],reviewedFacilityNames=[],reviewedComplexNames=[];
   const matched=/^src\/data\/property-poi\/poi-([a-f0-9]{64})\.json$/.exec(name);
   const expected=matched&&reviewedNames.get(matched[1]);
   if(expected&&createHash('sha256').update(body).digest('hex')===matched[1]){
@@ -60,14 +62,24 @@ export function scanPublicFile(body,name){
       reviewedFacilityNames.push({sha256:matched[1],recordId,name:facilityName});
     }
   }
-  return {findings:scanText(text,spans),reviewedFacilityNames};
+  if(name==='src/data/property-search-index-ceeff63959643461.json'&&createHash('sha256').update(body).digest('hex')==='5472abd27fa4eb3c223892eab17a44397428873c7bccb37bb65e8a30dc42114c'){
+    let data;try{data=JSON.parse(text);}catch{/* Normal scanning remains enabled. */}
+    if(data?.schema_version===1&&data.kind==='property-complex-search-index'&&data.property_release_id==='property-ceeff63959643461'&&Array.isArray(data.rows))for(const [recordId,complexName] of reviewedComplexRows){
+      const rows=data.rows.filter(row=>Array.isArray(row)&&row[0]===recordId&&row[1]===complexName);
+      if(rows.length!==1)continue;
+      const record=JSON.stringify(rows[0]),start=text.indexOf(record),token=JSON.stringify(complexName),at=record.indexOf(token);
+      if(start<0||text.indexOf(record,start+record.length)!==-1||at<0||record.indexOf(token,at+token.length)!==-1)continue;
+      spans.push({start:start+at,end:start+at+token.length});reviewedComplexNames.push({recordId,name:complexName});
+    }
+  }
+  return {findings:scanText(text,spans),reviewedFacilityNames,reviewedComplexNames};
 }
 function git(root,args,input){return execFileSync('git',['-C',root,...args],{input,encoding:input===undefined?'utf8':undefined,maxBuffer:256*1024*1024,windowsHide:true,stdio:['pipe','pipe','pipe']});}
 function forbiddenFile(name){return /^(?:\.local|\.venv|node_modules|dist|\.wrangler|public\/data)(?:\/|$)/.test(name)
   ||/(?:^|\/)(?:\.env(?:\..*)?|\.dev\.vars(?:\..*)?|[^/]+\.(?:pem|key|p12|pfx|sqlite|sqlite3|db))$/.test(name)&&!/(?:\.example|\.template)$/.test(name);}
 export async function auditPublicRepository(root=process.cwd()){
-  const tracked=git(root,['ls-files','-z']).split('\0').filter(Boolean),untracked=git(root,['ls-files','--others','--exclude-standard','-z']).split('\0').filter(Boolean),findings=[],reviewedFacilityNames=[];let currentBytes=0;
-  const scan=(body,context)=>{const result=scanPublicFile(body,context.path);for(const finding of result.findings)findings.push({...context,...finding});for(const reviewed of result.reviewedFacilityNames)reviewedFacilityNames.push({...context,...reviewed});};
+  const tracked=git(root,['ls-files','-z']).split('\0').filter(Boolean),untracked=git(root,['ls-files','--others','--exclude-standard','-z']).split('\0').filter(Boolean),findings=[],reviewedFacilityNames=[],reviewedComplexNames=[];let currentBytes=0;
+  const scan=(body,context)=>{const result=scanPublicFile(body,context.path);for(const finding of result.findings)findings.push({...context,...finding});for(const reviewed of result.reviewedFacilityNames)reviewedFacilityNames.push({...context,...reviewed});for(const reviewed of result.reviewedComplexNames)reviewedComplexNames.push({...context,...reviewed});};
   for(const name of [...new Set([...tracked,...untracked])]){
     if(forbiddenFile(name))findings.push({scope:'working-tree',path:name,category:'private-or-generated-file'});
     const file=path.join(root,name);let info;try{info=await lstat(file);}catch{continue;}
@@ -97,6 +109,7 @@ export async function auditPublicRepository(root=process.cwd()){
   return {schema_version:1,read_only:true,commits:Number(git(root,['rev-list','--count','--all']).trim()),tracked_files:tracked.length,untracked_candidate_files:untracked.length,candidate_bytes:currentBytes,historical_blobs:blobs.length,
     automatic_secret_findings:findings.filter(finding=>['private-key','provider-token','credential-literal','private-or-generated-file'].includes(finding.category)).length,
     privacy_review_findings:findings.filter(finding=>['personal-service-url','local-user-path','personal-salutation','email'].includes(finding.category)).length,
+    reviewedComplexNames,
     reviewedFacilityNames,reviewedFacilityNameCount:new Set(reviewedFacilityNames.map(row=>row.sha256+':'+row.recordId)).size,reviewedFacilityNameOccurrences:reviewedFacilityNames.length,
     licenses,findings,ready_for_public:findings.length===0&&Object.values(licenses).every(Boolean),
     limitation:'Pattern scan is not proof of secret absence. Review findings, all prospective untracked additions, upstream data licenses and GitHub secret scanning before publication.'};
