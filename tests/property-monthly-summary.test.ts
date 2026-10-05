@@ -56,3 +56,9 @@ it('preserves the legacy short-period, review and 3D opt-out raw flows',()=>{
   expect(html).toContain('monthly-summary-history');expect(html).toContain('2026.08 계약 기록');
   expect(html).not.toContain('원문 거래 차트</h3>');
 });
+
+it('sums an inclusive area range for the shared chart without treating it as one floor plan',()=>{
+  const rows=[row('202608','60',{transaction_count:2}),row('202608','84.99',{transaction_count:3}),row('202608','85',{transaction_count:4}),row('202608','85.01',{transaction_count:99})];
+  const result=monthlySummaryPoints(rows,partitions,{...selection,area:'range:60:85'});
+  expect(result[2].count).toBe(9);expect(result[2].latest?.area_m2).not.toBe('85.01');
+});
