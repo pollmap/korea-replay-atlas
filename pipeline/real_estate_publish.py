@@ -18,6 +18,7 @@ from .real_estate import (RealEstateError, canonical_bytes, sha256, _reject_link
 from .real_estate_regions import load_registry, SOURCE_PAGE
 from .real_estate_storage import decode_snapshot
 from .property_transaction_assets import emit_month_packs
+from .property_transport import encode as encode_asset, decode as decode_asset
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
@@ -102,7 +103,7 @@ def checked_read(root, descriptor, limit):
         raise RealEstateError('checkpoint_size_mismatch')
     payload=path.read_bytes()
     if sha256(payload)!=descriptor['sha256']:raise RealEstateError('checkpoint_hash_mismatch')
-    return payload
+    return decode_asset(payload, descriptor)
 
 
 def snapshot_sources(job, recorded):
@@ -183,8 +184,8 @@ def collect_complexes(records):
     return result
 
 
-def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=18_000, checkpoint=None, progress=None, packed_transactions=False):
-    if type(packed_transactions) is not bool:raise RealEstateError('invalid_transaction_layout')
+def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=18_000, checkpoint=None, progress=None, packed_transactions=False, compressed_transactions=False, audit_cache=None):
+    if type(packed_transactions) is not bool or type(compressed_transactions) is not bool:raise RealEstateError('invalid_transaction_layout')
     if not isinstance(reserve_bytes,int) or isinstance(reserve_bytes,bool) or reserve_bytes<0:
         raise RealEstateError('invalid_disk_reserve')
     if type(max_files) is not int or not 18_000 <= max_files <= 100_000:
@@ -213,6 +214,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
     fingerprint={'policy':POLICY,'registry_sha256':registry_hash,
         'jobs':[{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at','_last_attempt_at')} for j in jobs]}
     if packed_transactions:fingerprint['transaction_layout']='direct-bounded-month-packs-v1'
+    if compressed_transactions:fingerprint['transport']='explicit-gzip-transactions-v1'
     release='property-'+sha256(canonical_bytes(fingerprint))[:16]
     months=sorted({j['deal_month'] for j in jobs});latest=int(months[-1][:4])*12+int(months[-1][4:])-2
     period={'from':months[0],'to':months[-1],'latest_complete_month':f'{latest//12:04d}{latest%12+1:02d}'}
@@ -225,9 +227,9 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
         publication=json.loads((final/'publication.json').read_text(encoding='utf-8'))
         if len(publication['files'])>max_files:raise RealEstateError('publication_file_limit')
         for f in publication['files']:
-            checked_read(final,{'path':f['path'],'sha256':f['sha256'],'bytes':f['byte_length']},MAX_ASSET)
+            checked_read(final,{'path':f['path'],'sha256':f['sha256'],'bytes':f['byte_length'],**({'transport':f['transport']} if 'transport' in f else {})},MAX_ASSET)
         return publication
-    if shutil.disk_usage(output).free<reserve_bytes+(5*1024**3 if reserve_bytes else 0):
+    if shutil.disk_usage(output).free<reserve_bytes+2*TARGET_ASSET:
         raise RealEstateError('disk_reserve')
     stage=Path(tempfile.mkdtemp(prefix='.property-incomplete-',dir=output))
     files=[];prefix=f'data/property/{release}'
@@ -235,13 +237,21 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
     def emit(relative,value):
         payload=canonical_bytes(value)
         if len(payload)>MAX_ASSET:raise RealEstateError('publication_asset_size_limit')
-        if shutil.disk_usage(stage).free-len(payload)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
-        name=f'{prefix}/{relative}';path=stage/name;path.parent.mkdir(parents=True,exist_ok=True)
-        with path.open('xb') as handle:handle.write(payload)
         digest=sha256(payload)
-        if sha256(path.read_bytes())!=digest:raise RealEstateError('publication_hash_mismatch')
-        files.append({'path':name,'sha256':digest,'byte_length':len(payload)})
-        return {'url':'/'+name,'sha256':digest,'bytes':len(payload)}
+        compressed=compressed_transactions and relative.startswith(('transaction-packs/','transactions/'))
+        encoded=encode_asset(payload) if compressed else payload
+        if shutil.disk_usage(stage).free-len(encoded)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
+        name=f'{prefix}/{relative}';path=stage/name;path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open('xb') as handle:handle.write(encoded)
+        encoded_hash=sha256(encoded)
+        if sha256(path.read_bytes())!=encoded_hash:raise RealEstateError('publication_hash_mismatch')
+        entry={'path':name,'sha256':encoded_hash,'byte_length':len(encoded)}
+        ref={'url':'/'+name,'sha256':digest,'bytes':len(payload)}
+        if compressed:
+            entry['transport']={'encoding':'gzip','decoded_sha256':digest,'decoded_bytes':len(payload)}
+            ref['transport']={'encoding':'gzip','sha256':encoded_hash,'bytes':len(encoded)}
+        files.append(entry)
+        return ref
 
     input_ids=hashlib.sha256();output_ids=hashlib.sha256();packed_rows=0
     def record_output(identity):
@@ -253,7 +263,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
         if progress:progress({'phase':'raw_audit','region':code,'region_number':region_number,'regions':len(groups),'source_rows':source_rows})
         stats=[];partitions=[];all_rows=[];by_month=defaultdict(list);by_job={};published_region_jobs=[]
         for collection_job in region_jobs:
-            partition=verify_snapshot(root,collection_job);job=publication_job(collection_job,partition)
+            partition=audit_cache.verify(root,collection_job,verify_snapshot) if audit_cache else verify_snapshot(root,collection_job);job=publication_job(collection_job,partition)
             published_region_jobs.append(job);published_jobs.append(job)
             m=metric(job,partition);stats.append(m)
             references=[]
@@ -330,6 +340,7 @@ def publish(root, registry, output_root, *, reserve_bytes=30*1024**3, max_files=
                  'raw_pages_reparsed':True,'source_hashes_verified':True,'position_policy':'no_unverified_coordinates',
                  'files':len(files),'bytes':sum(f['byte_length'] for f in files),'coverage':coverage(published_jobs),
                  'collection_coverage':coverage(jobs),'stale_jobs':sum('refresh' in j for j in published_jobs)}}
+    if audit_cache:publication['audit']['verification_cache']={'hits':audit_cache.hits,'misses':audit_cache.misses,'version':audit_cache.version}
     if packed_transactions:publication['audit'].update({'all_transaction_ids_preserved':True,'source_transaction_identity_sha256':input_ids.hexdigest(),'direct_source_audit':True,'source_calls':0,'ledger_writes':0})
     receipt=canonical_bytes(publication)
     if shutil.disk_usage(stage).free-len(receipt)-4096<reserve_bytes:raise RealEstateError('disk_reserve')

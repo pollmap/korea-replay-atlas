@@ -16,7 +16,7 @@ from .vps_runtime import write_json
 
 
 def _source(filename):
-    root, receipt, files, digest = _checked_publication(filename)
+    root, receipt, files, digest = _checked_publication(filename, allow_public_baseline=True)
     def read(name):
         name = name.lstrip('/')
         if name not in files:
