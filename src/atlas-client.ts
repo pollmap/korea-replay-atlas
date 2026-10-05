@@ -49,6 +49,15 @@ export async function fetchPinnedPoiJson(url:string,reference:PinnedJson,signal:
   if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256))throw new Error('시설 자료의 고정 참조를 확인하지 못했습니다.');
   return fetchVerifiedJson(parsed.href,reference,signal);
 }
+/** Earlier public transaction records have a separate, source-pinned archive.
+ * They share the bounded application download cache without becoming map data. */
+export async function fetchPinnedPropertyRevisionJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
+  const parsed=new URL(url,location.origin);
+  const production=/^\/assets\/property-revisions-[a-f0-9]{16}-[A-Za-z0-9_-]{8}\.json$/;
+  const development=/^\/src\/data\/property-revisions-[a-f0-9]{16}\.json$/;
+  if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256)||!reference.bytes||reference.bytes>4*1024*1024)throw new Error('이전 기록의 고정 참조를 확인하지 못했습니다.');
+  return fetchVerifiedJson(parsed.href,reference,signal);
+}
 async function fetchVerifiedJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const expected=reference.byte_length??reference.bytes;

@@ -1,3 +1,4 @@
+import {areaMatches} from '../shared/property-area';
 import {validTransport,type AssetTransport} from '../shared/asset-transport';
 import {fetchPinnedJson,type PinnedJson} from './atlas-client';
 import type {ComplexPriceSummary,SummaryPartition} from './property-map-prices';
@@ -34,9 +35,22 @@ export function parseComplexMonthSummaryPack(value:unknown,release:string,region
   for(const part of value.months){if(!object(part)||typeof part.deal_month!=='string'||!MONTH.test(part.deal_month)||seen.has(part.deal_month))return fail();seen.add(part.deal_month);const rows=parseComplexPriceSummaries({...value,...part,kind:'property-complex-summaries'},release,region,part.deal_month);all.push(...rows);if(part.deal_month===month)selected=rows;}
   return month===null?all:selected??fail();
 }
+export interface SummarySelection {trade:'sale'|'rent';area?:string;rentKind?:'all'|'jeonse'|'monthly';}
+/** Compressed regional history is read one bounded asset at a time. The
+ * regional aggregate ceiling is separate from the per-complex query ceiling;
+ * encoded and decoded budgets both apply, including off-window packed rows. */
+export function assertSummaryReadBudget(refs:readonly Pick<SummaryRef,'bytes'|'transport'>[],regional=false):void {
+  const compressedRegional=regional&&refs.every(row=>!!row.transport);
+  const decodedLimit=(compressedRegional?128:16)*1024*1024;
+  const wireLimit=(compressedRegional?32:16)*1024*1024;
+  if(refs.length>512||refs.reduce((n,r)=>n+r.bytes,0)>decodedLimit||refs.reduce((n,r)=>n+(r.transport?.bytes??r.bytes),0)>wireLimit)throw new Error('선택 기간의 가격 요약이 조회 한도를 넘었습니다. 기간을 줄여 주세요.');
+}
+export function retainSelectedSummaries(rows:readonly ComplexPriceSummary[],months:ReadonlySet<string>,complexId?:string,selection?:SummarySelection):ComplexPriceSummary[]{
+  return rows.filter(row=>months.has(row.deal_month)&&(!complexId||row.complex_id===complexId)&&(!selection||row.trade_type===selection.trade&&areaMatches(row.area_m2,selection.area??'')&&(selection.trade!=='rent'||!selection.rentKind||selection.rentKind==='all'||row.rent_kind===selection.rentKind)));
+}
 /** Immutable summary indexes share the same four-slot gate and hash cache as
  * transactions. Only selected months are downloaded; no nationwide raw preload. */
-export async function loadComplexPriceSummaries(release:string,region:string,months:readonly string[],signal:AbortSignal,complexId?:string):Promise<{rows:ComplexPriceSummary[];partitions:SummaryPartition[]}|null>{
+export async function loadComplexPriceSummaries(release:string,region:string,months:readonly string[],signal:AbortSignal,complexId?:string,selection?:SummarySelection):Promise<{rows:ComplexPriceSummary[];partitions:SummaryPartition[]}|null>{
   const registered=(sources as unknown as SummarySource[]).find(row=>row.release_id===release);if(!registered)return null;
   if(!/^https:\/\/[a-f0-9]{8}\.korea-replay-data\.pages\.dev$/.test(registered.origin)||!/^\/data\/property-summary\/summary-[a-f0-9]{16}\/manifest\.json$/.test(registered.manifest.path??'')||!HASH.test(registered.manifest.sha256))return fail();
   if(!/^\d{5}$/.test(region)||months.length>240||months.some(month=>!MONTH.test(month)))return fail();
@@ -50,9 +64,11 @@ export async function loadComplexPriceSummaries(release:string,region:string,mon
   const packed=complexId&&object(index.complex_chunks)&&Array.isArray(index.complex_chunks[complexId])?index.complex_chunks[complexId]:null;
   const refs=(packed??index.summaries).map(ref).filter(row=>row.deal_month?wanted.has(row.deal_month):!!row.from_month&&!!row.to_month&&months.some(month=>month>=row.from_month!&&month<=row.to_month!));
   const distinct=new Map(refs.map(row=>[`${row.url}:${row.sha256}`,row]));
-  if(distinct.size>512||[...distinct.values()].reduce((n,r)=>n+r.bytes,0)>16*1024*1024)throw new Error('선택 기간의 가격 요약이 조회 한도를 넘었습니다. 기간을 줄여 주세요.');
+  assertSummaryReadBudget([...distinct.values()],!complexId);
   const rows:ComplexPriceSummary[]=[];let next=0;const assets=[...distinct.values()];
-  const worker=async()=>{while(next<assets.length){if(signal.aborted)throw new DOMException('Aborted','AbortError');const descriptor=assets[next++],raw=await fetchPinnedJson(descriptor,registered.origin,signal);if(object(raw)&&raw.kind==='property-complex-summary-month-pack'){const expected=refs.filter(row=>row.url===descriptor.url&&row.sha256===descriptor.sha256).flatMap(row=>row.deal_month?[row.deal_month]:[]);if(!Array.isArray(raw.months)||expected.some(month=>!(raw.months as unknown[]).some(part=>object(part)&&part.deal_month===month)))return fail();}const decoded=object(raw)&&raw.kind==='property-complex-summary-month-pack'&&descriptor.deal_month?parseComplexMonthSummaryPack(raw,release,region,null):parseComplexPriceSummaries(raw,release,region,descriptor.deal_month??null);rows.push(...decoded.filter(row=>wanted.has(row.deal_month)&&(!complexId||row.complex_id===complexId)));}};
-  await Promise.all([worker(),worker()]);
-  return {rows,partitions};
+  const query=new AbortController(),cancel=()=>query.abort();signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();
+  const worker=async()=>{while(next<assets.length){if(query.signal.aborted)throw new DOMException('Aborted','AbortError');const descriptor=assets[next++],raw=await fetchPinnedJson(descriptor,registered.origin,query.signal);if(object(raw)&&raw.kind==='property-complex-summary-month-pack'){const expected=refs.filter(row=>row.url===descriptor.url&&row.sha256===descriptor.sha256).flatMap(row=>row.deal_month?[row.deal_month]:[]);if(!Array.isArray(raw.months)||expected.some(month=>!(raw.months as unknown[]).some(part=>object(part)&&part.deal_month===month)))return fail();}const decoded=object(raw)&&raw.kind==='property-complex-summary-month-pack'&&descriptor.deal_month?parseComplexMonthSummaryPack(raw,release,region,null):parseComplexPriceSummaries(raw,release,region,descriptor.deal_month??null);rows.push(...retainSelectedSummaries(decoded,wanted,complexId,selection));if(rows.length>250_000)throw new Error('선택 조건의 요약이 너무 많습니다. 면적이나 기간을 줄여 주세요.');}};
+  try{await Promise.all([worker(),worker()]);return {rows,partitions};}
+  catch(error){query.abort();throw error;}
+  finally{signal.removeEventListener('abort',cancel);}
 }

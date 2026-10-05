@@ -73,3 +73,11 @@ it('ignores arbitrary redirect destinations and cannot loop from the destination
   expect(propertyReleaseArchiveUrl(result,current)).toBeNull();
   expect(propertyReleaseArchiveUrl('not a url',current)).toBeNull();
 });
+
+it('restores the previous 8879 release after the full history release is promoted',()=>{
+  const target=propertyReleaseArchiveUrl('https://korea-replay.pages.dev/#regionCode=11710&complex=molit-apt%3A11710%3A11710-8865&historyMonths=36&area=84-band&propertyRelease=property-8879dff1b31ac5f0','property-ceeff63959643461');
+  expect(target).not.toBeNull();const url=new URL(target!);
+  expect(url.origin).toBe('https://57769488.korea-replay.pages.dev');
+  expect(url.searchParams.get('deployment')).toBe('pages:57769488:30e6b535c1c4e6d22e656c103f86a2ecf969cd53cc88b7c6e9dac0fb6a70146d');
+  const state=new URLSearchParams(url.hash.slice(1));expect(state.get('area')).toBe('84-band');expect(state.get('historyMonths')).toBe('36');expect(state.get('complex')).toBe('molit-apt:11710:11710-8865');
+});

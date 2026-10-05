@@ -13,6 +13,8 @@ from pipeline.core import atomic_json, digest
 
 @pytest.fixture
 def fixture(tmp_path, monkeypatch):
+    # Tiny frontend fixtures must not depend on production-volume free space.
+    monkeypatch.setattr(release, 'DISK_RESERVE_BYTES', 0)
     root = tmp_path / 'workspace'
     monkeypatch.setattr(frontend, 'POI_SOURCE_ROOT', root / 'canonical/src/data/property-poi')
     base = root / 'public/data'
@@ -686,3 +688,13 @@ def test_audited_chunk_replacement_requires_both_old_and_new_identity(fixture, m
     with pytest.raises(ValueError, match='chunk families are missing'):
         frontend._frontend_entries(fixture.client, prior)
     assert_prior_unchanged(fixture)
+
+
+def test_only_the_exact_preserved_public_revision_archive_is_approved():
+    filename = Path(__file__).resolve().parents[1] / 'src/data/property-revisions-ceeff63959643461.json'
+    name = 'assets/property-revisions-ceeff63959643461-abcdefgh.json'
+    sha = digest(filename);size = filename.stat().st_size
+    assert frontend._approved_metric_asset(name, sha, size)
+    assert not frontend._approved_metric_asset(name, 'a'*64, size)
+    assert not frontend._approved_metric_asset(name, sha, size+1)
+    assert not frontend._approved_metric_asset('assets/property-revisions-ffffffffffffffff-abcdefgh.json', sha, size)

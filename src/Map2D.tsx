@@ -111,7 +111,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       publish({state:'loading',rows:[],partitions:[]});
       try{
         const linked=base.features.some(feature=>feature.properties?.property_release_id===release&&String(feature.properties?.property_complex_id).startsWith(`molit-apt:${view.region}:`));
-        const result=view.propertyType!=='officetel'&&view.region&&linked?(await loadMapPricePreset(release,view,controller.signal)??await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal)):null;
+        const result=view.propertyType!=='officetel'&&view.region&&linked?(await loadMapPricePreset(release,view,controller.signal)??await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal,undefined,{trade:view.trade,area:view.area,rentKind:view.rentKind})):null;
         publish(result?{state:'ready',...result}:{state:'missing',rows:[],partitions:[]});
       }catch(error){if(controller.signal.aborted)return;publish({state:'error',rows:[],partitions:[]});if(element.current)element.current.dataset.propertySummaryError=error instanceof Error?error.message:'가격 요약 조회 실패';}
     })().catch(()=>{if(!controller.signal.aborted&&element.current)element.current.dataset.propertySummaryError='단지 표식 조회 실패';});
