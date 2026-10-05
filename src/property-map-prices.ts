@@ -1,7 +1,7 @@
 import type {FeatureCollection,Point} from 'geojson';
 import {areaMatches,exclusivePyeong,M2_PER_PYEONG} from '../shared/property-area';
 import {historyMonths} from '../shared/property-history';
-import {moneyLabel,type PropertyViewState} from '../shared/property-view';
+import {latestPriceBounds,moneyLabel,type PropertyViewState} from '../shared/property-view';
 
 export interface ComplexPriceSummary {
   complex_id:string;deal_month:string;trade_type:'sale'|'rent';rent_kind:'sale'|'jeonse'|'monthly';area_m2:string;transaction_count:number;
@@ -11,11 +11,12 @@ export interface ComplexPriceSummary {
 }
 export interface SummaryPartition {deal_month:string;trade_type:'sale'|'rent';status:string;}
 export interface MapPriceData {rows:readonly ComplexPriceSummary[];partitions:readonly SummaryPartition[];state:'ready'|'loading'|'missing'|'error';}
-export const propertyMapFilterKey=(release:string,view:PropertyViewState)=>JSON.stringify([release,view.propertyType??'apartment',view.region,view.trade,view.rentKind??'all',view.month,view.historyMonths,view.area,view.areaBasis??'exclusive']);
+export const propertyMapFilterKey=(release:string,view:PropertyViewState)=>JSON.stringify([release,view.propertyType??'apartment',view.region,view.trade,view.rentKind??'all',view.month,view.historyMonths,view.area,view.areaBasis??'exclusive',view.latestPriceMinEok??'',view.latestPriceMaxEok??'']);
 
 /** Use an actual report in the selected window. Never use a different month or
  * turn a missing partition into a zero or a market asking price. */
 export function propertyMapPrices(base:FeatureCollection<Point>,release:string,view:PropertyViewState,data:MapPriceData):FeatureCollection<Point> {
+  const bounds=latestPriceBounds(view),priceFiltered=!!view.latestPriceMinEok||!!view.latestPriceMaxEok;
   const key=propertyMapFilterKey(release,view),months=new Set(historyMonths(view.month,view.historyMonths));
   const rows=new Map<string,ComplexPriceSummary>();
   for(const row of data.rows){
@@ -26,18 +27,21 @@ export function propertyMapPrices(base:FeatureCollection<Point>,release:string,v
   const complete=[...months].every(month=>data.partitions.some(p=>p.deal_month===month&&p.trade_type===view.trade&&['complete','empty'].includes(p.status)));
   return {...base,features:base.features.map(feature=>{
     const p={...feature.properties},id=p.property_release_id===release&&typeof p.property_complex_id==='string'?p.property_complex_id:'',row=rows.get(id);
+    const amount=row?(view.trade==='sale'?row.latest_price_krw:row.latest_deposit_krw):null;
+    const priceMatch=!priceFiltered||data.state!=='ready'&&!bounds.errors.length||!!row&&!bounds.errors.length&&amount!==null&&(bounds.priceMin===null||amount>=bounds.priceMin)&&(bounds.priceMax===null||amount<=bounds.priceMax);
     let price='',unit='',label='';
     if(view.propertyType==='officetel')label='아파트';
     else if(!id)label='거래 미연결';
     else if(view.areaBasis==='supply')label='공급면적 미연결';
     else if(!id.startsWith(`molit-apt:${view.region}:`))label='조건 미연결';
+    else if(row&&!priceMatch)label='최근 가격 조건 밖';
     else if(row){
       const amount=view.trade==='sale'?row.latest_price_krw:row.latest_deposit_krw;
       price=moneyLabel(amount)+(row.rent_kind==='monthly'?` / 월 ${moneyLabel(row.latest_monthly_rent_krw)}`:'');
       unit=amount===null?'금액 미제공':`${moneyLabel(Math.round(amount/Number(row.area_m2)*M2_PER_PYEONG))}/전용평`;
       label=`${price}\n전용 ${exclusivePyeong(row.area_m2)}평`;
     }else label=data.state==='loading'?'조건 확인 중':data.state==='error'?'조회 실패':data.state==='missing'?'조건 미연결':complete?'해당 거래 없음':'미수집 포함';
-    return {...feature,properties:{...p,property_filter_key:key,filtered_label:label,filtered_price_label:price||label,filtered_unit_label:unit||label,
+    return {...feature,properties:{...p,property_filter_key:key,filtered_price_match:priceMatch,filtered_label:label,filtered_price_label:price||label,filtered_unit_label:unit||label,
       filtered_contract_date:row?.latest_contract_date??'',filtered_area_m2:row?.area_m2??'',filtered_complete:complete&&data.state==='ready'}};
   })};
 }

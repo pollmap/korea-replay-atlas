@@ -97,7 +97,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     return()=>controller.abort();
   },[metricRelease]);
   const activeMetrics=filterMetrics?.release===metricRelease?filterMetrics:null;
-  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,filterMetrics:activeMetrics?.data,filterMetricState:activeMetrics?.state,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);},[props.vectorData,activeMetrics,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
+  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,filterMetrics:activeMetrics?.data,filterMetricState:activeMetrics?.state,complexPriceFiltered:!!props.propertyView?.latestPriceMinEok||!!props.propertyView?.latestPriceMaxEok,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);},[props.vectorData,activeMetrics,props.propertyView?.latestPriceMinEok,props.propertyView?.latestPriceMaxEok,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
   useEffect(()=>{
     const view=latest.current.propertyView,release=latest.current.vectorData?.property?.release_id;
@@ -299,7 +299,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       }
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
         map.setFilter(APARTMENT_SELECTED_LAYER,['==',['get','kapt_code'],valid?point.kaptCode:'']);
-        map.setFilter(APARTMENT_MAP_LAYER,['!=',['get','kapt_code'],valid?point.kaptCode:'']);
+        map.setFilter(APARTMENT_MAP_LAYER,['all',['!=',['get','kapt_code'],valid?point.kaptCode:''],['!=',['get','filtered_price_match'],false]]);
         const label=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',false,labelModeRef.current,filterKeyRef.current);
         map.setLayoutProperty(APARTMENT_MAP_LAYER,'text-field',label.layout!['text-field']);
         const selectedLabel=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',true,labelModeRef.current,filterKeyRef.current);

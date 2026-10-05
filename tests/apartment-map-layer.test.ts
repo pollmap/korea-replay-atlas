@@ -53,3 +53,18 @@ describe('consistent property map labels',()=>{
     expect(label(row,'rent',false,'area')).toBe('전월세 미연결');
   });
 });
+
+it('hides disqualified ordinary price cards while retaining unknown state and the selected card',()=>{
+  const evaluate=(filter:unknown[],properties:Record<string,unknown>)=>{
+    const expression=createExpression(filter,'layers[0].filter');
+    if(expression.result==='error')throw new Error(JSON.stringify(expression.value));
+    return expression.value.evaluate({zoom:15},{type:1,properties});
+  };
+  const ordinary=apartmentMapLayer('apartments',release,'sale').filter! as unknown[];
+  expect(evaluate(ordinary,{name:'조건 밖',filtered_price_match:false})).toBe(false);
+  expect(evaluate(ordinary,{name:'조건 일치',filtered_price_match:true})).toBe(true);
+  expect(evaluate(ordinary,{name:'확인 중'})).toBe(true);
+  const selected=apartmentMapLayer('apartments',release,'sale',true).filter! as unknown[];
+  // Map2D installs the actual selected kapt_code after the source is ready.
+  expect(evaluate([...selected.slice(0,2),'k1'],{name:'선택 단지',kapt_code:'k1',filtered_price_match:false})).toBe(true);
+});
