@@ -1,15 +1,17 @@
+import {validTransport,type AssetTransport} from '../shared/asset-transport';
 import {fetchPinnedJson,type PinnedJson} from './atlas-client';
 import type {ComplexPriceSummary,SummaryPartition} from './property-map-prices';
 import sources from './data/property-summary-sources.json';
 
 export const hasPropertySummaries=(release:string)=>sources.some(source=>source.release_id===release);
 interface SummarySource {release_id:string;origin:string;manifest:PinnedJson;}
-interface SummaryRef {url:string;sha256:string;bytes:number;deal_month?:string;lawd_code?:string;from_month?:string;to_month?:string;}
+interface SummaryRef {transport?:AssetTransport;url:string;sha256:string;bytes:number;deal_month?:string;lawd_code?:string;from_month?:string;to_month?:string;}
 const HASH=/^[a-f0-9]{64}$/,MONTH=/^\d{4}(?:0[1-9]|1[0-2])$/;
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const fail=():never=>{throw new Error('가격 요약 자료의 버전·내용을 확인하지 못했습니다.');};
 function ref(value:unknown):SummaryRef {
   if(!object(value)||typeof value.url!=='string'||!/^\/data\/property-summary\/summary-[a-f0-9]{16}\/(?:regions\/\d{5}\.json|rows\/\d{5}\/\d{6}-\d{3}\.json|month-packs\/\d{5}\/\d{4}\.json|complexes\/\d{5}\/\d{4}\.json)$/.test(value.url)||typeof value.sha256!=='string'||!HASH.test(value.sha256)||typeof value.bytes!=='number'||!Number.isSafeInteger(value.bytes)||value.bytes<=0||value.bytes>4*1024*1024)return fail();
+  if(value.transport!==undefined&&!validTransport(value.transport))return fail();
   return value as unknown as SummaryRef;
 }
 export function parseComplexPriceSummaries(value:unknown,release:string,region:string,month:string|null):ComplexPriceSummary[] {

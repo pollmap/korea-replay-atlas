@@ -118,3 +118,17 @@ def test_report_cannot_overwrite_input_publication(tmp_path, monkeypatch):
         main()
     assert result.value.code == 1
     assert previous.read_bytes() == original
+
+
+def test_restored_public_baseline_accepts_public_absolute_manifest_path(tmp_path):
+    previous=published(tmp_path/'old');body=json.loads(previous.read_bytes())
+    body['kind']='verified-public-property-baseline'
+    body['property_release']['path']='/'+body['property_release']['path']
+    body['audit'].update({'public_reference_hashes_verified':True,'source_origin':'https://1234abcd.korea-replay-data.pages.dev','atlas_manifest_sha256':'a'*64})
+    previous.write_text(json.dumps(body))
+    candidate=published(tmp_path/'new')
+    result=compare(previous,candidate)
+    assert result['automatic_transition_eligible'] and result['retained_ids']==4
+    from pipeline.real_estate_complex_summary import build
+    with pytest.raises(RealEstateError,match='summary_source_not_audited'):
+        build(previous,tmp_path/'invalid-summary',reserve_bytes=0)

@@ -1,3 +1,4 @@
+import completedManifest from './data/property-navigation-manifest-ceeff63959643461.json';
 import {atlasFetch} from './atlas-client';
 import {parsePropertyMapPoints,type PropertyMapPoint} from '../shared/property-map-point';
 import manifest from './data/property-navigation-manifest.json';
@@ -51,6 +52,7 @@ export function createPropertyMapPointLookup(sources:readonly NavigationSource[]
 
 // Add each newly audited manifest and its own generated JSON here. Keep older entries for pinned shares.
 const lookup=createPropertyMapPointLookup([
+  {manifest:completedManifest,url:new URL('./data/seoul-property-navigation-ceeff63959643461.json',import.meta.url).href},
   {manifest,url:new URL('./data/seoul-property-navigation.json',import.meta.url).href},
   {manifest:historyManifest,url:new URL('./data/seoul-property-navigation-54bf1817fdcc7bd9.json',import.meta.url).href},
   {manifest:refreshedManifest,url:new URL('./data/seoul-property-navigation-87d1c67336e97209.json',import.meta.url).href},

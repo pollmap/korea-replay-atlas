@@ -44,6 +44,7 @@ const anchors=['land','water','area','road','point'] as const;
 const SEOUL_KAPT_SOURCE='seoul-kapt-provider-points';
 
 const SEOUL_KAPT_SOURCES:Readonly<Record<string,string>>={
+  'property-ceeff63959643461':new URL('./data/seoul-kapt-points-ceeff63959643461.geojson',import.meta.url).href,
   'property-eea48453a819f517':new URL('./data/seoul-kapt-points-b63b62af834062de.geojson',import.meta.url).href,
   'property-54bf1817fdcc7bd9':new URL('./data/seoul-kapt-points-14916a799c24a49e.geojson',import.meta.url).href,
   'property-87d1c67336e97209':new URL('./data/seoul-kapt-points-7843533a17275616.geojson',import.meta.url).href,

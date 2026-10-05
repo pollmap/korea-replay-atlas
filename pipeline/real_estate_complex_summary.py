@@ -19,6 +19,7 @@ import tempfile
 
 from .real_estate import RealEstateError, canonical_bytes, sha256, _reject_links
 from .real_estate_publish import checked_read, median, MAX_ASSET
+from .property_transport import encode
 
 POLICY = 'property-complex-monthly-summary-v2-bounded-complex-packs'
 TARGET_ASSET = 4 * 1024**2
@@ -143,7 +144,7 @@ def summarize_rows(rows):
     return result, audit
 
 
-def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_bytes=TARGET_ASSET, max_files=MAX_FILES):
+def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_bytes=TARGET_ASSET, max_files=MAX_FILES, compressed_assets=False):
     if type(reserve_bytes) is not int or reserve_bytes < 0 or type(target_bytes) is not int or not 1024 <= target_bytes <= TARGET_ASSET:
         raise RealEstateError('summary_invalid_budget')
     if type(max_files) is not int or not MAX_FILES <= max_files <= 100_000:
@@ -155,6 +156,8 @@ def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_by
         raise RealEstateError('public_output_forbidden')
     output.mkdir(parents=True, exist_ok=True)
     identity = {'policy': POLICY, 'publication_sha256': receipt_hash}
+    if type(compressed_assets) is not bool:raise RealEstateError('summary_invalid_transport')
+    if compressed_assets:identity['transport']='explicit-gzip-summary-v1'
     if target_bytes != TARGET_ASSET:
         identity['target_bytes'] = target_bytes
     summary_id = 'summary-' + sha256(canonical_bytes(identity))[:16]
@@ -164,7 +167,7 @@ def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_by
         if not isinstance(prior.get('files'), list) or len(prior['files']) > max_files:
             raise RealEstateError('summary_asset_budget')
         for row in prior['files']:
-            checked_read(final, {'path': row['path'], 'sha256': row['sha256'], 'bytes': row['byte_length']}, MAX_ASSET)
+            checked_read(final, {'path': row['path'], 'sha256': row['sha256'], 'bytes': row['byte_length'], **({'transport':row['transport']} if 'transport' in row else {})}, MAX_ASSET)
         return prior
     if shutil.disk_usage(output).free < reserve_bytes + 512 * 1024**2:
         raise RealEstateError('disk_reserve')
@@ -179,16 +182,18 @@ def build(publication_path, output_root, *, reserve_bytes=2 * 1024**3, target_by
 
     def emit(name, value):
         raw = canonical_bytes(value)
-        if len(raw) > target_bytes or len(assets) >= max_files:
-            raise RealEstateError('summary_asset_budget')
-        if shutil.disk_usage(stage).free - len(raw) - 4096 < reserve_bytes:
-            raise RealEstateError('disk_reserve')
-        path = prefix + '/' + name
-        dest = stage / path; dest.parent.mkdir(parents=True, exist_ok=True)
-        with dest.open('xb') as stream: stream.write(raw)
-        digest = sha256(raw)
-        assets.append({'path': path, 'sha256': digest, 'byte_length': len(raw)})
-        return {'url': '/' + path, 'sha256': digest, 'bytes': len(raw)}
+        if len(raw) > target_bytes or len(assets) >= max_files:raise RealEstateError('summary_asset_budget')
+        compressed=compressed_assets and name.startswith(('rows/','complexes/'))
+        encoded=encode(raw) if compressed else raw
+        if shutil.disk_usage(stage).free-len(encoded)-4096<reserve_bytes:raise RealEstateError('disk_reserve')
+        path=prefix+'/'+name;dest=stage/path;dest.parent.mkdir(parents=True,exist_ok=True)
+        with dest.open('xb') as stream:stream.write(encoded)
+        entry={'path':path,'sha256':sha256(encoded),'byte_length':len(encoded)}
+        reference={'url':'/'+path,'sha256':sha256(raw),'bytes':len(raw)}
+        if compressed:
+            entry['transport']={'encoding':'gzip','decoded_sha256':sha256(raw),'decoded_bytes':len(raw)}
+            reference['transport']={'encoding':'gzip','sha256':sha256(encoded),'bytes':len(encoded)}
+        assets.append(entry);return reference
 
     source_prefix = 'data/property/' + release + '/'
     manifest = read(source_prefix + 'manifest.json')

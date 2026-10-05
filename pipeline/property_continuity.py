@@ -26,7 +26,7 @@ def _source(filename):
             raise RealEstateError('continuity_release_mismatch')
         return value
     manifest = read(receipt['property_release']['path'])
-    if sha256((root / receipt['property_release']['path']).read_bytes()) != receipt['property_release']['sha256']:
+    if sha256((root / receipt['property_release']['path'].lstrip('/')).read_bytes()) != receipt['property_release']['sha256']:
         raise RealEstateError('continuity_manifest_hash')
     regions = read(manifest['regions']['url'])['regions']
     indexed = {r['lawd_code']: r for r in regions}
