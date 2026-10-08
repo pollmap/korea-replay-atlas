@@ -1,4 +1,5 @@
-import {expect,it} from 'vitest';
+import {beforeEach,expect,it} from 'vitest';
+import {apartmentFactsClient} from '../src/apartment-facts-client';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import data from '../src/data/seoul-apartment-facts.json';
@@ -11,6 +12,8 @@ import nextData from '../src/data/seoul-apartment-facts-8deba5b9951e48da.json';
 import nextNavigation from '../src/data/seoul-property-navigation-8deba5b9951e48da.json';
 import {apartmentFactsIndex,parkingPerHousehold} from '../shared/property-facts';
 import ApartmentFacts,{createApartmentFactsLookup} from '../src/ApartmentFacts';
+
+beforeEach(async()=>{await Promise.all([data,refreshedData,currentData,nextData].map(value=>apartmentFactsClient.load(value.property_release_id)));});
 
 it('preserves every audited fact under the newly published transaction release',()=>{
   const index=apartmentFactsIndex(refreshedData),ids=new Map(refreshedNavigation.points.map(row=>[row[0],row[1]]));
