@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {validateStyleMin,createExpression} from '@maplibre/maplibre-gl-style-spec';
 import {apartmentMapLayer,type ApartmentLabelMode} from '../src/apartment-map-layer';
-import {regionMapLayer,provinceMapLayer,REGION_MAP_IMAGE} from '../src/region-map-layer';
+import {regionMapLayer,provinceMapLayer,regionMapBubbleImage,apartmentSelectedBubbleImage,APARTMENT_SELECTED_IMAGE,REGION_MAP_IMAGE} from '../src/region-map-layer';
 
 const release='property-current';
 function label(properties:Record<string,unknown>,trade:'sale'|'rent'='sale',selected=false,mode:ApartmentLabelMode='price-area',filterKey=''){
@@ -67,4 +67,28 @@ it('hides disqualified ordinary price cards while retaining unknown state and th
   const selected=apartmentMapLayer('apartments',release,'sale',true).filter! as unknown[];
   // Map2D installs the actual selected kapt_code after the source is ready.
   expect(evaluate([...selected.slice(0,2),'k1'],{name:'선택 단지',kapt_code:'k1',filtered_price_match:false})).toBe(true);
+});
+
+
+it('keeps selected and ordinary labels readable on their actual shared sprite fills',()=>{
+  const luminance=(channels:number[])=>channels.slice(0,3).map(value=>{
+    const channel=value/255;return channel<=.04045?channel/12.92:((channel+.055)/1.055)**2.4;
+  }).reduce((total,value,i)=>total+value*[.2126,.7152,.0722][i],0);
+  for(const selected of [false,true]){
+    const layer=apartmentMapLayer('apartments',release,'sale',selected);
+    const sprite=selected?apartmentSelectedBubbleImage():regionMapBubbleImage();
+    const center=(32*sprite.width+40)*4;
+    const pixel=Array.from(sprite.data.slice(center,center+4));
+    const text=String(layer.paint?.['text-color']).slice(1).match(/../g)!.map(value=>parseInt(value,16));
+    const light=[luminance(pixel),luminance(text)].sort((a,b)=>a-b);
+    expect((light[1]+.05)/(light[0]+.05)).toBeGreaterThanOrEqual(4.5);
+    expect(pixel[3]).toBe(255);
+    expect(sprite.data.byteLength).toBeLessThan(32*1024);
+    expect(layer.layout?.['icon-image']).toBe(selected?APARTMENT_SELECTED_IMAGE:REGION_MAP_IMAGE);
+    expect(layer.layout?.['text-ignore-placement']).toBe(false);
+    expect(layer.layout?.['icon-ignore-placement']).toBe(false);
+  }
+  const ordinary=regionMapBubbleImage(),selected=apartmentSelectedBubbleImage();
+  expect(selected.data).not.toEqual(ordinary.data);
+  expect(Array.from(selected.data.slice(0,4))).toEqual([0,0,0,0]);
 });

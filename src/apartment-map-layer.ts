@@ -1,5 +1,5 @@
 import type {ExpressionSpecification,SymbolLayerSpecification} from 'maplibre-gl';
-import {REGION_MAP_IMAGE} from './region-map-layer';
+import {APARTMENT_SELECTED_IMAGE,PROPERTY_MAP_COLORS,REGION_MAP_IMAGE} from './region-map-layer';
 
 export const APARTMENT_MAP_LAYER='seoul-kapt-apartment-cards';
 export const APARTMENT_SELECTED_LAYER='seoul-kapt-selected-card';
@@ -22,9 +22,9 @@ export function apartmentMapLayer(source:string,release:string,trade:'sale'|'ren
   return {id:selected?APARTMENT_SELECTED_LAYER:APARTMENT_MAP_LAYER,type:'symbol',source,minzoom:selected?10:12.5,
     filter:selected?['==',['get','kapt_code'],'']:['all',['has','name'],['!=',['get','filtered_price_match'],false]],
     layout:{'text-field':selected&&mode!=='name'?['format',['get','name'],{'font-scale':.9},'\n',{},detail,{'font-scale':1}]:detail,
-      'text-font':['Malgun Gothic','sans-serif'],'text-size':selected?13:12,'text-line-height':1.1,'text-max-width':10,'text-padding':3,
+      'text-font':['Malgun Gothic','sans-serif'],'text-size':selected?14:12,'text-line-height':1.1,'text-max-width':10,'text-padding':3,
       'text-allow-overlap':selected,'icon-allow-overlap':selected,'text-ignore-placement':false,'icon-ignore-placement':false,
-      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],
+      'icon-image':selected?APARTMENT_SELECTED_IMAGE:REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],
       'symbol-sort-key':['case',linked,0,1]},
-    paint:{'text-color':selected?'#1765cf':'#24344d','icon-opacity':1}};
+    paint:{'text-color':selected?PROPERTY_MAP_COLORS.surface:PROPERTY_MAP_COLORS.ink,'icon-opacity':1}};
 }
