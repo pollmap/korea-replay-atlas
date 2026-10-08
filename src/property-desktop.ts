@@ -8,6 +8,24 @@ export function detailSectionAtScroll<T extends string>(sections:readonly {id:T;
   return (sections.filter(section=>section.top<=viewport.top+20).at(-1)??sections[0])?.id;
 }
 
+/** A layout resize or smooth section jump is not a new user navigation. */
+export function createDetailSectionTracker<T extends string>(){
+  let retained:{scope:string;section:T}|null=null;
+  return {
+    retain(scope:string,section:T){retained={scope,section};},
+    release(){retained=null;},
+    atScroll(scope:string,sections:readonly {id:T;top:number}[],viewport:{top:number;height:number;scrollTop:number;scrollHeight:number}):T|undefined{
+      if(retained?.scope===scope&&sections.some(section=>section.id===retained!.section))return retained.section;
+      retained=null;
+      return detailSectionAtScroll(sections,viewport);
+    },
+  };
+}
+/** Native input arrows edit a value; navigation keys elsewhere scroll the panel. */
+export function isDetailScrollKey(key:string,tagName:string,editable=false){
+  return !editable&&!['INPUT','SELECT','TEXTAREA'].includes(tagName.toUpperCase())&&['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(key);
+}
+
 /** Uses reported exclusive areas only; never estimates a supply-area floor plan. */
 export function defaultDetailArea(rows:readonly PropertyTransaction[]):string{
   const counts=new Map<string,number>();
