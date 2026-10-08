@@ -37,19 +37,30 @@ def input_sizes(database):
     for status, value in database.execute("SELECT status,snapshot FROM jobs WHERE snapshot IS NOT NULL"):
         if status not in ('complete', 'empty', 'pending', 'partial', 'failed'):
             continue
-        descriptor = json.loads(value)
+        try:
+            descriptor = json.loads(value)
+        except (TypeError, ValueError):
+            raise RealEstateError('candidate_input_descriptor') from None
         if not isinstance(descriptor, dict) or descriptor.get('encoding') not in (None, 'gzip', 'xz'):
             raise RealEstateError('candidate_input_descriptor')
         size = descriptor.get('bytes')
         decoded = descriptor.get('decoded_bytes') if descriptor.get('encoding') else size
         name = descriptor.get('path'); digest = descriptor.get('sha256')
-        if (not isinstance(name, str) or not name or '..' in Path(name).parts
-                or Path(name).is_absolute() or not isinstance(digest, str)
+        encoding = descriptor.get('encoding')
+        decoded_digest = descriptor.get('decoded_sha256') if encoding else digest
+        suffix = {'gzip': '.json.gz', 'xz': '.json.xz'}.get(encoding, '.json')
+        # The inventory must have the same unambiguous, root-relative JSON
+        # identity as the body reader, without touching any payload bytes.
+        if (not isinstance(name, str)
+                or not re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.json(?:\.(?:gz|xz))?', name)
+                or not name.endswith(suffix) or not isinstance(digest, str)
                 or not re.fullmatch(r'[a-f0-9]{64}', digest)
                 or type(size) is not int or not 0 < size <= MAX_SNAPSHOT_BYTES
-                or type(decoded) is not int or not 0 < decoded <= MAX_SNAPSHOT_BYTES):
+                or type(decoded) is not int or not 0 < decoded <= MAX_SNAPSHOT_BYTES
+                or not isinstance(decoded_digest, str)
+                or not re.fullmatch(r'[a-f0-9]{64}', decoded_digest)):
             raise RealEstateError('candidate_input_descriptor')
-        identity = (digest, size, decoded)
+        identity = (digest, size, decoded, encoding, decoded_digest)
         if name in inputs and inputs[name] != identity:
             raise RealEstateError('candidate_input_descriptor_conflict')
         inputs[name] = identity; references += 1
@@ -68,6 +79,10 @@ def run(data, output, *, reserve_bytes=RESERVE, progress=None):
     _reject_links(data); _reject_links(output)
     if any(p.lower() in ('public', 'dist') for p in output.parts):
         raise RealEstateError('public_output_forbidden')
+    # Reject source overlap before creating even a status or lock file.
+    if any(output.resolve().is_relative_to((data / name).resolve())
+           for name in ('collector', 'read-model')):
+        raise RealEstateError('candidate_cache_path')
     output.mkdir(parents=True, exist_ok=True)
     lock = output / 'candidate.lock'; _reject_links(lock)
     with _lock(lock), bulk_work(data):

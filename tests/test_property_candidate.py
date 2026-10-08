@@ -230,7 +230,7 @@ def test_candidate_cache_is_not_written_into_collector(tmp_path):
     data, _ = prepare(tmp_path)
     with pytest.raises(RealEstateError, match='candidate_cache_path'):
         run(data, data / 'collector/private-candidate', reserve_bytes=0)
-    assert not (data / 'collector/private-candidate/verification.sqlite').exists()
+    assert not (data / 'collector/private-candidate').exists()
 
 
 
@@ -300,7 +300,7 @@ def test_candidate_cache_refuses_hardlink_to_writer(tmp_path):
 
 def test_candidate_descriptor_inventory_deduplicates_files_and_ignores_unpublished_states():
     from pipeline.property_candidate import input_sizes
-    descriptor = {'path':'silver/pinned.json.xz','sha256':'a'*64,'bytes':10,'encoding':'xz','decoded_bytes':100}
+    descriptor = {'path':'silver/pinned.json.xz','sha256':'a'*64,'bytes':10,'encoding':'xz','decoded_bytes':100,'decoded_sha256':'b'*64}
     with sqlite3.connect(':memory:') as db:
         db.execute('CREATE TABLE jobs(status TEXT,snapshot TEXT)')
         db.executemany('INSERT INTO jobs VALUES (?,?)', [('complete',json.dumps(descriptor)),
@@ -310,3 +310,87 @@ def test_candidate_descriptor_inventory_deduplicates_files_and_ignores_unpublish
             'payloads_read':0,'publication_upper_bytes':None,'enforcement':'stage_preflight_and_per_file_reserve'}
         db.execute('INSERT INTO jobs VALUES (?,?)', ('empty',json.dumps({**descriptor,'bytes':20})))
         with pytest.raises(RealEstateError, match='candidate_input_descriptor_conflict'): input_sizes(db)
+
+
+@pytest.mark.parametrize('path', ['/absolute.json', '../outside.json', 'silver/../outside.json',
+                                 'silver//snapshot.json', './snapshot.json', r'C:\snapshot.json',
+                                 r'silver\snapshot.json', 'snapshot.xml', 'snapshot.json.xz'])
+def test_candidate_inventory_rejects_ambiguous_or_mismatched_paths(path):
+    from pipeline.property_candidate import input_sizes
+    descriptor = {'path': path, 'sha256': 'a'*64, 'bytes': 10}
+    with sqlite3.connect(':memory:') as db:
+        db.execute('CREATE TABLE jobs(status TEXT,snapshot TEXT)')
+        db.execute('INSERT INTO jobs VALUES (?,?)', ('complete', json.dumps(descriptor)))
+        with pytest.raises(RealEstateError, match='candidate_input_descriptor'):
+            input_sizes(db)
+
+
+@pytest.mark.parametrize('change', [{'decoded_sha256': None}, {'decoded_sha256': 'not-a-hash'},
+                                    {'encoding': 'gzip'}, {'decoded_bytes': True}])
+def test_candidate_inventory_validates_compression_identity(change):
+    from pipeline.property_candidate import input_sizes
+    descriptor = {'path':'silver/snapshot.json.xz', 'sha256':'a'*64, 'bytes':10,
+                  'encoding':'xz', 'decoded_bytes':100, 'decoded_sha256':'b'*64, **change}
+    with sqlite3.connect(':memory:') as db:
+        db.execute('CREATE TABLE jobs(status TEXT,snapshot TEXT)')
+        db.execute('INSERT INTO jobs VALUES (?,?)', ('complete', json.dumps(descriptor)))
+        with pytest.raises(RealEstateError, match='candidate_input_descriptor'):
+            input_sizes(db)
+
+
+def test_candidate_inventory_rejects_conflicting_decoded_identity():
+    from pipeline.property_candidate import input_sizes
+    descriptor = {'path':'silver/snapshot.json.xz', 'sha256':'a'*64, 'bytes':10,
+                  'encoding':'xz', 'decoded_bytes':100, 'decoded_sha256':'b'*64}
+    with sqlite3.connect(':memory:') as db:
+        db.execute('CREATE TABLE jobs(status TEXT,snapshot TEXT)')
+        db.executemany('INSERT INTO jobs VALUES (?,?)', [
+            ('complete', json.dumps(descriptor)),
+            ('complete', json.dumps({**descriptor, 'decoded_sha256':'c'*64}))])
+        with pytest.raises(RealEstateError, match='candidate_input_descriptor_conflict'):
+            input_sizes(db)
+
+
+def test_candidate_output_never_writes_into_read_model(tmp_path):
+    data, _ = prepare(tmp_path)
+    output = data / 'read-model' / 'candidate'
+    with pytest.raises(RealEstateError, match='candidate_cache_path'):
+        run(data, output, reserve_bytes=0)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize('operation', ['execute', 'commit'])
+def test_cache_constructor_failure_closes_open_connection(tmp_path, monkeypatch, operation):
+    import pipeline.property_verification_cache as verification
+    real_connect = sqlite3.connect
+    connections = []
+    class FailingConnection:
+        def __init__(self, filename):
+            self.connection = real_connect(filename); connections.append(self.connection)
+        def execute(self, *args):
+            if operation == 'execute': raise sqlite3.OperationalError('schema failure')
+            return self.connection.execute(*args)
+        def commit(self):
+            raise sqlite3.OperationalError('commit failure')
+        def close(self): self.connection.close()
+    monkeypatch.setattr(verification.sqlite3, 'connect', FailingConnection)
+    with pytest.raises(sqlite3.OperationalError):
+        verification.VerificationCache(tmp_path / 'cache.sqlite', tmp_path / 'source')
+    assert len(connections) == 1
+    with pytest.raises(sqlite3.ProgrammingError): connections[0].execute('SELECT 1')
+
+
+@pytest.mark.parametrize('suffix', ['-journal', '-wal', '-shm'])
+@pytest.mark.parametrize('link_kind', ['symlink', 'hardlink'])
+def test_candidate_cache_companion_cannot_modify_source(tmp_path, suffix, link_kind):
+    import os
+    data, _ = prepare(tmp_path); output = tmp_path / 'candidate'; output.mkdir()
+    source = data / 'collector' / 'checkpoint.sqlite'; before = source.read_bytes()
+    companion = output / ('verification.sqlite' + suffix)
+    if link_kind == 'symlink': companion.symlink_to(source)
+    else: os.link(source, companion)
+    with pytest.raises(RealEstateError, match='linked_path|verification_cache_path'):
+        run(data, output, reserve_bytes=0)
+    assert source.read_bytes() == before
+    assert not (output / 'verification.sqlite').exists()
+    assert not (output / 'last-verified.json').exists()
