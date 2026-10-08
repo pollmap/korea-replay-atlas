@@ -220,7 +220,7 @@ def main():
     parser.add_argument('command', choices=['backup', 'restore', 'status', 'plan-set', 'backup-set', 'restore-set'])
     parser.add_argument('--store', required=True, type=Path)
     parser.add_argument('--root', type=Path)
-    parser.add_argument('--reserve-gib', type=int, default=30)
+    parser.add_argument('--reserve-gib', type=int, default=0)
     args = parser.parse_args()
     try:
         store = LocalArchive(args.store, reserve_bytes=args.reserve_gib * 1024**3)

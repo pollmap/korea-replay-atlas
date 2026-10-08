@@ -334,7 +334,7 @@ class Collector:
 
     def reprocess(self):
         """Re-normalize verified local raw pages; preserve old snapshots, no network."""
-        self._space(5*1024**3 if self.reserve_bytes else 0)
+        self._space(MAX_PAGE_BYTES + MAX_SNAPSHOT_BYTES + 1024**2)
         owner=self._acquire();processed=0
         try:
             jobs=list(self.db.execute("SELECT * FROM jobs WHERE status IN ('complete','empty')" + scope_condition(self.scope) + ' ORDER BY id'))
@@ -390,8 +390,8 @@ class Collector:
                       source_start(self.property_type, 'sale') + "' WHEN 'rent' THEN '" +
                       source_start(self.property_type, 'rent') + "' ELSE '999999' END")
         condition += scope_condition(self.scope)
-        # Operational start margin: default 30 GiB reserve + 5 GiB headroom.
-        self._space(5*1024**3 if self.reserve_bytes else 0)
+        # Bound the next XML + normalized snapshot, not a fixed 5 GiB margin.
+        self._space(MAX_PAGE_BYTES + MAX_SNAPSHOT_BYTES + 1024**2)
         owner = self._acquire(); used = 0; transferred = 0; stopped = 'work_complete'; failures = 0
         start = time.monotonic(); last_request = 0.0
         try:
