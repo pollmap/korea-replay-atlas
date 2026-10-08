@@ -1,0 +1,29 @@
+[Unit]
+Description=Retire verified unreferenced Korea Replay Pages payloads
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Example account: validate directory ownership before installation.
+User=korea-replay
+Group=korea-replay
+WorkingDirectory=/srv/services/korea-replay/workspaces/matdongsan
+ExecStart=/usr/bin/python3 -m pipeline.pages_retention --root /srv/services/korea-replay/workspaces/matdongsan --config /srv/services/korea-replay/shared/retention-policy.json --apply --summary
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/services/korea-replay/workspaces/matdongsan/.local/pages-release
+ReadWritePaths=/srv/services/korea-replay/workspaces/matdongsan/.local/retention
+ReadWritePaths=/srv/services/korea-replay/shared/data/bulk-work.lock
+InaccessiblePaths=/srv/services/korea-replay/shared/secrets
+UMask=0077
+MemoryMax=256M
+CPUQuota=25%
+IOWeight=10
+Nice=10
+TimeoutStartSec=20min
+# Detailed local log is bounded by the Python runner; journal emits only result.
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verified Korea Replay generated-payload retention
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 Asia/Seoul
+RandomizedDelaySec=10min
+Persistent=true
+Unit=korea-replay-retention.service
+
+[Install]
+WantedBy=timers.target
