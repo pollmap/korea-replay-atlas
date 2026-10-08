@@ -5,7 +5,7 @@ import hashlib
 import json
 
 from .core import PUBLIC
-from .retile import vertex_count
+from .geometry_compaction import vertex_count
 
 
 def verify_geometry_budgets(assets, base=PUBLIC, *, fill_missing=False):

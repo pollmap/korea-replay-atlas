@@ -7,8 +7,7 @@ import re
 import requests
 from pathlib import Path
 from collections import defaultdict
-from .core import LOCAL,PUBLIC,atomic_json,digest,now,publish_file
-from .elevation import sample_heights
+from .core import LOCAL,atomic_json,digest,now
 
 def csv_rows(path):
     data=path.read_bytes()
@@ -80,38 +79,8 @@ def join_key(line,name):
     return str(line).strip(),ALIASES.get(name,name)
 
 def depth():
-    raw=seoul_file('OA-13305','11','1','depth-20241104.csv')
-    positions=seoul_file('OA-22534','1','2','coordinates-20250814.csv')
-    coordinates=defaultdict(list)
-    for row in csv_rows(positions):coordinates[join_key(row['호선'],row['역명'])].append(row)
-    features=[];unmatched=[];invalid=[];joined=[]
-    for row in csv_rows(raw):
-        key=join_key(row['호선'],row['역명']);matches=coordinates[key]
-        if len(matches)!=1:unmatched.append({'line':key[0],'name':key[1],'matches':len(matches)});continue
-        try:
-            d=float(row['정거장깊이']);rail=float(row['선로기준정거장깊이']);lon=float(matches[0]['경도']);lat=float(matches[0]['위도'])
-            if not all(map(math.isfinite,[d,rail,lon,lat])) or not -50<d<150 or not 125<lon<129 or not 36<lat<39:raise ValueError()
-            if abs((rail-1.1)-d)>.06:raise ValueError()
-        except (ValueError,TypeError):invalid.append({'line':key[0],'name':key[1],'reason':'invalid number or inconsistent platform/rail depths'});continue
-        joined.append((row,matches[0],lon,lat,d,rail))
-    ground=sample_heights([r[2] for r in joined],[r[3] for r in joined]) if joined else []
-    meta=json.loads(raw.with_suffix('.meta.json').read_text(encoding='utf-8'))
-    for (row,position,lon,lat,d,rail),surface in zip(joined,ground):
-        record_id=f'{row["호선"]}:{position["고유역번호(외부역코드)"]}'
-        features.append({'type':'Feature','id':record_id,'geometry':{'type':'Point','coordinates':[lon,lat,float(surface-d)]},'properties':{
-          'name':f'{row["역명"].strip()} · {row["호선"]}호선','platform_depth':d,'rail_depth':rail,'surface_height':float(surface),'display_height':float(surface-d),
-          **station_vertical_evidence(row),
-          'source_id':'seoul-depth','dataset_version':'depth-20241104 / coordinates-20250814','evidence_type':'official_record',
-          'position_evidence':'calculation','description':f'승강장 기준 깊이 {d:g}m · 선로 기준 {rail:g}m. 기록 심도를 지형 높이에 적용한 개략 위치이며 실제 승강장 형상은 아닙니다. 음수는 지상·고가입니다.',
-          'coordinate_source':'https://data.seoul.go.kr/dataList/OA-22534/F/1/datasetView.do','coordinate_hash':digest(positions),
-          'provenance':{'source_id':'seoul-depth','source_record_id':record_id,'dataset_version':'20241104','observed_at':None,'retrieved_at':meta['retrieved_at'],'evidence_type':'official_record','input_hash':meta['sha256'],'transform_version':'depth-exact-line-name-v1','unit':'m below source ground'},
-        }})
-    hash_=__import__('hashlib').sha256(json.dumps(features,sort_keys=True).encode()).hexdigest()[:12]
-    target=PUBLIC/'depth'/f'seoul-{hash_}.geojson';atomic_json(target,{'type':'FeatureCollection','features':features})
-    audit={'source_rows':len(csv_rows(raw)),'position_rows':len(csv_rows(positions)),'joined':len(features),'unmatched':unmatched,'invalid':invalid,'aliases':ALIASES}
-    atomic_json(LOCAL/'audit'/'depth-seoul.json',audit)
-    if features:publish_file(target,asset_id='depth-seoul',layer='depth',format='geojson',bbox=[min(r[2] for r in joined),min(r[3] for r in joined),max(r[2] for r in joined),max(r[3] for r in joined)],source_id='seoul-depth',version='20241104',count=len(features))
-    print(json.dumps(audit,ensure_ascii=False))
+    from .retired_3d import retired
+    retired()
 
 
 def review_vertical(root=None):
@@ -168,4 +137,5 @@ def review_vertical(root=None):
 
 
 if __name__ == '__main__':
-    review_vertical()
+    from .retired_3d import retired
+    retired()

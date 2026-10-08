@@ -19,7 +19,7 @@ import re
 import shutil
 
 from .core import LOCAL, PUBLIC, ROOT, digest
-from .retile import compact_features, restore_features, vertex_count
+from .geometry_compaction import compact_features, restore_features, vertex_count
 
 VERSION = 'whole-feature-water-partition-1'
 SOURCE_ID = 'osm-water-korea'

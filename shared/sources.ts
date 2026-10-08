@@ -12,7 +12,6 @@ export const SOURCES: Source[] = [
   {id: 'seoul-stations', title: '서울교통공사 · 역사 좌표', url: 'https://data.seoul.go.kr/dataList/OA-22534/F/1/datasetView.do', license: '공공누리 1유형 · 서울교통공사 출처 표시', description: '1~8호선 역 좌표입니다. 같은 호선·역명으로 심도 자료와 연결하며 연결되지 않은 역은 검토 대장에 남깁니다.'},
   {id: 'kma-satellite', title: '기상청 국가기상위성센터 · GK2A', url: 'https://nmsc.kma.go.kr/enhome/html/base/cmm/selectPage.do?page=static.utilization.software', license: '기상청 국가기상위성센터 제공 · 원천 이용 조건', description: '현재 연결된 영상은 2022-01-01 공식 SW038 예제입니다. 공식 보정표로 계산한 밝기온도이며 주간 반사광 영향이 있습니다. 실시간 영상이나 구름 체적 모델이 아닙니다.'},
   {id: 'kma-radar', title: '기상청 · HSR 레이더', url: 'https://www.weather.go.kr/w/image/radar.do', license: '기상청 제공 · 원천 이용 조건', description: '연결된 공개 영상은 기상청 강수에코 색상을 보존합니다. 숫자 강우량으로 역산하지 않으며, 색이 없는 배경에서는 무에코와 결측을 구분할 수 없습니다. 별도 원시 반사도 어댑터는 두 값을 구분합니다.'},
-  {id: 'sun', title: 'SunCalc 1.9.0 · Cesium SunLight', url: 'https://github.com/mourner/suncalc/tree/v1.9.0', license: 'BSD-2-Clause / Apache-2.0', description: '좌표·UTC 시각에 따른 태양 계산과 현재 3D 모델의 그림자입니다.'},
 ];
 export const PLACES: Place[] = [
   {id:'korea',name:'대한민국 전체',region:'전국',lon:127.8,lat:35.2,range:1500000},
@@ -36,7 +35,7 @@ export const EMPTY_CATALOG: Catalog = {
     ['infrastructure','도로·도시 시설',['osm']],
     ['rail','철도',['osm','korail']], ['bus','버스',['tago']],
     ['depth','지하 역사',['seoul-depth']], ['satellite','위성',['kma-satellite']],
-    ['radar','레이더',['kma-radar']], ['sun','햇빛과 그림자',['sun']],
-  ].map(([id,label,source_ids]) => ({id,label,source_ids,state:id==='sun'?'ready':'unavailable',
-    reason:id==='sun'?null:'검수된 자료가 아직 연결되지 않았습니다.',record_count:0,from:null,to:null,updated_at:null})) as Catalog['layers'],
+    ['radar','레이더',['kma-radar']],
+  ].map(([id,label,source_ids]) => ({id,label,source_ids,state:'unavailable',
+    reason:'검수된 자료가 아직 연결되지 않았습니다.',record_count:0,from:null,to:null,updated_at:null})) as Catalog['layers'],
 };
