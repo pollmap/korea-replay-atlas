@@ -404,3 +404,23 @@ def test_cold_verification_resumes_committed_object_receipts(tmp_path,monkeypatc
     with verification(store,True) as check:
         for row in rows:check(row['sha256'],row['bytes'])
     assert seen==[rows[-1]['sha256']]
+
+
+@pytest.mark.parametrize('stop',['local_daily_budget','work_complete'])
+def test_pending_content_revision_publishes_in_quota_wait_or_refresh_disabled(tmp_path,monkeypatch,stop):
+    from contextlib import nullcontext
+    data=tmp_path/'data';data.mkdir()
+    (data/'migration-verified.json').write_text('{"status":"verified","audit":{},"files":1}')
+    (data/'collection-enabled').touch()
+    (data/'read-model').mkdir();(data/'read-model/current.json').write_text('{}')
+    (data/'read-model-status.json').write_text('{"state":"ready","correction_revision":0}')
+    monkeypatch.setattr(vps_runtime,'collector_lock',lambda path:nullcontext())
+    monkeypatch.setattr(vps_runtime,'collect_once',lambda *a,**kw:{
+        'collection':{'requests':0,'stop_reason':stop},'finished_at':STAMP,'correction_content_revision':1})
+    publications=[]
+    monkeypatch.setattr(vps_runtime,'publish_read_model',lambda *a,**kw:publications.append(1) or {'generation':'recovered'})
+    monkeypatch.setattr(vps_runtime,'retire_acknowledged_read_models',lambda *a:None)
+    monkeypatch.setattr(vps_runtime.time,'sleep',lambda *_:(_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):vps_runtime.worker(data,tmp_path/'cas',tmp_path/'key')
+    assert publications==[1]
+    assert json.loads((data/'read-model-status.json').read_bytes())['correction_revision']==1

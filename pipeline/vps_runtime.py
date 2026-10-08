@@ -136,6 +136,8 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
                                            max_bytes=COLLECTION_BYTES, daily_budget=8000, min_interval=.3,
                                            timeout=60, first_acquisition_only=False, collect_trades=trades,
                                            progress=progress, correction=correction)
+        from .property_refresh_scheduler import content_revision
+        correction_revision = content_revision(collector.db)
     finally:
         collector.close()
     from .property_backup_idle import reuse as reuse_backup, remember as remember_backup
@@ -147,7 +149,7 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
         recovery = backup(root, backups, progress=progress)
         remember_backup(root, store, recovery['head'])
     return {'finished_at': instant(), 'collection': report, 'safe_retries': retries,
-            'backup': recovery, 'public_release': False}
+            'correction_content_revision': correction_revision, 'backup': recovery, 'public_release': False}
 
 
 def retire_acknowledged_read_models(data, model):
@@ -203,12 +205,12 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                     raise RealEstateError(stop)
                 correction = report['collection'].get('correction')
                 prior_model = read_state(data / 'read-model-status.json')
-                correction_revision = (correction['content_revision'] if correction else
-                                       prior_model.get('correction_revision', 0))
+                correction_revision = report.get('correction_content_revision',
+                    correction['content_revision'] if correction else prior_model.get('correction_revision', 0))
                 # The revision is committed with changed jobs. A crash before
                 # read-model publication cannot hide a successful correction.
-                changed = (correction_revision != prior_model.get('correction_revision', 0) if correction else
-                           bool(report['collection']['requests']))
+                changed = (correction_revision != prior_model.get('correction_revision', 0) or
+                           (not correction and bool(report['collection']['requests'])))
                 if changed or not (data / 'read-model/current.json').is_file():
                     try:
                         model = publish_read_model(data, reserve_bytes=RESERVE)
