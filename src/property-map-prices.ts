@@ -1,6 +1,7 @@
 import type {FeatureCollection,Point} from 'geojson';
 import {areaMatches,exclusivePyeong,M2_PER_PYEONG} from '../shared/property-area';
 import {historyMonths} from '../shared/property-history';
+import {propertySummaryCoverage} from './property-summary-coverage';
 import {latestPriceBounds,moneyLabel,propertyListFilters,type PropertyViewState} from '../shared/property-view';
 
 import {discoverPropertyComplexes} from '../shared/property-discovery';
@@ -23,20 +24,21 @@ export function propertyMapPrices(base:FeatureCollection<Point>,release:string,v
   const metadata=discoverPropertyComplexes(data.complexes??[],[],false,view.trade,{...propertyListFilters(view),dong:view.legalDong??''});
   const metadataIds=new Set(metadata.items.map(item=>item.complex.id));
   const bounds=latestPriceBounds(view),priceFiltered=!!view.latestPriceMinEok||!!view.latestPriceMaxEok;
-  const key=propertyMapFilterKey(release,view),months=new Set(historyMonths(view.month,view.historyMonths));
+  const key=propertyMapFilterKey(release,view),selectedMonths=historyMonths(view.month,view.historyMonths),months=new Set(selectedMonths);
+  const coverage=propertySummaryCoverage(data.partitions,selectedMonths,view.trade);
+  const complete=coverage.canEstablishNoTrade,transactionFiltered=priceFiltered||!!view.area||!!view.hasTrades||view.trade==='rent'&&!!view.rentKind&&view.rentKind!=='all';
   const rows=new Map<string,ComplexPriceSummary>();
   for(const row of data.rows){
-    if(!months.has(row.deal_month)||row.trade_type!==view.trade||!row.complex_id.startsWith(`molit-apt:${view.region}:`)||!areaMatches(row.area_m2,view.area)||view.trade==='rent'&&view.rentKind&&view.rentKind!=='all'&&row.rent_kind!==(view.rentKind==='jeonse'?'jeonse':'monthly'))continue;
+    if(!months.has(row.deal_month)||!coverage.complete.has(row.deal_month)||row.trade_type!==view.trade||!row.complex_id.startsWith(`molit-apt:${view.region}:`)||!areaMatches(row.area_m2,view.area)||view.trade==='rent'&&view.rentKind&&view.rentKind!=='all'&&row.rent_kind!==(view.rentKind==='jeonse'?'jeonse':'monthly'))continue;
     const previous=rows.get(row.complex_id);
     if(!previous||row.latest_contract_date>previous.latest_contract_date||row.latest_contract_date===previous.latest_contract_date&&row.latest_transaction_id<previous.latest_transaction_id)rows.set(row.complex_id,row);
   }
-  const complete=[...months].every(month=>data.partitions.some(p=>p.deal_month===month&&p.trade_type===view.trade&&['complete','empty'].includes(p.status)));
   return {...base,features:base.features.map(feature=>{
     const p={...feature.properties},id=p.property_release_id===release&&typeof p.property_complex_id==='string'?p.property_complex_id:'',row=rows.get(id);
     const amount=row?(view.trade==='sale'?row.latest_price_krw:row.latest_deposit_krw):null;
-    const priceMatch=!priceFiltered||data.state!=='ready'&&!bounds.errors.length||!!row&&!bounds.errors.length&&amount!==null&&(bounds.priceMin===null||amount>=bounds.priceMin)&&(bounds.priceMax===null||amount<=bounds.priceMax);
-    const metadataMatch=!metadataFiltered||data.metadataState!=='ready'||metadataIds.has(id);
-    const tradeMatch=!view.hasTrades||data.state!=='ready'||!!row||!complete;
+    const priceMatch=!bounds.errors.length&&(!priceFiltered||data.state!=='ready'||!row&&!complete||!!row&&amount!==null&&(bounds.priceMin===null||amount>=bounds.priceMin)&&(bounds.priceMax===null||amount<=bounds.priceMax));
+    const metadataMatch=!metadata.errors.length&&(!metadataFiltered||data.metadataState!=='ready'||metadataIds.has(id));
+    const tradeMatch=!transactionFiltered||data.state!=='ready'||!!row||!complete;
     let price='',unit='',label='';
     if(view.propertyType==='officetel')label='아파트';
     else if(!id)label='거래 미연결';
