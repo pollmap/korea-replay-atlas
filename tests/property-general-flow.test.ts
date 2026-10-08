@@ -5,7 +5,7 @@ import {EMPTY_PROPERTY_DISCOVERY_FILTERS,discoverPropertyComplexes} from '../sha
 import type {PropertyComplex,PropertyRegion,PropertyTransaction} from '../shared/property';
 import {propertyListFilters,readPropertyView,transactionRows} from '../shared/property-view';
 import {areaFromBounds} from '../shared/property-area';
-import {generalPropertyFilters,propertyBudgetLabel} from '../src/property-general-filters';
+import {generalPropertyFilters,propertyBudgetLabel,propertyFilterDraftContext,currentPropertyFilterPanel} from '../src/property-general-filters';
 import PropertyFilterBar from '../src/PropertyFilterBar';
 import PropertyComplexList from '../src/PropertyComplexList';
 
@@ -49,4 +49,27 @@ it('leaves unspecified discovery fields alone and labels exact zero budget witho
  const base={...EMPTY_PROPERTY_DISCOVERY_FILTERS,buildYearMin:'2010',query:'원래 조건',sort:'name' as const,hasTrades:true};
  expect(generalPropertyFilters(base,{area:'range:60:85',latestPrice:{min:'0',max:'0'}})).toMatchObject({...base,areaMinM2:'60',areaMaxM2:'85',priceMinEok:'0',priceMaxEok:'0'});
  expect(propertyBudgetLabel('0','0')).toBe('0–0억');expect(propertyBudgetLabel('','')).toBe('예산');
+});
+
+it('discards an open price edit after sale changes to jeonse instead of restoring all rentals on apply',()=>{
+ const filters={...EMPTY_PROPERTY_DISCOVERY_FILTERS,rentKind:'all' as const,priceMaxEok:'8'};
+ const view={region:'11710',trade:'sale' as const,month:'202609',range:36,filters};
+ const opened=propertyFilterDraftContext(view);
+ expect(currentPropertyFilterPanel('price',opened,opened)).toBe('price');
+ const jeonse=propertyFilterDraftContext({...view,trade:'rent',filters:{...filters,rentKind:'jeonse'}});
+ expect(currentPropertyFilterPanel('price',opened,jeonse)).toBeNull();
+ expect(currentPropertyFilterPanel('more',opened,jeonse)).toBeNull();
+});
+it('invalidates pending area, budget and building edits when applied conditions are cleared or restored',()=>{
+ const view={region:'11710',trade:'sale' as const,month:'202609',range:36,filters:{...EMPTY_PROPERTY_DISCOVERY_FILTERS,priceMinEok:'20',priceMaxEok:'35',areaMinM2:'84',areaMaxM2:'84.99999'}};
+ const opened=propertyFilterDraftContext(view);
+ const changed=[{...view,filters:EMPTY_PROPERTY_DISCOVERY_FILTERS},{...view,region:'11620'},{...view,month:'202608'},{...view,range:12}];
+ for(const next of changed)for(const panel of ['price','area','more'] as const)expect(currentPropertyFilterPanel(panel,opened,propertyFilterDraftContext(next))).toBeNull();
+});
+it('keeps immediate region and period selectors open for dependent dong and reference-month choices',()=>{
+ const view={region:'11710',trade:'sale' as const,month:'202609',range:36,filters:EMPTY_PROPERTY_DISCOVERY_FILTERS};
+ const opened=propertyFilterDraftContext(view),changed=propertyFilterDraftContext({...view,region:'11620',range:12});
+ expect(currentPropertyFilterPanel('region',opened,changed)).toBe('region');
+ expect(currentPropertyFilterPanel('period',opened,changed)).toBe('period');
+ expect(currentPropertyFilterPanel(null,opened,changed)).toBeNull();
 });
