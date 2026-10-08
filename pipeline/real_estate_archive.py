@@ -202,7 +202,13 @@ def audit_checkpoint(root, database=None, *, descriptors=None):
         if identity in checked: continue
         if descriptors is None:
             path = root / name; _reject_links(path)
-            raw = path.read_bytes()
+            from .real_estate_working_store import read_reference
+            try:
+                raw = read_reference(root, ref)
+            except RealEstateError as error:
+                if error.code in ('checkpoint_size_mismatch', 'checkpoint_hash_mismatch'):
+                    raise RealEstateError('archive_reference_hash') from None
+                raise
             if len(raw) != ref['bytes'] or sha256(raw) != ref['sha256']:
                 raise RealEstateError('archive_reference_hash')
         else:
@@ -564,6 +570,8 @@ def backup(root, store, progress=None, *, lease=None):
             for path in sorted(directory.rglob('*')):
                 _reject_links(path)
                 if path.is_file(): paths.append((path, checked_path(path.relative_to(root).as_posix())))
+        from .real_estate_working_store import append_archived_paths
+        append_archived_paths(root, paths)
         if len(paths) > MAX_FILES: raise RealEstateError('archive_total_limit')
         if not set(previous) <= {name for _,name in paths}:
             raise RealEstateError('archive_previous_files_missing')
