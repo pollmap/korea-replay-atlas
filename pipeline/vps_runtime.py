@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 
-from .real_estate import RealEstateError, canonical_bytes, _reject_links
+from .real_estate import RealEstateError, canonical_bytes, _reject_links, utc_instant
 from .real_estate_archive import audit_checkpoint, checked_path
 from .real_estate_fetch import Collector, KST, read_key
 from .real_estate_history_audit import audit as history_audit
@@ -64,7 +64,8 @@ def read_state(path):
 def available_trades(db, *, day, budget=8000):
     """An exhausted rent source must not starve the separate sale allowance."""
     used = dict(db.execute('SELECT trade_type,COUNT(*) FROM calls WHERE day=? GROUP BY trade_type', (day,)))
-    return [trade for trade in ('sale', 'rent') if used.get(trade, 0) < budget]
+    exhausted = {row[0] for row in db.execute("SELECT DISTINCT trade_type FROM calls WHERE day=? AND error_code='upstream_quota'", (day,))}
+    return [trade for trade in ('sale', 'rent') if used.get(trade, 0) < budget and trade not in exhausted]
 
 
 @contextmanager
@@ -83,7 +84,7 @@ def collector_lock(path):
 
 
 def backup(root, backups, *, progress=None):
-    result = backup_set(root, LocalArchiveSet(backups, reserve_bytes=RESERVE), progress=progress)
+    result = backup_set(root, LocalArchiveSet(backups, reserve_bytes=RESERVE), progress=progress, reuse_archived=True)
     return {'status': 'verified', 'head': result['backup_set'], 'files': result['files'],
             'groups': result['groups'], 'audit': result['audit'], 'space': result['space']}
 
@@ -112,7 +113,7 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
                           scope='priority-nine', require_scope_complete=True, reserve_bytes=RESERVE)
     try:
         stamp = instant()
-        trades = available_trades(collector.db, day=datetime.now(KST).date().isoformat())
+        trades = available_trades(collector.db, day=utc_instant(stamp).astimezone(KST).date().isoformat())
         if not trades:
             retries = {'requeued': 0}
             report = {'stop_reason': 'local_daily_budget', 'requests': 0}
@@ -120,9 +121,21 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
             # A retained fallback does not complete a pending/partial refresh.
             retries = requeue_safe_failures(collector.db, stamp, limit=5,
                                            first_acquisition_only=False, scope='priority-nine')
-            report = collector.collect(read_key(secret_file), max_requests=max_requests,
-                                       max_bytes=COLLECTION_BYTES, daily_budget=8000, min_interval=.3,
-                                       timeout=60, first_acquisition_only=False, collect_trades=trades, progress=progress)
+            from . import property_refresh_scheduler as corrections
+            from .real_estate_scope import scope_condition
+            unfinished = collector.db.execute("SELECT 1 FROM jobs WHERE status IN ('pending','partial')" +
+                                              scope_condition('priority-nine') + ' AND trade_type IN (' + ','.join('?' for _ in trades) + ') LIMIT 1', trades).fetchone()
+            correction = None
+            correction_mode = os.environ.get(corrections.ENABLE) == '1' and not unfinished
+            if correction_mode:
+                correction = corrections.plan(collector.db, stamp, trades=trades, max_requests=max_requests)
+            if correction_mode and correction is None:
+                report = corrections.idle_report(collector)
+            else:
+                report = collector.collect(read_key(secret_file), max_requests=max_requests,
+                                           max_bytes=COLLECTION_BYTES, daily_budget=8000, min_interval=.3,
+                                           timeout=60, first_acquisition_only=False, collect_trades=trades,
+                                           progress=progress, correction=correction)
     finally:
         collector.close()
     from .property_backup_idle import reuse as reuse_backup, remember as remember_backup
@@ -188,11 +201,19 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                 stop = report['collection']['stop_reason']
                 if stop not in ACCEPTED_STOPS:
                     raise RealEstateError(stop)
-                if report['collection']['requests'] or not (data / 'read-model/current.json').is_file():
+                correction = report['collection'].get('correction')
+                prior_model = read_state(data / 'read-model-status.json')
+                correction_revision = (correction['content_revision'] if correction else
+                                       prior_model.get('correction_revision', 0))
+                # The revision is committed with changed jobs. A crash before
+                # read-model publication cannot hide a successful correction.
+                changed = (correction_revision != prior_model.get('correction_revision', 0) if correction else
+                           bool(report['collection']['requests']))
+                if changed or not (data / 'read-model/current.json').is_file():
                     try:
                         model = publish_read_model(data, reserve_bytes=RESERVE)
                         write_json(data / 'read-model-status.json', {'at': instant(), 'state': 'ready',
-                                   'generation': model['generation']})
+                                   'generation': model['generation'], 'correction_revision': correction_revision})
                         retire_acknowledged_read_models(data, model)
                     except Exception:
                         # A reader publication failure must not reset collection or its quota.
@@ -203,7 +224,7 @@ def worker(data, backups, secret_file, *, interval=300, max_requests=500):
                                    'public_release': False})
             except Exception as error:
                 code = error.code if isinstance(error, RealEstateError) else 'vps_collection_failed'
-                if code in {'vps_bulk_work_busy', 'vps_storage_review_required', 'disk_reserve', 'read_model_storage_reserve'}:
+                if code in {'vps_bulk_work_busy', 'vps_storage_review_required', 'disk_reserve', 'read_model_storage_reserve', 'upstream_quota', 'correction_day_changed'}:
                     write_json(state, {'at': instant(), 'state': 'waiting', 'stop_reason': code, 'public_release': False})
                     time.sleep(interval); continue
                 hold = {'at': instant(), 'error_code': code}

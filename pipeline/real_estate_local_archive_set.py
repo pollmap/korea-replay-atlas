@@ -134,7 +134,7 @@ def load_set(store: LocalArchiveSet, descriptor: dict) -> dict:
     return {**value, 'files': rows}
 
 
-def _previous(store):
+def _previous(store, *, reuse_archived=False, progress=None):
     expected = store.head()
     if expected:
         manifest = load_set(store, expected)
@@ -143,10 +143,16 @@ def _previous(store):
         previous_head = legacy.head()
         manifest = load_manifest(legacy, previous_head) if previous_head else {'files': []}
     rows = {row['path']: row for row in manifest['files']}
-    # Shared old objects are read back once. No manifest ancestor is needed.
-    for digest, size in sorted({(p['object']['sha256'], p['object']['bytes'])
-                              for row in rows.values() for p in parts(row)}):
-        store.get(digest, size)
+    # Shared old objects are read back once, or match a prior byte-verification
+    # receipt bound to the object's identity and actual validator source code.
+    from .real_estate_archive_verification import verification
+    with verification(store, reuse_archived) as verify:
+        objects = sorted({(p['object']['sha256'], p['object']['bytes'])
+                          for row in rows.values() for p in parts(row)})
+        for number, (digest, size) in enumerate(objects, 1):
+            verify(digest, size)
+            if progress and number % 100 == 0:
+                progress({'phase': 'archive-object-verification', 'verified_objects': number, 'total_objects': len(objects)})
     return expected, rows
 
 
@@ -276,6 +282,9 @@ def _snapshot(root, store, progress=None):
                 if snapshot:
                     references.append(json.loads(snapshot))
             references.extend(json.loads(row[0]) for row in db.execute('SELECT descriptor FROM snapshots'))
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='property_correction_queue'").fetchone():
+                for row in db.execute('SELECT pages FROM property_correction_queue'):
+                    references.extend(json.loads(row[0]))
         for ref in references:
             name = checked_path(ref['path'])
             candidate = {key: ref[key] for key in ('path', 'sha256', 'bytes')}
@@ -288,15 +297,34 @@ def _snapshot(root, store, progress=None):
         yield root, copy, audit
 
 
-def _plan(root, checkpoint, store, previous, *, group_limit, progress=None):
+def _plan(root, checkpoint, store, previous, *, group_limit, progress=None, reuse_archived=False):
     paths = _paths(root, checkpoint)
     if not set(previous) <= {name for _, name in paths}:
         raise RealEstateError('archive_previous_files_missing')
     owners, property_type = _file_groups(checkpoint)
     source_bytes = 0; new_bytes = 0; entries = []
+    reused_files = reused_bytes = 0; checked_objects = set()
+    from .real_estate_working_store import ArchivedFile
     for index, (path, name) in enumerate(paths):
-        body = path.read_bytes(); digest = sha256(body)
-        size = len(body); source_bytes += size
+        inherited = previous.get(name)
+        if reuse_archived and isinstance(path, ArchivedFile) and path.row == inherited:
+            # Both the verified parent manifest and verified retirement index
+            # identify this exact immutable CAS slice. New/physical files still
+            # take the byte-verifying branch; an explicit full audit remains available.
+            for part in parts(inherited):
+                obj = part['object']; key = (obj['sha256'], obj['bytes'])
+                if key not in checked_objects:
+                    object_path = store._path(obj['sha256']); _reject_links(object_path)
+                    if not object_path.is_file():
+                        object_path = object_path.with_suffix('.encoded'); _reject_links(object_path)
+                    if not object_path.is_file() or object_path.stat().st_size <= 0:
+                        raise RealEstateError('archive_object_missing')
+                    checked_objects.add(key)
+            digest, size = inherited['sha256'], inherited['bytes']
+            reused_files += 1; reused_bytes += size
+        else:
+            body = path.read_bytes(); digest = sha256(body); size = len(body)
+        source_bytes += size
         if size > group_limit:
             raise RealEstateError('archive_set_group_file_limit')
         if name != 'checkpoint.sqlite' and not Path(name).name.startswith(digest + '.'):
@@ -324,6 +352,7 @@ def _plan(root, checkpoint, store, previous, *, group_limit, progress=None):
     backup_remaining = new_bytes + index_allowance + PACK_BYTES
     free = shutil.disk_usage(store.root).free
     result = {'source_bytes': source_bytes, 'files': len(entries),
+              'retired_files_reused': reused_files, 'retired_source_bytes_reused': reused_bytes,
               'group_limit_bytes': group_limit, 'new_object_upper_bytes': new_bytes,
               'manifest_upper_bytes': index_allowance, 'checkpoint_scratch_bytes': checkpoint_bytes,
               'backup_additional_upper_bytes': backup_remaining + checkpoint_bytes,
@@ -345,11 +374,13 @@ def plan_set(root, store: LocalArchiveSet, *, group_limit=MAX_GROUP):
     return {**result, 'audit': audit, 'public_release': False}
 
 
-def backup_set(root, store: LocalArchiveSet, progress=None, *, group_limit=MAX_GROUP):
+def backup_set(root, store: LocalArchiveSet, progress=None, *, group_limit=MAX_GROUP, reuse_archived=False):
+    if type(reuse_archived) is not bool:
+        raise RealEstateError('archive_reuse_option')
     _limits(group_limit)
-    expected, previous = _previous(store)
+    expected, previous = _previous(store, reuse_archived=reuse_archived, progress=progress)
     with _snapshot(root, store, progress) as (root, checkpoint, audit):
-        plan, entries = _plan(root, checkpoint, store, previous, group_limit=group_limit, progress=progress)
+        plan, entries = _plan(root, checkpoint, store, previous, group_limit=group_limit, progress=progress, reuse_archived=reuse_archived)
         if not plan['fits_backup']:
             raise RealEstateError('disk_reserve')
         if progress:
