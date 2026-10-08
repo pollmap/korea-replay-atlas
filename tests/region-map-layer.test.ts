@@ -103,10 +103,10 @@ describe('region volume map integration contracts',()=>{
     if(layer.type==='symbol')expect(layer.layout).toMatchObject({'text-allow-overlap':false,'icon-allow-overlap':false,'icon-text-fit':'both'});
     expect(validateStyleMin({version:8,sources:{[REGION_MAP_SOURCE]:{type:'geojson',data:regionMapData(fixture()).provinces}},layers:[provinceMapLayer()]})).toEqual([]);
   });
-  it('provides a bounded shared white bubble sprite with blue outline and transparent corners',()=>{
+  it('provides a bounded shared white bubble sprite with purple outline and transparent corners',()=>{
     const sprite=regionMapBubbleImage();expect(sprite.data.byteLength).toBe(sprite.width*sprite.height*4);expect(sprite.data.byteLength).toBeLessThan(32*1024);
     const pixel=(x:number,y:number)=>Array.from(sprite.data.slice((y*sprite.width+x)*4,(y*sprite.width+x)*4+4));
-    expect(pixel(0,0)).toEqual([0,0,0,0]);expect(pixel(40,32)).toEqual([255,255,255,255]);expect(pixel(40,0)).toEqual([37,99,235,255]);
+    expect(pixel(0,0)).toEqual([0,0,0,0]);expect(pixel(40,32)).toEqual([255,255,255,255]);expect(pixel(40,0)).toEqual([81,69,205,255]);
   });
 });
 

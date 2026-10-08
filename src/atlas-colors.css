@@ -73,20 +73,20 @@
 
 /* Property design tokens. Legacy city modes retain the palette above. */
 .app-shell.atlas-shell.is-2d.is-exploring {
- --md-ink:#1f2f46;--md-muted:#5c6878;--md-line:#dce1e7;
- --md-accent:#1765cf;--md-soft:#eef5ff;--md-surface:#fff;
+ --md-ink:#252344;--md-muted:#69677c;--md-line:#e3e1ed;
+ --md-accent:#5145cd;--md-accent-strong:#4035a8;--md-soft:#f2f0ff;--md-surface:#fff;
  --atlas-ink:var(--md-ink);--atlas-muted:var(--md-muted);--atlas-line:var(--md-line);
  --atlas-blue:var(--md-accent);--trade-color:var(--md-accent);--trade-soft:var(--md-soft);--trade-line:var(--md-line);
- font-variant-numeric:tabular-nums;background:#fff;
+ font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums;background:#fff;
 }
 .app-shell.atlas-shell.is-2d.is-exploring .topbar{background:#fff;border-color:var(--md-line);box-shadow:none;gap:14px;padding:0 16px}
 .app-shell.atlas-shell.is-2d.is-exploring .brand{color:var(--md-ink);width:auto;min-width:110px;gap:8px}
 .app-shell.atlas-shell.is-2d.is-exploring .brand-symbol{background:var(--md-accent);border-radius:4px;width:30px;height:32px}
 .app-shell.atlas-shell.is-2d.is-exploring .brand strong{font-size:19px;letter-spacing:-.7px}
-.app-shell.atlas-shell.is-2d.is-exploring .brand small{color:var(--md-muted);font-size:11px;margin-top:1px}
+.app-shell.atlas-shell.is-2d.is-exploring .brand small{color:var(--md-muted);font-size:12px;margin-top:1px}
 .app-shell.atlas-shell.is-2d.is-exploring .header-actions>button,.app-shell.atlas-shell.is-2d.is-exploring .city-tools-toggle{color:var(--md-ink);background:transparent}
 .app-shell.atlas-shell.is-2d.is-exploring .share-button{background:var(--md-ink);color:#fff;border-radius:4px}
-.app-shell.atlas-shell.is-2d.is-exploring .property-panel{--accent:var(--md-accent);--ink:var(--md-ink);border-color:var(--md-line);border-radius:0;box-shadow:none}
+.app-shell.atlas-shell.is-2d.is-exploring .property-panel{--accent:var(--md-accent);--ink:var(--md-ink);--muted:var(--md-muted);--line:var(--md-line);border-color:var(--md-line);border-radius:0;box-shadow:none}
 .app-shell.atlas-shell.is-2d.is-exploring .property-panel[data-trade=rent]{--trade-color:#087b72;--trade-soft:#eef8f6;--trade-line:#cee2de}
 .app-shell.atlas-shell.is-2d.is-exploring .property-panel th{background:var(--md-surface);color:var(--md-muted)}
 .app-shell.atlas-shell.is-2d.is-exploring .discovery-open[aria-pressed=true]{background:var(--md-soft);box-shadow:inset 3px 0 var(--md-accent)}
@@ -94,10 +94,10 @@
 #property-header-tools{flex:1;min-width:0;max-width:620px}
 .workspace-header-tools{display:flex;gap:8px;align-items:center}
 .workspace-header-tools>button{flex:none;min-height:34px;padding:0 10px;font-size:13px;color:var(--md-ink);border:1px solid var(--md-line);border-radius:4px;background:#fff}
-.workspace-header-tools>button[aria-pressed=true]{border-color:var(--md-accent);color:var(--md-accent)}
+.workspace-header-tools>button:is(:hover,[aria-pressed=true]){border-color:var(--md-accent);color:var(--md-accent);background:var(--md-soft)}
 .workspace-search{position:relative;flex:1;min-width:140px}
 .workspace-search input{box-sizing:border-box;width:100%;height:34px;padding:0 10px;border:1px solid var(--md-line);border-radius:4px;background:var(--md-surface);font:inherit;font-size:13px;color:var(--md-ink)}
-.workspace-search-results{position:absolute;top:39px;left:0;right:0;min-width:280px;max-height:440px;overflow:auto;background:#fff;border:1px solid var(--md-line);box-shadow:0 5px 16px #1f2f4620;z-index:30}
+.workspace-search-results{position:absolute;top:39px;left:0;right:0;min-width:280px;max-height:440px;overflow:auto;background:#fff;border:1px solid var(--md-line);box-shadow:0 5px 16px #25234420;z-index:30}
 .workspace-search-results button{display:grid;grid-template-columns:44px 1fr;text-align:left;width:100%;padding:10px;gap:3px 8px;border-bottom:1px solid var(--md-line);color:var(--md-ink)}
 .workspace-search-results button:hover{background:var(--md-soft)}
 .workspace-search-results small,.workspace-search-results span,.workspace-search-results p{font-size:12px;color:var(--md-muted)}
@@ -136,7 +136,7 @@
 .app-shell.atlas-shell.is-2d.is-exploring :is(.map-loading,.commute-origin,.property-trade,.property-data-pending,.surroundings-state,.surroundings-reference,.quick-filter-panel,.sources-modal,.coverage-summary,.property-empty,.discovery-empty,.discovery-pending){background:#fff;background-image:none;box-shadow:none;border-radius:4px}
 .app-shell.atlas-shell.is-2d.is-exploring :is(.search-results,.workspace-search-results,.map-tools button,.panel,.property-type-switch button){box-shadow:none}
 .app-shell.atlas-shell.is-2d.is-exploring button{animation:none;transition:background-color 120ms ease,color 120ms ease,border-color 120ms ease}
-.app-shell.atlas-shell.is-2d.is-exploring button:not(:disabled):hover{filter:brightness(.95)}
+.app-shell.atlas-shell.is-2d.is-exploring button:not(:disabled):hover{filter:none}
 .app-shell.atlas-shell.is-2d.is-exploring button:not(.property-reopen){transform:none;translate:none;scale:none}
 .app-shell.atlas-shell.is-2d.is-exploring :is(.surroundings-categories,.surroundings-reference){background:#fff;border-color:var(--md-line);border-radius:4px}
 .app-shell.atlas-shell.is-2d.is-exploring .property-surroundings{--surroundings-purple:var(--md-accent);--surroundings-sky:var(--md-soft);color:var(--md-ink)}

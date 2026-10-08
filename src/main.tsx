@@ -12,6 +12,7 @@ import './atlas-colors.css';
 import './property-map-workspace.css';
 import './property-tools.css';
 import './property-usability.css';
+import './property-general-flow.css';
 
 const collectionRequested=new URLSearchParams(location.search).get('collection')==='apartments';
 if(collectionRequested){

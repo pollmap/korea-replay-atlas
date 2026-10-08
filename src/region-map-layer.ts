@@ -11,6 +11,8 @@ export const REGION_MAP_SOURCE='property-region-navigation';
 export const REGION_MAP_LAYER='property-region-volume-labels';
 export const PROVINCE_MAP_LAYER='property-province-volume-labels';
 export const REGION_MAP_IMAGE='property-region-volume-bubble';
+export const APARTMENT_SELECTED_IMAGE='property-selected-apartment-bubble';
+export const PROPERTY_MAP_COLORS={ink:'#252344',accent:'#5145cd',selected:'#4035a8',surface:'#ffffff'} as const;
 export interface RegionMapInput {complexPriceFiltered?:boolean;map:Pick<MapCatalog2D,'reference_dates'>;property:Pick<PropertyRelease,'release_id'|'period'>;regions:PropertyRegions;trade?:'sale'|'rent';month?:string;historyMonths?:number;area?:string;rentKind?:string;filterMetrics?:RegionFilterMetrics|null;filterMetricState?:'loading'|'ready'|'error';}
 export interface RegionMapProperties {
   property_region_code:string;property_release:string;region_name:string;display_name:string;
@@ -116,7 +118,7 @@ export function provinceMapLayer():LayerSpecification {
     filter:['has','property_province_name'],
     layout:{'text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','count_label'],{'font-scale':1.05}],
       'text-font':['Malgun Gothic','sans-serif'],'text-size':12,'text-line-height':1.1,'text-max-width':8,'text-padding':3,'text-allow-overlap':false,
-      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],'icon-allow-overlap':false},paint:{'text-color':'#102b46','icon-opacity':.98}};
+      'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],'icon-allow-overlap':false},paint:{'text-color':PROPERTY_MAP_COLORS.ink,'icon-opacity':.98}};
 }
 
 export function regionMapLayer():LayerSpecification {
@@ -125,17 +127,19 @@ export function regionMapLayer():LayerSpecification {
     layout:{'symbol-sort-key':['get','sort_key'],'symbol-z-order':'source','text-field':['format',['get','display_name'],{'font-scale':1},'\n',{},['get','value_label'],{'font-scale':1.08}],
       'text-font':['Malgun Gothic','sans-serif'],'text-size':12,'text-line-height':1.1,'text-max-width':10,'text-padding':3,'text-allow-overlap':false,'text-ignore-placement':false,
       'icon-image':REGION_MAP_IMAGE,'icon-text-fit':'both','icon-text-fit-padding':[3,5,3,5],'icon-allow-overlap':false,'icon-ignore-placement':false},
-    paint:{'text-color':'#102b46','icon-opacity':.98}};
+    paint:{'text-color':PROPERTY_MAP_COLORS.ink,'icon-opacity':.98}};
 }
 
-/** One stretchable RGBA sprite shared by every label; no HTML markers or per-region images. */
-export function regionMapBubbleImage(){
+/** Two bounded shared sprites distinguish selection without HTML/per-feature markers. */
+export function regionMapBubbleImage(){return propertyMapBubbleImage(false);}
+export function apartmentSelectedBubbleImage(){return propertyMapBubbleImage(true);}
+function propertyMapBubbleImage(selected:boolean){
   const width=80,height=64,radius=12,data=new Uint8Array(width*height*4);
   const inside=(x:number,y:number,inset:number)=>{const dx=Math.max(Math.abs(x-width/2)-(width/2-radius),0),dy=Math.max(Math.abs(y-height/2)-(height/2-radius),0);return Math.hypot(dx,dy)<=radius-inset&&x>=inset&&x<=width-inset&&y>=inset&&y<=height-inset;};
   for(let y=0;y<height;y++)for(let x=0;x<width;x++){
     if(!inside(x+.5,y+.5,0))continue;
     const offset=(y*width+x)*4,stroke=!inside(x+.5,y+.5,2);
-    data[offset]=stroke?37:255;data[offset+1]=stroke?99:255;data[offset+2]=stroke?235:255;data[offset+3]=255;
+    data[offset]=stroke?81:selected?64:255;data[offset+1]=stroke?69:selected?53:255;data[offset+2]=stroke?205:selected?168:255;data[offset+3]=255;
   }
   return {width,height,data};
 }
