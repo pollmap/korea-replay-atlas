@@ -63,7 +63,8 @@ it.each([120,240] as const)('shows %s-month detail and comparison periods withou
   const history=renderToStaticMarkup(createElement(PropertyHistory,{detail,complex,origin:'https://example.com',month:'202608',trade:'sale',area:'84-band',onArea:()=>{},range,onRange:()=>{},includeReview:false,onMonth:()=>{}}));
   expect(history).toContain(`최근 ${range/12}년`);expect(history).toContain(`게시 0/${range}개월`);
   expect(history).toContain('이 거래 유형의 게시 자료가 없습니다.');expect(history).toContain('거래 기간 이동');
-  expect(history.indexOf('history-coverage')).toBeLessThan(history.indexOf('history-chart-toolbar'));
+  expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('history-coverage'));
+  expect(history.indexOf('history-secondary-tools')).toBeLessThan(history.indexOf('history-coverage'));
   expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('history-secondary-tools'));
   expect(history.indexOf('history-secondary-tools')).toBeLessThan(history.indexOf('거래 기간 이동'));
   expect(history.indexOf('history-chart-toolbar')).toBeLessThan(history.indexOf('월별 자료 보기'));
@@ -99,7 +100,8 @@ it('provides a compact 2D list control without removing existing region, trade o
   expect(html).toContain('검색·조건</button>');expect(html).toContain('전세 · 2026.08 계약');
   expect(html).toContain('aria-label="← 검증 지역 전체"');
   expect(html).toContain('aria-label="시도 선택"');expect(html).toContain('aria-label="시군구 선택"');
-  expect(html).toContain('aria-label="아파트 대시보드"');expect(html).toContain('aria-label="주거 유형"');
+  expect(html).toContain('aria-label="아파트 대시보드"');expect(html).not.toContain('aria-label="주거 유형"');
+  expect(html).not.toContain('>오피스텔</button>');
 });
 it('keeps compact-list controls out of 3D, officetel and pending apartment-detail views',()=>{
   for(const sample of [
