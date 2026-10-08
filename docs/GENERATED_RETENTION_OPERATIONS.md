@@ -12,7 +12,7 @@
 
 ## 비공개 정책 파일
 
-예시 위치: `/srv/services/korea-replay/shared/retention-policy.json`. 운영 값은 저장소에 커밋하지 않습니다. 게시 검증이 성공한 작업이 아래 참조를 새로 확인한 뒤 파일을 원자적으로 바꾸도록 연결합니다. 정리기가 설정의 만료일을 스스로 연장하지 않습니다.
+예시 위치: `/srv/services/korea-replay/shared/retention-policy.json`. 운영 값은 저장소에 커밋하지 않습니다. 게시 검증이 성공한 작업이 아래 참조를 새로 확인한 뒤 파일을 원자적으로 바꾸도록 연결합니다. 정리기가 설정의 만료일을 스스로 연장하지 않습니다. 게시 후 원자 갱신과 공통 잠금 래퍼는 [게시 정책 연결 문서](GENERATED_PUBLICATION_POLICY.md)를 따릅니다.
 
 ```json
 {
