@@ -26,11 +26,22 @@ def identity(partition):
 
 class VerificationCache:
     def __init__(self, filename, root):
-        filename=Path(filename).absolute();_reject_links(filename);filename.parent.mkdir(parents=True,exist_ok=True)
+        filename=Path(filename).absolute()
+        # SQLite can write or recover these companions during connect/schema
+        # setup, before a caller's closing() context has taken ownership.
+        for path in (filename, *(Path(str(filename)+suffix) for suffix in ('-journal','-wal','-shm'))):
+            _reject_links(path)
+            if path.exists() and (not path.is_file() or path.stat().st_nlink != 1):
+                raise RealEstateError('verification_cache_path')
+        filename.parent.mkdir(parents=True,exist_ok=True)
         self.root=Path(root).resolve();self.version=version();self.hits=0;self.misses=0
         self.db=sqlite3.connect(filename)
-        self.db.execute('create table if not exists audited (root text, version text, job_id text, input_sha text, records integer, identity_sha text, primary key(root,version,job_id,input_sha))')
-        self.db.commit()
+        try:
+            self.db.execute('create table if not exists audited (root text, version text, job_id text, input_sha text, records integer, identity_sha text, primary key(root,version,job_id,input_sha))')
+            self.db.commit()
+        except BaseException:
+            self.db.close()
+            raise
 
     def verify(self, root, job, verifier):
         from .real_estate_publish import checked_read

@@ -9,25 +9,80 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import shutil
 
 from .real_estate import RealEstateError, _reject_links
 from .property_read_model import ReadModel, sha256
 from .real_estate_local_archive import _lock
 from .real_estate_regions import load_registry
-from .real_estate_publish import publish
+from .real_estate_publish import publish, TARGET_ASSET
 from .real_estate_complex_summary import build as summarize
 from .real_estate_summary_month_pack import build as pack_summaries
 from .vps_runtime import write_json
 from .bulk_work import bulk_work
+from .property_verification_cache import VerificationCache
+from .real_estate_storage import MAX_SNAPSHOT_BYTES
 
-RESERVE = 30 * 1024**3
+RESERVE = 2 * 1024**3
+
+
+def input_sizes(database):
+    """Count only pinned publisher inputs, without opening XML/snapshot payloads.
+
+    These are descriptor totals, not a bound on the compressed publication or
+    a claim that its inputs have been audited. Every writer keeps its own stage
+    preflight and per-file free-space guard.
+    """
+    references = 0; inputs = {}
+    for status, value in database.execute("SELECT status,snapshot FROM jobs WHERE snapshot IS NOT NULL"):
+        if status not in ('complete', 'empty', 'pending', 'partial', 'failed'):
+            continue
+        try:
+            descriptor = json.loads(value)
+        except (TypeError, ValueError):
+            raise RealEstateError('candidate_input_descriptor') from None
+        if not isinstance(descriptor, dict) or descriptor.get('encoding') not in (None, 'gzip', 'xz'):
+            raise RealEstateError('candidate_input_descriptor')
+        size = descriptor.get('bytes')
+        decoded = descriptor.get('decoded_bytes') if descriptor.get('encoding') else size
+        name = descriptor.get('path'); digest = descriptor.get('sha256')
+        encoding = descriptor.get('encoding')
+        decoded_digest = descriptor.get('decoded_sha256') if encoding else digest
+        suffix = {'gzip': '.json.gz', 'xz': '.json.xz'}.get(encoding, '.json')
+        # The inventory must have the same unambiguous, root-relative JSON
+        # identity as the body reader, without touching any payload bytes.
+        if (not isinstance(name, str)
+                or not re.fullmatch(r'[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\.json(?:\.(?:gz|xz))?', name)
+                or not name.endswith(suffix) or not isinstance(digest, str)
+                or not re.fullmatch(r'[a-f0-9]{64}', digest)
+                or type(size) is not int or not 0 < size <= MAX_SNAPSHOT_BYTES
+                or type(decoded) is not int or not 0 < decoded <= MAX_SNAPSHOT_BYTES
+                or not isinstance(decoded_digest, str)
+                or not re.fullmatch(r'[a-f0-9]{64}', decoded_digest)):
+            raise RealEstateError('candidate_input_descriptor')
+        identity = (digest, size, decoded, encoding, decoded_digest)
+        if name in inputs and inputs[name] != identity:
+            raise RealEstateError('candidate_input_descriptor_conflict')
+        inputs[name] = identity; references += 1
+    return {'snapshot_references': references, 'snapshot_files': len(inputs),
+            'snapshot_stored_bytes': sum(value[1] for value in inputs.values()),
+            'snapshot_decoded_bytes': sum(value[2] for value in inputs.values()),
+            'largest_snapshot_decoded_bytes': max((value[2] for value in inputs.values()), default=0),
+            'payloads_read': 0, 'publication_upper_bytes': None,
+            'enforcement': 'stage_preflight_and_per_file_reserve'}
 
 
 def run(data, output, *, reserve_bytes=RESERVE, progress=None):
+    if type(reserve_bytes) is not int or reserve_bytes < 0:
+        raise RealEstateError('invalid_disk_reserve')
     data = Path(data).absolute(); output = Path(output).absolute()
     _reject_links(data); _reject_links(output)
     if any(p.lower() in ('public', 'dist') for p in output.parts):
         raise RealEstateError('public_output_forbidden')
+    # Reject source overlap before creating even a status or lock file.
+    if any(output.resolve().is_relative_to((data / name).resolve())
+           for name in ('collector', 'read-model')):
+        raise RealEstateError('candidate_cache_path')
     output.mkdir(parents=True, exist_ok=True)
     lock = output / 'candidate.lock'; _reject_links(lock)
     with _lock(lock), bulk_work(data):
@@ -49,6 +104,7 @@ def run(data, output, *, reserve_bytes=RESERVE, progress=None):
             if db.execute('PRAGMA journal_mode').fetchone()[0] != 'delete':
                 raise RealEstateError('candidate_checkpoint_not_closed')
             registry_hash = db.execute("SELECT value FROM meta WHERE key='registry_sha256'").fetchone()[0]
+            inputs = input_sizes(db)
         if not re.fullmatch(r'[a-f0-9]{64}', registry_hash):
             raise RealEstateError('candidate_registry')
         registry = load_registry(root / 'registry' / (registry_hash + '.json'))
@@ -62,15 +118,29 @@ def run(data, output, *, reserve_bytes=RESERVE, progress=None):
             if progress:progress(dict(state))
 
         try:
+            report({'phase':'space_preflight', 'input_sizes':inputs, 'reserve_bytes':reserve_bytes})
+            if shutil.disk_usage(output).free < reserve_bytes + 2 * TARGET_ASSET:
+                raise RealEstateError('disk_reserve')
             report({'phase':'raw_audit'})
-            packed = publish(root, registry, output / 'transactions', reserve_bytes=reserve_bytes,
-                             checkpoint=database, progress=report, packed_transactions=True)
+            cache_path = output / 'verification.sqlite'
+            # Keep the writable cache in this candidate workspace; never in a
+            # source or immutable generation directory.
+            if (cache_path.resolve().is_relative_to(root.resolve())
+                    or cache_path.resolve().is_relative_to(database.parent.resolve())
+                    or cache_path.exists() and (not cache_path.is_file() or cache_path.stat().st_nlink != 1)):
+                raise RealEstateError('candidate_cache_path')
+            with closing(VerificationCache(cache_path, root)) as cache:
+                packed = publish(root, registry, output / 'transactions', reserve_bytes=reserve_bytes,
+                                 checkpoint=database, progress=report, packed_transactions=True,
+                                 compressed_transactions=True, audit_cache=cache)
+                report({'verification_execution':{'cache_hits':cache.hits, 'cache_misses':cache.misses,
+                                                   'version':cache.version}})
             report({'phase':'monthly_summary', 'property_release':packed['release_id']})
             summary = summarize(output / 'transactions' / packed['release_id'] / 'publication.json',
-                                output / 'summaries', reserve_bytes=reserve_bytes, max_files=100_000)
+                                output / 'summaries', reserve_bytes=reserve_bytes, max_files=100_000, compressed_assets=True)
             report({'phase':'summary_pack'})
             compact = pack_summaries(output / 'summaries' / summary['summary_release_id'] / 'publication.json',
-                                    output / 'summary-packs', reserve_bytes=reserve_bytes)
+                                    output / 'summary-packs', reserve_bytes=reserve_bytes, compressed_assets=True)
             result = {'schema_version':1, 'state':'ready', 'public_release':False,
                       'read_model':model, 'property_release':packed['property_release'],
                       'property_publication':str(output / 'transactions' / packed['release_id'] / 'publication.json'),
@@ -89,11 +159,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--reserve-bytes', type=int, default=RESERVE,
+                        help='Free recovery bytes retained by every stage/file guard (default: 2 GiB)')
     args = parser.parse_args()
     def log(value):
         print(json.dumps(value, ensure_ascii=False), flush=True)
     try:
-        log(run(args.data, args.output, progress=log))
+        log(run(args.data, args.output, reserve_bytes=args.reserve_bytes, progress=log))
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
         parser.exit(1, 'property_candidate: ' + (error.code if isinstance(error, RealEstateError) else 'invalid_input') + '\n')
 
