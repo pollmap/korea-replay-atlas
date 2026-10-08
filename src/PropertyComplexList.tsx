@@ -4,9 +4,10 @@ import {discoverPropertyComplexes,EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDisco
 import {transactionPrice} from '../shared/property-pricing';
 import {moneyLabel,monthLabel} from '../shared/property-view';
 import {HISTORY_RANGES,historyMonths,historyRangeLabel,type HistoryRange} from '../shared/property-history';
-import {areaMatches,areaRangeBounds,areaFromBounds,exclusivePyeong,NATIONAL_AREA} from '../shared/property-area';
+import {areaMatches,areaFromBounds,exclusivePyeong,NATIONAL_AREA} from '../shared/property-area';
 import {propertyFilterChips} from '../shared/property-filter-chips';
 import PropertySavedFilters from './PropertySavedFilters';
+import {generalPropertyFilters} from './property-general-filters';
 import type {RentKind} from '../shared/property-rent';
 import {loadComplexPriceSummaries} from './property-summary-client';
 import {discoverPropertySummaryComplexes} from './property-summary-discovery';
@@ -14,6 +15,7 @@ import {summaryPrice} from './property-monthly-summary';
 import type {MonthlySummaryData} from './PropertyMonthlySummary';
 
 export interface PropertyComplexListProps {
+  compactControls?:boolean;
   filtersState?:readonly [PropertyDiscoveryFilters,Dispatch<SetStateAction<PropertyDiscoveryFilters>>];
   dong?:string;onDong?:(dong:string)=>void;
   savedFilterRegion?:string;rentKind?:RentKind;onRentKind?:(kind:RentKind)=>void;
@@ -26,10 +28,10 @@ export interface PropertyComplexListProps {
 }
 const PAGE_SIZE=40;
 
-export default function PropertyComplexList({complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea,latestPrice,onLatestPrice,filtersState}:PropertyComplexListProps){
+export default function PropertyComplexList({compactControls=false,complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea,latestPrice,onLatestPrice,filtersState}:PropertyComplexListProps){
   const fallbackFilters=useState<PropertyDiscoveryFilters>(EMPTY_PROPERTY_DISCOVERY_FILTERS),[page,setPage]=useState(0);
   const [localFilters,setFilters]=filtersState??fallbackFilters;
-  const filters=useMemo(()=>{const range=area?areaRangeBounds(area):null;return {...localFilters,...(latestPrice?{priceMinEok:latestPrice.min,priceMaxEok:latestPrice.max}:{}),...(area!==undefined?{areaMinM2:area?(range?.min??(area===NATIONAL_AREA?'84':area)):'',areaMaxM2:area?(range?.max??(area===NATIONAL_AREA?'84.99999':area)):''}:{}),...(dong!==undefined?{dong}:{}),...(rentKind!==undefined?{rentKind}:{})};},[localFilters,rentKind,dong,area,latestPrice]);
+  const filters=useMemo(()=>generalPropertyFilters(localFilters,{area,latestPrice,dong,rentKind}),[localFilters,rentKind,dong,area,latestPrice]);
   useEffect(()=>setPage(0),[rentKind,dong,area,periodMonths,month,latestPrice?.min,latestPrice?.max,localFilters.query,localFilters.sort,localFilters.buildYearMin,localFilters.buildYearMax,localFilters.hasTrades]);
   const summaryRequested=!!release&&!!savedFilterRegion&&!!month&&periodMonths!==undefined&&HISTORY_RANGES.includes(periodMonths);
   const months=useMemo(()=>summaryRequested?historyMonths(month!,periodMonths!):[],[summaryRequested,month,periodMonths]);
@@ -60,7 +62,8 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
   const change=<K extends keyof PropertyDiscoveryFilters>(key:K,value:PropertyDiscoveryFilters[K])=>{setFilters(current=>({...current,...(area?{areaMinM2:filters.areaMinM2,areaMaxM2:filters.areaMaxM2}:{}),[key]:value}));if(key==='priceMinEok'||key==='priceMaxEok')onLatestPrice?.(key==='priceMinEok'?String(value):filters.priceMinEok,key==='priceMaxEok'?String(value):filters.priceMaxEok);if(key==='dong')onDong?.(String(value));if(key==='areaMinM2'||key==='areaMaxM2')onArea?.(areaFromBounds(key==='areaMinM2'?String(value):filters.areaMinM2,key==='areaMaxM2'?String(value):filters.areaMaxM2));setPage(0);};
   const chips=propertyFilterChips(filters,trade),active=chips.length>0;
   const nationalArea=area===NATIONAL_AREA||filters.areaMinM2==='84'&&filters.areaMaxM2==='84.99999';
-  return <section className="property-discovery" aria-label="아파트 단지 찾기">
+  return <section className={`property-discovery${compactControls?' discovery-compact':''}`} aria-label="아파트 단지 찾기">
+    {!compactControls&&<>
     {savedFilterRegion&&<PropertySavedFilters month={month} region={savedFilterRegion} trade={trade} filters={filters} onApply={value=>{setFilters(value);onLatestPrice?.(value.priceMinEok,value.priceMaxEok);onArea?.(areaFromBounds(value.areaMinM2,value.areaMaxM2));if(value.dong!==filters.dong)onDong?.(value.dong);onRentKind?.(value.rentKind??'all');setPage(0);setFilterPanel(null);}}/>}
     <label className="discovery-search"><span className="sr-only">단지 찾기</span><input type="search" value={filters.query} placeholder="아파트 이름 또는 법정동" onChange={event=>change('query',event.target.value)} autoComplete="off"/></label>
     <div className="discovery-filter-chips" ref={filterButtons} role="group" aria-label="단지 조건 빠른 선택">{([['price',trade==='sale'?'매매가':'보증금',filters.priceMinEok||filters.priceMaxEok],['area','전용면적',filters.areaMinM2||filters.areaMaxM2],['year','건축연도',filters.buildYearMin||filters.buildYearMax]] as const).map(([id,label,enabled])=><button key={id} aria-expanded={filterPanel===id} aria-controls={panelId} data-filter={id} data-active={!!enabled} onClick={()=>setFilterPanel(current=>current===id?null:id)}>{label}{enabled?<span className="filter-active-dot" aria-label="적용 중"/>:<span aria-hidden="true">⌄</span>}</button>)}<button className="national-area-chip" aria-label="국평 전용 84㎡대 빠른 선택" aria-pressed={nationalArea} data-active={nationalArea} onClick={()=>{setFilters(current=>({...current,areaMinM2:nationalArea?'':'84',areaMaxM2:nationalArea?'':'84.99999'}));onArea?.(nationalArea?'':NATIONAL_AREA);setFilterPanel(null);setPage(0);}}>국평</button></div>
@@ -95,13 +98,13 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
       <button className="quick-filter-done" disabled={!!result.errors.length} onClick={closeFilter}>{result.errors.length?'입력 범위를 확인해 주세요':`${result.items.length.toLocaleString('ko-KR')}개 단지 보기`}</button>
     </div>}
     {active&&<div className="discovery-active-filters" role="group" aria-label="적용한 조건">{chips.map(chip=><button key={chip.id} aria-label={`${chip.label} 조건 해제`} onClick={()=>{setFilters(current=>({...current,...chip.clear}));if(chip.clear.priceMinEok!==undefined||chip.clear.priceMaxEok!==undefined)onLatestPrice?.(chip.clear.priceMinEok??filters.priceMinEok,chip.clear.priceMaxEok??filters.priceMaxEok);if(chip.clear.areaMinM2!==undefined||chip.clear.areaMaxM2!==undefined)onArea?.('');if(chip.clear.dong!==undefined)onDong?.(chip.clear.dong);if(chip.clear.rentKind)onRentKind?.(chip.clear.rentKind);setPage(0);}}>{chip.label}<span aria-hidden="true"> ×</span></button>)}</div>}
-    <div className="discovery-result-heading"><p role="status">{result.items.length.toLocaleString('ko-KR')}개 단지{result.items.length>PAGE_SIZE?` · ${start+1}–${Math.min(start+PAGE_SIZE,result.items.length)}`:''}</p>{active&&<button className="discovery-reset" onClick={()=>{setFilters(EMPTY_PROPERTY_DISCOVERY_FILTERS);onLatestPrice?.('','');onArea?.('');onDong?.('');onRentKind?.('all');setPage(0);}}>초기화</button>}</div>
-    <label className="discovery-trade-only"><input type="checkbox" checked={!!filters.hasTrades} onChange={event=>change('hasTrades',event.target.checked)}/>{summaryActive?'선택 기간 거래 있는 단지':'선택 월 거래 있는 단지'}</label>
-    <p id={captionId} className="discovery-note discovery-source-note" title="취소 거래를 제외한 최근 유효 거래입니다.">{summaryActive?'선택 기간의 최근 실거래':'선택 월의 최근 실거래'}</p>
+    </>}
+    <div className="discovery-result-heading"><p role="status">{result.items.length.toLocaleString('ko-KR')}개 단지{result.items.length>PAGE_SIZE?` · ${start+1}–${Math.min(start+PAGE_SIZE,result.items.length)}`:''}</p>{compactControls&&<label className="discovery-sort"><span className="sr-only">정렬</span><select aria-label="단지 정렬" value={filters.sort} onChange={event=>change('sort',event.target.value as PropertyDiscoverySort)}><option value="recent">최근 계약순</option><option value="count">거래 많은순</option><option value="price-low">가격 낮은순</option><option value="price-high">가격 높은순</option><option value="pyeong-low">평당가 낮은순</option><option value="pyeong-high">평당가 높은순</option><option value="name">이름순</option></select></label>}{!compactControls&&active&&<button className="discovery-reset" onClick={()=>{setFilters(EMPTY_PROPERTY_DISCOVERY_FILTERS);onLatestPrice?.('','');onArea?.('');onDong?.('');onRentKind?.('all');setPage(0);}}>초기화</button>}</div>
+    {!compactControls&&<label className="discovery-trade-only"><input type="checkbox" checked={!!filters.hasTrades} onChange={event=>change('hasTrades',event.target.checked)}/>{summaryActive?'선택 기간 거래 있는 단지':'선택 월 거래 있는 단지'}</label>}
+    {!compactControls&&<p id={captionId} className="discovery-note discovery-source-note" title="취소 거래를 제외한 최근 유효 거래입니다.">{summaryActive?'선택 기간의 최근 실거래':'선택 월의 최근 실거래'}</p>}
     {summaryRequested&&!summaryActive&&<p className="discovery-note">이 공개 버전에는 기간 요약이 없어 선택 월 원문을 표시합니다.</p>}
     {summaryActive&&!summaryReady&&!summaryError&&<p className="discovery-pending" role="status">거래 불러오는 중…</p>}
     {summaryError&&<p className="discovery-error" role="alert">{summaryError} <button onClick={()=>{setSummary({key:summaryKey,state:'loading'});setAttempt(value=>value+1);}}>요약 다시 확인</button></p>}
-    {summaryResult&&<details className="pricing-method"><summary>자료 기준</summary><p className="discovery-note">확인 {summaryResult.verifiedMonths}/{months.length-summaryResult.sourceUnavailableMonths}개월{summaryResult.missingMonths?` · 미수집·미확인 ${summaryResult.missingMonths}개월`:''}{summaryResult.sourceUnavailableMonths?` · 원천 제공 전 ${summaryResult.sourceUnavailableMonths}개월`:''}{summaryResult.priceFiltered?' · 금액 조건은 마지막 계약 기준, 건수는 면적·유형 조건의 확보 합계':''}</p></details>}
     {!summaryActive&&!dataReady&&<p className="discovery-pending" role="status">거래 확인 전{result.transactionFiltersPending?' 금액·면적 조건은 거래를 확인한 뒤 적용됩니다.':''}</p>}
     {result.errors.length>0&&<p id={errorId} role="alert" className="discovery-error">{result.errors.join(' ')}</p>}
     {!result.errors.length&&!result.items.length&&<p className="discovery-empty">{complexes.length?'조건에 맞는 단지가 없습니다. 검색어와 필터를 확인해 주세요.':'이 지역에 연결된 단지 식별자료가 없습니다.'}</p>}
@@ -116,15 +119,16 @@ export default function PropertyComplexList({complexes,rows,dataReady,trade,onSe
         <span className="discovery-address">{complex.legal_dong_name??'법정동 미확인'} {complex.lot_number??''} · {complex.build_year===null?'건축연도 미확인':`${complex.build_year}년 건축`}</span>
         {complex.address_conflict&&<span className="discovery-note">신고 주소가 달라 확인이 필요한 단지입니다.</span>}
         {latest||representative?<>
-          <span className="discovery-price"><span>{trade==='sale'?'최근 매매':'최근 보증금'}</span><strong>{moneyLabel(price)}원</strong>{trade==='rent'&&<small>월세 {moneyLabel(monthlyRent)}원</small>}</span>
-          <span className="discovery-unit-price">전용평당 {moneyLabel(perPyeong)}원{trade==='rent'?' · 보증금 기준':''}</span>
-          <span className="discovery-contract">{contractDate} · 전용 {contractArea}㎡{representative?` · ${exclusivePyeong(contractArea??null)}평`:latest?.floor==null?'':` · ${latest.floor}층`}</span>
+          <span className="discovery-price"><span>{trade==='sale'?'최근 매매':'최근 보증금'}</span><strong>{moneyLabel(price)}원</strong>{compactControls&&<span className="discovery-price-area">전용 {contractArea}㎡</span>}{trade==='rent'&&<small>월세 {moneyLabel(monthlyRent)}원</small>}</span>
+          {!compactControls&&<span className="discovery-unit-price">전용평당 {moneyLabel(perPyeong)}원{trade==='rent'?' · 보증금 기준':''}</span>}
+          <span className="discovery-contract">{contractDate}{!compactControls&&<> · 전용 {contractArea}㎡{representative?` · ${exclusivePyeong(contractArea??null)}평`:latest?.floor==null?'':` · ${latest.floor}층`}</>}{compactControls&&latest?.floor!=null&&` · ${latest.floor}층`}</span>
         </>:<span className="discovery-no-trade">{count===null?summaryError?'거래 요약 조회 실패':summaryReady?summaryResult?.sourceUnavailableMonths===months.length?'선택 기간의 거래 원천 미제공':'가격 미확인':summaryActive?'가격 불러오는 중…':'거래 확인 전':summaryActive?'선택 기간 거래 없음':'선택 월 거래 없음'}</span>}
         <span className="discovery-count">{item.kind==='summary'?item.sourceUnavailableMonths===months.length?'거래 건수 미제공':`${item.missingMonths?'확보':'현재 조건'} ${item.confirmedCount.toLocaleString('ko-KR')}건${item.missingMonths?` · 미확인 ${item.missingMonths}개월`:''}`:count===null?'신고 건수 미확인':`현재 조건 ${count.toLocaleString('ko-KR')}건`}</span>
       </button>
       {onWatch&&<button className="discovery-watch" aria-label={`${complex.name} 관심 ${watchedIds?.has(complex.id)?'해제':'저장'}`} aria-pressed={watchedIds?.has(complex.id)??false} onClick={()=>onWatch(complex)}>{watchedIds?.has(complex.id)?'★':'☆'}</button>}
     </li>;})}</ol>
     {lastPage>0&&<nav className="discovery-pagination" aria-label="단지 목록 페이지"><button disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}>이전</button><span>{currentPage+1} / {lastPage+1}</span><button disabled={currentPage===lastPage} onClick={()=>setPage(currentPage+1)}>다음</button></nav>}
-      {summaryRequested&&<details className="discovery-advanced-conditions"><summary>단지·투자 조건</summary><p className="discovery-note">공식 자료 연결 전입니다. 전용면적과 실거래 조건을 먼저 이용해 주세요.</p><div className="discovery-filter-chips" role="group" aria-label="연결 전인 단지·투자 조건">{['공급면적','세대수','주차','용적률','건폐율','전세가율','갭가격'].map(label=><button key={label} disabled title="공식 자료 연결 전">{label} · 연결 전</button>)}</div></details>}
+    {summaryResult&&<details className="pricing-method"><summary>자료 기준</summary><p className="discovery-note">확인 {summaryResult.verifiedMonths}/{months.length-summaryResult.sourceUnavailableMonths}개월{summaryResult.missingMonths?` · 미수집·미확인 ${summaryResult.missingMonths}개월`:''}{summaryResult.sourceUnavailableMonths?` · 원천 제공 전 ${summaryResult.sourceUnavailableMonths}개월`:''}{summaryResult.priceFiltered?' · 금액 조건은 마지막 계약 기준, 건수는 면적·유형 조건의 확보 합계':''}</p></details>}
+      {!compactControls&&summaryRequested&&<details className="discovery-advanced-conditions"><summary>단지·투자 조건</summary><p className="discovery-note">공식 자료 연결 전입니다. 전용면적과 실거래 조건을 먼저 이용해 주세요.</p><div className="discovery-filter-chips" role="group" aria-label="연결 전인 단지·투자 조건">{['공급면적','세대수','주차','용적률','건폐율','전세가율','갭가격'].map(label=><button key={label} disabled title="공식 자료 연결 전">{label} · 연결 전</button>)}</div></details>}
 </section>;
 }

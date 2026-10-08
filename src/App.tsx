@@ -134,6 +134,7 @@ export default function App(){
       <div id="property-header-tools"/>
       <nav className="header-actions" aria-label="서비스 메뉴"><button onClick={()=>setSourcesOpen(true)}>출처</button><button className="share-button" onClick={share}>공유</button></nav>
     </header>
+    <div id="property-filter-host" hidden={focusMode||!propertyRequested}/>
     {!propertyVisible&&!focusMode&&<button className="property-reopen" onClick={()=>setPropertyOpen(true)}>아파트 목록</button>}
     <button className="focus-toggle" aria-pressed={focusMode} aria-label={focusMode?'도구 표시':'지도만 보기'} title="F / Esc" onClick={()=>setFocusMode(value=>!value)}><span>{focusMode?'도구 표시':'지도만 보기'}</span></button>
     <MapInteractionTools map={mapRef} view="2d" place={place} hidden={focusMode} measurement={measurement} onMeasure={mode=>setMeasurement(measureMap(mode,[]))} onUndo={()=>setMeasurement(previous=>measureMap(previous.mode,previous.points.slice(0,-1)))} onNotice={setNotice} onLocate={goTo}/>
