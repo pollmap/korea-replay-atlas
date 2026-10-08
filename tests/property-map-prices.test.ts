@@ -25,8 +25,8 @@ describe('selected-condition map prices',()=>{
   it('never generates supply-area pyeong or sale prices for rentals',()=>{
     expect(labels({...view,areaBasis:'supply'}).filtered_label).toBe('공급면적 미연결');
     const rental={...report,trade_type:'rent' as const,rent_kind:'monthly' as const,latest_price_krw:null,latest_deposit_krw:300_000_000,latest_monthly_rent_krw:2_500_000};
-    expect(labels({...view,trade:'rent',rentKind:'monthly'},{...ready,rows:[rental]}).filtered_price_label).toBe('3억 / 월 250만');
-    expect(labels({...view,trade:'rent',rentKind:'jeonse'},{...ready,rows:[rental]}).filtered_label).toBe('미수집 포함');
+    expect(labels({...view,trade:'rent',rentKind:'monthly'},{...ready,partitions:ready.partitions.map(p=>({...p,trade_type:'rent'})),rows:[rental]}).filtered_price_label).toBe('3억 / 월 250만');
+    expect(labels({...view,trade:'rent',rentKind:'jeonse'},{...ready,partitions:ready.partitions.map(p=>({...p,trade_type:'rent'})),rows:[rental]}).filtered_label).toBe('해당 거래 없음');
   });
   it('pins filter keys independently of decorative/detail changes',()=>{
     expect(propertyMapFilterKey(release,view)).toBe(propertyMapFilterKey(release,{...view,detailSection:'facts',priceBasis:'pyeong',markerDisplay:'name'}));
@@ -72,7 +72,7 @@ it('qualifies latest prices without substituting an older matching report, and k
 it('keeps zero deposit qualifiers independent of the monthly payment',()=>{
   const monthly={...report,trade_type:'rent' as const,rent_kind:'monthly' as const,latest_price_krw:null,latest_deposit_krw:0,latest_monthly_rent_krw:1_500_000};
   const selected={...view,trade:'rent' as const,rentKind:'monthly' as const,latestPriceMinEok:'0',latestPriceMaxEok:'0'};
-  expect(labels(selected,{...ready,rows:[monthly]})).toMatchObject({filtered_price_match:true,filtered_price_label:'0만 / 월 150만'});
+  expect(labels(selected,{...ready,partitions:ready.partitions.map(p=>({...p,trade_type:'rent'})),rows:[monthly]})).toMatchObject({filtered_price_match:true,filtered_price_label:'0만 / 월 150만'});
 });
 
 it('uses the same legal dong, name and construction-year qualification as the candidate list',()=>{

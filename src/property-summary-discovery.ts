@@ -2,6 +2,7 @@ import type {PropertyComplex} from '../shared/property';
 import {areaMatches} from '../shared/property-area';
 import {discoverPropertyComplexes,propertyDiscoveryBounds,propertyDiscoveryWithin,type PropertyDiscoveryFilters} from '../shared/property-discovery';
 import {summaryPrice} from './property-monthly-summary';
+import {propertySummaryCoverage} from './property-summary-coverage';
 import type {ComplexPriceSummary,SummaryPartition} from './property-map-prices';
 
 export interface SummaryDiscoveryItem {
@@ -20,12 +21,7 @@ export function discoverPropertySummaryComplexes(complexes:readonly PropertyComp
   const metadata=discoverPropertyComplexes(complexes,[],false,selection.trade,filters);
   const {priceMin,priceMax,areaMin,areaMax,errors}=propertyDiscoveryBounds(filters,selection.trade);
   const priceFiltered=priceMin!==null||priceMax!==null;
-  const months=new Set(selection.months),complete=new Set<string>(),unavailable=new Set<string>();
-  for(const partition of partitions){if(partition.trade_type!==selection.trade||!months.has(partition.deal_month))continue;
-    if(partition.status==='complete'||partition.status==='empty')complete.add(partition.deal_month);
-    else if(partition.status==='source_unavailable')unavailable.add(partition.deal_month);
-  }
-  const missingMonths=selection.months.filter(month=>!complete.has(month)&&!unavailable.has(month)).length;
+  const months=new Set(selection.months),{complete,unavailable,missingMonths,canEstablishNoTrade}=propertySummaryCoverage(partitions,selection.months,selection.trade);
   if(errors.length)return {items:[] as SummaryDiscoveryItem[],errors,transactionFiltersPending:missingMonths>0,priceFiltered,verifiedMonths:complete.size,missingMonths,sourceUnavailableMonths:unavailable.size};
   const grouped=new Map<string,{latest:ComplexPriceSummary;count:number}>();
   for(const row of rows){
@@ -38,7 +34,7 @@ export function discoverPropertySummaryComplexes(complexes:readonly PropertyComp
   const items:SummaryDiscoveryItem[]=[];
   for(const {complex} of metadata.items){const current=grouped.get(complex.id),latest=current?.latest??null;
     if(latest&&priceFiltered&&!propertyDiscoveryWithin(amount(latest),priceMin,priceMax))continue;
-    if(!latest&&transactionFiltered&&missingMonths===0&&complete.size>0)continue;
+    if(!latest&&transactionFiltered&&canEstablishNoTrade)continue;
     items.push({complex,latest,count:missingMonths||!complete.size?null:current?.count??0,confirmedCount:current?.count??0,missingMonths,sourceUnavailableMonths:unavailable.size});
   }
   items.sort((a,b)=>{
