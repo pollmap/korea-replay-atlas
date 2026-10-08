@@ -223,7 +223,7 @@ def test_removed_previous_source_and_active_collector_are_rejected(tmp_path):
         backup_set(root, store)
 
 
-def test_restore_list_can_exceed_legacy_twenty_gib_without_oversized_group(tmp_path):
+def test_restore_list_can_exceed_legacy_twenty_gib_without_oversized_group(tmp_path, monkeypatch):
     """Validate large address-space metadata; this is not a 20 GiB disk test."""
     store = LocalArchiveSet(tmp_path / 'archive')
     groups = []; total = 0; count = 0
@@ -249,6 +249,8 @@ def test_restore_list_can_exceed_legacy_twenty_gib_without_oversized_group(tmp_p
     value = load_set(store, descriptor)
     assert value['source_bytes'] > 20 * 1024**3
     assert all(group['source_bytes'] <= MAX_GROUP for group in value['groups'])
+    # This metadata-only fixture must not depend on the host having 20 GiB free.
+    monkeypatch.setattr(shutil, 'disk_usage', lambda _: SimpleNamespace(free=64 * 1024**3))
     # Metadata acceptance cannot make missing objects a successful restore.
     with pytest.raises(OSError):
         restore_set(tmp_path / 'not-restored', store, descriptor)

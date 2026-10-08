@@ -216,6 +216,8 @@ def _paths(root, checkpoint):
             continue
         _reject_links(directory)
         visit(directory)
+    from .real_estate_working_store import append_archived_paths
+    append_archived_paths(root, paths)
     if len(paths) > MAX_FILES:
         raise RealEstateError('archive_set_file_limit')
     for path, _ in paths:

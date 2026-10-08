@@ -99,9 +99,10 @@ def checked_read(root, descriptor, limit):
             or not 0 < descriptor['bytes'] <= limit or not re.fullmatch(r'[a-f0-9]{64}',descriptor.get('sha256',''))):
         raise RealEstateError('invalid_checkpoint_descriptor')
     path=root/name; _reject_links(path.absolute())
-    if not path.resolve().is_relative_to(root.resolve()) or path.stat().st_size!=descriptor['bytes']:
+    if not path.resolve().is_relative_to(root.resolve()):
         raise RealEstateError('checkpoint_size_mismatch')
-    payload=path.read_bytes()
+    from .real_estate_working_store import read_reference
+    payload=read_reference(root,descriptor,limit)
     if sha256(payload)!=descriptor['sha256']:raise RealEstateError('checkpoint_hash_mismatch')
     return decode_asset(payload, descriptor)
 

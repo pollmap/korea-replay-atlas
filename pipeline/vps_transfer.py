@@ -72,9 +72,13 @@ def export(root, output, *, reserve=RESERVE, progress=None):
                     for name in sorted(files):
                         path = Path(parent) / name
                         paths.append((checked_path(path.relative_to(root).as_posix()), path))
+        from .real_estate_working_store import append_archived_paths, ArchivedFile
+        logical = append_archived_paths(root, [(path, name) for name, path in paths])
+        paths = [(name, path) for path, name in logical]
         rows = []
         for index, (name, path) in enumerate(paths):
-            rows.append({'path': name, 'bytes': path.stat().st_size, 'sha256': digest(path)})
+            hashed = hashlib.sha256(path.read_bytes()).hexdigest() if isinstance(path, ArchivedFile) else digest(path)
+            rows.append({'path': name, 'bytes': path.stat().st_size, 'sha256': hashed})
             if progress and (index + 1) % 1000 == 0:
                 progress({'phase': 'source_sha', 'files': index + 1, 'total': len(paths)})
         # One byte pass, followed by closure against those verified descriptors.
@@ -94,7 +98,12 @@ def export(root, output, *, reserve=RESERVE, progress=None):
             with tarfile.open(fileobj=zipped, mode='w|', format=tarfile.USTAR_FORMAT) as archive:
                 archive.add(manifest_path, arcname='manifest.json', recursive=False)
                 for index, (name, path) in enumerate(paths):
-                    archive.add(path, arcname=name, recursive=False)
+                    if isinstance(path, ArchivedFile):
+                        payload = path.read_bytes()
+                        member = tarfile.TarInfo(name); member.size = len(payload); member.mode = 0o600
+                        archive.addfile(member, io.BytesIO(payload))
+                    else:
+                        archive.add(path, arcname=name, recursive=False)
                     if progress and (index + 1) % 1000 == 0:
                         progress({'phase': 'packing', 'files': index + 1, 'total': len(paths)})
         return {'files': len(rows), 'source_bytes': sum(row['bytes'] for row in rows),

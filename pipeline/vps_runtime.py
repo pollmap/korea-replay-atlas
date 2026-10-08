@@ -268,7 +268,14 @@ class PropertyAPI:
         path = self.root / checked_path(ref['path']); _reject_links(path)
         if ref.get('decoded_bytes', ref['bytes']) > MAX_API_SNAPSHOT or ref['bytes'] > MAX_API_SNAPSHOT:
             return 422, {'status': 'requires_partitioning', 'records': [], 'public_release': False}
-        partition = json.loads(decode_snapshot(path.read_bytes(), ref))
+        from .real_estate_working_store import read_reference
+        try:
+            body = read_reference(self.root, ref, MAX_API_SNAPSHOT)
+        except RealEstateError as error:
+            if error.code in ('checkpoint_size_mismatch', 'checkpoint_hash_mismatch'):
+                raise RealEstateError('snapshot_storage_hash_mismatch') from None
+            raise
+        partition = json.loads(decode_snapshot(body, ref))
         records = partition['records']; page = records[offset:offset + limit]
         return 200, {'status': status, 'retained_previous': status not in ('complete', 'empty'),
                      'snapshot': ref['sha256'], 'records': page, 'total': len(records),

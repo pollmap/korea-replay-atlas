@@ -134,6 +134,17 @@ def immutable(root, relative, data):
     path = root / relative; _reject_links(path.absolute())
     if not path.resolve().is_relative_to(root.resolve()):
         raise RealEstateError('invalid_checkpoint_path')
+    from .real_estate_working_store import has_reference, read_reference
+    if has_reference(root, relative):
+        try:
+            existing = read_reference(root, {'path': relative, 'sha256': sha256(data), 'bytes': len(data)})
+        except RealEstateError as error:
+            if error.code in ('checkpoint_size_mismatch', 'checkpoint_hash_mismatch', 'working_store_reference_mismatch'):
+                raise RealEstateError('immutable_content_conflict') from None
+            raise
+        if existing != data:
+            raise RealEstateError('immutable_content_conflict')
+        return {"path": relative, "sha256": sha256(data), "bytes": len(data)}
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
         if path.read_bytes() != data:
@@ -311,7 +322,8 @@ class Collector:
             source_path=self.root/source['path'];_reject_links(source_path)
             if not source_path.resolve().is_relative_to(self.root.resolve()):
                 raise RealEstateError('invalid_checkpoint_path')
-            body=source_path.read_bytes()
+            from .real_estate_working_store import read_reference
+            body=read_reference(self.root,source)
             if len(body)!=source['bytes'] or sha256(body)!=source['sha256']:
                 raise RealEstateError('checkpoint_hash_mismatch')
             parsed.append(normalize_xml_page(body,property_type=self.property_type,lawd_code=job['lawd_code'],deal_month=job['deal_month'],
@@ -321,7 +333,7 @@ class Collector:
         snapshot_ref={**immutable(self.root,f"snapshots/{job['id']}/{part_hash}.json.xz",stored),**encoding}
         if job['snapshot']:
             before=json.loads(job['snapshot']);old_path=self.root/before['path'];_reject_links(old_path)
-            old_body=old_path.read_bytes()
+            old_body=read_reference(self.root,before)
             if len(old_body)!=before['bytes'] or sha256(old_body)!=before['sha256']:
                 raise RealEstateError('previous_snapshot_hash_mismatch')
             previous=json.loads(decode_snapshot(old_body,before));old_ids={r['id'] for r in previous['records']};new_ids={r['id'] for r in partition['records']}
