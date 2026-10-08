@@ -24,6 +24,7 @@ INDEX = '.working-store.sqlite'
 SCHEMA = '1'
 MAX_BYTES = 256 * 1024**2
 ARCHIVE_ENV = 'KOREA_REPLAY_WORKING_ARCHIVE'
+READER_CONTRACT = 'closed-working-index-v1'
 PACK_CACHE_BYTES = 32 * 1024**2
 _PACK_CACHE = OrderedDict()
 _PACK_LOCK = threading.Lock()
@@ -91,6 +92,17 @@ def _store(location):
     if not root.is_dir() or not (root / 'objects').is_dir():
         raise RealEstateError('working_store_archive_missing')
     return LocalArchive(root)
+
+
+def _archive_matches(location, store):
+    """The host path is a recovery hint; a container has its explicit mount."""
+    if Path(location).absolute() == store.root:
+        return True
+    configured = os.environ.get(ARCHIVE_ENV)
+    if not configured:
+        return False
+    mounted = Path(configured).absolute(); _reject_links(mounted)
+    return mounted.resolve() == store.root.resolve()
 
 
 def _read_pack(store, digest, size):
@@ -222,6 +234,25 @@ def plan(root, store):
             'payload_hashes_verified': False, 'source_calls': 0, 'writes': 0}
 
 
+def reader_capability(root):
+    """Small internal acknowledgement: a RO reader really decoded a CAS slice."""
+    from .real_estate_manifest import read_file
+    db = _open_index(root)
+    if db is None:
+        raise RealEstateError('working_store_index_missing')
+    with closing(db):
+        location = db.execute("SELECT value FROM meta WHERE key='archive_root'").fetchone()
+        item = db.execute("SELECT descriptor FROM files WHERE json_extract(descriptor, '$.object.bytes')<=? LIMIT 1",
+                          (16 * 1024**2,)).fetchone()
+    if location is None or item is None:
+        raise RealEstateError('working_store_probe_missing')
+    row = _validated_row(json.loads(item[0]))
+    store = _store(location[0])
+    payload = read_file(row, lambda digest, size: _read_pack(store, digest, size))
+    return {'ready': True, 'reader_contract': READER_CONTRACT,
+            'probe_sha256': sha256(payload), 'read_only_index': True}
+
+
 def _discard_candidate(root):
     candidate = _index(root).with_name(INDEX + '.next')
     # Only this command's fixed scratch names, under the exclusive writer lock.
@@ -262,7 +293,7 @@ def _publish_index(root, store, pending, progress):
             index.executescript("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);"
                                 "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,descriptor TEXT NOT NULL);")
             meta = dict(index.execute('SELECT key,value FROM meta'))
-            if meta and (meta.get('schema') != SCHEMA or meta.get('archive_root') != str(store.root)):
+            if meta and (meta.get('schema') != SCHEMA or not _archive_matches(meta.get('archive_root', ''), store)):
                 raise RealEstateError('working_store_configuration_changed')
             index.executemany('INSERT OR IGNORE INTO meta VALUES (?,?)',
                               [('schema', SCHEMA), ('archive_root', str(store.root))])
@@ -292,7 +323,7 @@ def _publish_index(root, store, pending, progress):
 
 
 def migrate(root, store, *, limit=1000, retire_plaintext=False,
-            readers_deployed=False, progress=None):
+            readers_deployed=False, progress=None, expected_head=None):
     """Bounded/resumable migration from an already verified backup-set head.
 
     No source calls, archive writes, snapshot changes or ledger changes. New
@@ -314,11 +345,14 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
     head = store.head()
     if head is None:
         raise RealEstateError('archive_no_backup')
+    if expected_head is not None and head != expected_head:
+        raise RealEstateError('working_store_head_changed')
     manifest = load_set(store, head)
     rows = sorted((row for row in manifest['files']
                    if row['path'].split('/')[0] in ('raw', 'snapshots')),
                   key=lambda row: (row['object']['sha256'], row['path']))
     indexed = retired = retired_bytes = verified = 0
+    scan_complete = True
     # One decoded pack at a time, never the full archive or a second plaintext tree.
     cached_key = cached_body = None
     def getter(digest, size):
@@ -327,6 +361,8 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
             cached_body = store.get(digest, size); cached_key = (digest, size)
         return cached_body
     with bulk_work(root.parent), _lock(root / '.working-store.lock'):
+        if expected_head is not None and store.head() != expected_head:
+            raise RealEstateError('working_store_head_changed')
         with closing(sqlite3.connect(checkpoint, timeout=1)) as ledger:
             ledger.execute('BEGIN IMMEDIATE')
             if ledger.execute('SELECT 1 FROM lease WHERE expires>?', (time.time(),)).fetchone():
@@ -337,11 +373,11 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
             try:
                 if current is not None:
                     meta = dict(current.execute('SELECT key,value FROM meta'))
-                    if meta.get('archive_root') != str(store.root):
+                    if not _archive_matches(meta.get('archive_root', ''), store):
                         raise RealEstateError('working_store_configuration_changed')
                 for row in rows:
                     row = _validated_row(row)
-                    _, path = _path(root, row['path'])
+                    path = root / row['path']
                     old = (current.execute('SELECT descriptor FROM files WHERE path=?',
                            (row['path'],)).fetchone() if current is not None else None)
                     if old:
@@ -354,7 +390,11 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
                     if old and (not retire_plaintext or not path.exists()):
                         continue
                     if verified >= limit:
+                        scan_complete = False
                         break
+                    # Retired immutable rows need only a presence check. Validate
+                    # filesystem ancestry before any selected read or deletion.
+                    _, path = _path(root, row['path'])
                     archived = read_file(row, getter)
                     if path.exists():
                         if read_reference(root, row) != archived:
@@ -374,7 +414,7 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
             for row, path, _ in pending:
                 if retire_plaintext and path.exists():
                     saved, location = _row(root, row['path'])
-                    if saved != row or Path(location) != store.root:
+                    if saved != row or not _archive_matches(location, store):
                         raise RealEstateError('working_store_reference_mismatch')
                     archived = read_file(row, getter)
                     _reject_links(path)
@@ -387,7 +427,7 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
                               'retired': retired, 'retired_logical_bytes': retired_bytes})
     return {'head': head, 'verified': verified, 'indexed': indexed, 'retired': retired,
             'retired_logical_bytes': retired_bytes, 'source_calls': 0,
-            'ledger_changed': False, 'archive_objects_written': 0}
+            'ledger_changed': False, 'archive_objects_written': 0, 'scan_complete': scan_complete}
 
 
 def main():
@@ -396,19 +436,27 @@ def main():
     parser.add_argument('--store', type=Path, required=True)
     parser.add_argument('--limit', type=int, default=1000)
     parser.add_argument('--plan', action='store_true')
+    parser.add_argument('--expected-head-sha')
+    parser.add_argument('--expected-head-bytes', type=int)
     parser.add_argument('--retire-plaintext', action='store_true')
     parser.add_argument('--readers-deployed', action='store_true')
     args = parser.parse_args()
     from .real_estate_local_archive_set import LocalArchiveSet
     try:
+        expected = None
+        if args.expected_head_sha is not None or args.expected_head_bytes is not None:
+            from .real_estate_manifest import validate_object
+            expected = validate_object({'sha256': args.expected_head_sha, 'bytes': args.expected_head_bytes})
         if args.plan:
+            if expected is not None:
+                raise RealEstateError('working_store_conflicting_mode')
             if args.retire_plaintext or args.readers_deployed:
                 raise RealEstateError('working_store_conflicting_mode')
             result = plan(args.root, LocalArchiveSet(args.store))
         else:
             result = migrate(args.root, LocalArchiveSet(args.store), limit=args.limit,
                              retire_plaintext=args.retire_plaintext,
-                             readers_deployed=args.readers_deployed)
+                             readers_deployed=args.readers_deployed, expected_head=expected)
         print(json.dumps(result, ensure_ascii=False))
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
         parser.exit(1, 'working_store: ' +
