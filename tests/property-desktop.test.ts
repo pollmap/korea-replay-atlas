@@ -3,7 +3,7 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,it} from 'vitest';
 import type {PropertyTransaction} from '../shared/property';
-import {defaultDetailArea,detailSectionAtScroll,equalLoanPayment,readComplexNote} from '../src/property-desktop';
+import {createDetailSectionTracker,defaultDetailArea,detailSectionAtScroll,equalLoanPayment,isDetailScrollKey,readComplexNote} from '../src/property-desktop';
 import {DetailUnavailable,PropertyLoanCalculator,PropertyRegionAnalysis} from '../src/PropertyDetailTools';
 
 const row=(area:string,overrides:Partial<PropertyTransaction>={})=>({area_m2:area,trade_type:'sale',cancellation:'not_reported',statistics_eligible:true,quality:'valid',...overrides}) as PropertyTransaction;
@@ -52,4 +52,34 @@ it('reserves label width between every tick and the final month on compact deskt
     expect(historyTick(count-1,count)).toBe(true);
   }
   expect(historyTick(27,36)).toBe(false);
+});
+
+
+it('keeps the chosen school section during smooth transit, lazy expansion and filtering, then follows real scrolling',()=>{
+  const tracker=createDetailSectionTracker<'life'|'schools'|'costs'>(),scope='11710:helio';
+  const viewport={top:194.5,height:573.5,scrollTop:5299,scrollHeight:9000};
+  tracker.retain(scope,'schools');
+  // The jump passes life; loading that intermediate section must not steal selection.
+  expect(tracker.atScroll(scope,[{id:'life',top:194},{id:'schools',top:900}],viewport)).toBe('schools');
+  // A preceding lazy list expands, or 16 school rows become one after a filter.
+  const filtered=[{id:'life',top:-3095},{id:'schools',top:301},{id:'costs',top:881}] as const;
+  expect(detailSectionAtScroll(filtered,viewport)).toBe('life');
+  expect(tracker.atScroll(scope,filtered,viewport)).toBe('schools');
+  // Wheel, touch, scrollbar drag or a page navigation key releases the choice.
+  tracker.release();expect(tracker.atScroll(scope,filtered,viewport)).toBe('life');
+  expect(tracker.atScroll(scope,[{id:'life',top:-3300},{id:'schools',top:-100},{id:'costs',top:194}],viewport)).toBe('costs');
+});
+it('does not carry a retained section into a different apartment or a removed section',()=>{
+  const tracker=createDetailSectionTracker<'life'|'schools'>();
+  const viewport={top:0,height:500,scrollTop:10,scrollHeight:1000};
+  tracker.retain('helio','schools');
+  expect(tracker.atScroll('other',[{id:'life',top:0},{id:'schools',top:300}],viewport)).toBe('life');
+  tracker.retain('helio','schools');
+  expect(tracker.atScroll('helio',[{id:'life',top:0}],viewport)).toBe('life');
+});
+it('distinguishes keyboard panel scrolling from editing school filters',()=>{
+  for(const key of ['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '])expect(isDetailScrollKey(key,'DIV')).toBe(true);
+  for(const tag of ['INPUT','SELECT','TEXTAREA'])expect(isDetailScrollKey('ArrowDown',tag)).toBe(false);
+  expect(isDetailScrollKey('ArrowDown','DIV',true)).toBe(false);
+  expect(isDetailScrollKey('Tab','DIV')).toBe(false);expect(isDetailScrollKey('Enter','BUTTON')).toBe(false);
 });
