@@ -1,3 +1,4 @@
+import {confirmedPropertyNavigationPoint,type PropertyMapPoint} from '../shared/property-map-point';
 import {useEffect,useRef,useState} from 'react';
 import type {PropertyComplex} from '../shared/property';
 import {DEFAULT_SURROUNDINGS_FILTER,DEVELOPMENT_STAGES,SURROUNDINGS_CATEGORIES,SURROUNDINGS_RADII,SURROUNDINGS_TYPES,surroundingsFilterChange,surroundingsRadiusLabel,surroundingsSourceUrl,surroundingsView,type SurroundingsCategory,type SurroundingsFilterAction,type SurroundingsRadius,type SurroundingsSourceState,type SurroundingsType} from '../shared/property-surroundings';
@@ -6,14 +7,16 @@ import {loadPropertyPoi} from './property-poi-loader';
 import {validPoiCenter,type PoiCenter} from '../shared/property-poi';
 import type {Place} from '../shared/contracts';
 
-interface Props {complex:PropertyComplex;region:string;releaseId:string;active?:boolean;sources?:Partial<Record<SurroundingsCategory,SurroundingsSourceState>>;onRetry?:(category:SurroundingsCategory)=>void;onUseMapCenter?:()=>PoiCenter|null;onLocate?:(place:Place)=>void;}
+interface Props {complex:PropertyComplex;region:string;releaseId:string;navigationPoint?:PropertyMapPoint|null;active?:boolean;sources?:Partial<Record<SurroundingsCategory,SurroundingsSourceState>>;onRetry?:(category:SurroundingsCategory)=>void;onUseMapCenter?:()=>PoiCenter|null;onLocate?:(place:Place)=>void;}
 /** The keyed child resets local filters when either the complex or immutable release changes. */
 export default function PropertySurroundings(props:Props){return <SurroundingsContent key={`${props.releaseId}:${props.complex.id}`} {...props}/>;}
-function SurroundingsContent({complex,region,releaseId,active=false,sources,onRetry,onUseMapCenter,onLocate}:Props){
+function SurroundingsContent({complex,region,releaseId,navigationPoint,active=false,sources,onRetry,onUseMapCenter,onLocate}:Props){
   const [filter,setFilter]=useState(DEFAULT_SURROUNDINGS_FILTER);
   const [manualCenter,setManualCenter]=useState<PoiCenter|null>(null),[centerError,setCenterError]=useState(''),[attempt,setAttempt]=useState(0),[limit,setLimit]=useState(20);
   const listHeading=useRef<HTMLHeadingElement>(null);
-  const center=manualCenter??complex.position;
+  const officialPoint=confirmedPropertyNavigationPoint(navigationPoint,releaseId,complex.id);
+  const defaultCenter=complex.position??officialPoint;
+  const center=manualCenter??defaultCenter;
   const queryKey=center?`${center.longitude}:${center.latitude}:${attempt}`:'';
   const [loaded,setLoaded]=useState<{key:string;sources?:Props['sources'];error?:string}|null>(null);
   useEffect(()=>{
@@ -33,7 +36,7 @@ function SurroundingsContent({complex,region,releaseId,active=false,sources,onRe
   const sourceUrl=view.source?surroundingsSourceUrl(view.source.url):undefined;
   return <section className="property-surroundings" aria-label={`${complex.name} 주변 정보`}>
     <header><div><span className="surroundings-eyebrow">주변 둘러보기</span><h3>{complex.name}</h3></div><span className="surroundings-radius-badge">반경 {surroundingsRadiusLabel(filter.radius)}</span></header>
-    {onUseMapCenter&&<div className="surroundings-reference"><p>{manualCenter?'선택한 지도 기준점 · 단지 위치와 다를 수 있습니다':complex.position?'검증된 단지 위치 기준':'위치 확인 중 · 지도 중심으로 탐색 가능'}</p><button onClick={()=>{const point=onUseMapCenter();if(point&&validPoiCenter(point)){setManualCenter({longitude:point.longitude,latitude:point.latitude});setCenterError('');setLimit(20);}else setCenterError('지도가 준비되면 다시 선택해 주세요.');}}>현재 지도 중심으로 보기</button>{manualCenter&&onLocate&&<button onClick={()=>locateReference(manualCenter)}>기준점 보기</button>}{manualCenter&&complex.position&&<button onClick={()=>{setManualCenter(null);setLimit(20);}}>단지 위치로 복원</button>}{centerError&&<span role="alert">{centerError}</span>}</div>}
+    {onUseMapCenter&&<div className="surroundings-reference"><p>{manualCenter?'선택한 지도 기준점 · 단지 위치와 다를 수 있습니다':complex.position?'검증된 단지 위치 기준':officialPoint?'서울시 공식 지도 기준점 · 직선거리':'위치 확인 중 · 지도 중심으로 탐색 가능'}</p><button onClick={()=>{const point=onUseMapCenter();if(point&&validPoiCenter(point)){setManualCenter({longitude:point.longitude,latitude:point.latitude});setCenterError('');setLimit(20);}else setCenterError('지도가 준비되면 다시 선택해 주세요.');}}>현재 지도 중심으로 보기</button>{manualCenter&&onLocate&&<button onClick={()=>locateReference(manualCenter)}>기준점 보기</button>}{manualCenter&&defaultCenter&&<button onClick={()=>{setManualCenter(null);setLimit(20);}}>단지 위치로 복원</button>}{centerError&&<span role="alert">{centerError}</span>}</div>}
     <nav className="surroundings-categories" aria-label="주변 정보 종류">{SURROUNDINGS_CATEGORIES.map(([id,label])=><button key={id} aria-pressed={filter.category===id} onClick={()=>change({category:id})}>{label}</button>)}</nav>
     <div className="surroundings-distance" role="group" aria-label="주변 검색 반경">{SURROUNDINGS_RADII.map(radius=><button key={radius} aria-pressed={radius===filter.radius} onClick={()=>change({radius:radius as SurroundingsRadius})}>{surroundingsRadiusLabel(radius)}</button>)}</div>
     <div className="surroundings-filters"><label>유형<select value={filter.type} onChange={event=>change({type:event.target.value as SurroundingsType|'all'})}><option value="all">전체</option>{SURROUNDINGS_TYPES[filter.category].filter(([id])=>id!=='road').map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label><label>정렬<select value={filter.sort} onChange={event=>change({sort:event.target.value as 'distance'|'name'})}><option value="distance">가까운순</option><option value="name">이름순</option></select></label></div>

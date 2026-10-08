@@ -4,7 +4,7 @@ import {loadRegionFilterMetrics,type RegionFilterMetrics} from './region-filter-
 import {selectedRegionBoundary,regionAdministrativeDongs,clearRegionBoundaryCache} from './region-selection';
 import {regionSelectionLayers,SELECTED_REGION_SOURCE,REGION_DONG_SOURCE,SELECTED_DONG_SOURCE,DONG_HIT_LAYER} from './region-selection-layers';
 import {MAP2D_RAIL_NEUTRAL} from '../shared/map2d-rail-style';
-import type {PropertyMapPoint} from '../shared/property-map-point';
+import {confirmedPropertyNavigationPoint,propertyNavigationCamera,type PropertyMapPoint} from '../shared/property-map-point';
 import type {PropertyViewState} from '../shared/property-view';
 import {historyMonths} from '../shared/property-history';
 import {propertyMapFilterKey,propertyMapPrices,type MapPriceData} from './property-map-prices';
@@ -311,11 +311,13 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       if(source){if(priced?.key===filterKeyRef.current&&installedKaptData!==priced.data){source.setData(priced.data);installedKaptData=priced.data;installedKaptUrl=sourceKey;}else if(!filterKeyRef.current&&installedKaptUrl!==url){installedKaptUrl=url;source.setData(url);}}
       const point=latest.current.propertyMapPoint;
       const valid=point&&point.releaseId===latest.current.vectorData?.property?.release_id;
-      if(valid&&matchMedia('(max-width:780px)').matches&&!latest.current.focused){
-        const key=`${point.releaseId}:${point.complexId}`;
+      if(!valid)centeredPropertyKey='';
+      const navigation=propertyNavigationCamera(point,latest.current.vectorData?.property?.release_id??'');
+      if(navigation){
+        const key=navigation.key;
         if(centeredPropertyKey!==key){
           centeredPropertyKey=key;
-          map.easeTo({center:[point.longitude,point.latitude],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
+          map.easeTo({center:navigation.center,zoom:navigation.zoom,offset:[0,matchMedia('(max-width:780px)').matches&&!latest.current.focused?-Math.min(150,Math.round(node.clientHeight*.2)):0],duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
         }
       }
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
@@ -326,6 +328,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
         const selectedLabel=apartmentMapLayer(SEOUL_KAPT_SOURCE,latest.current.vectorData?.property?.release_id??'',latest.current.propertyTrade??'sale',true,labelModeRef.current,filterKeyRef.current);
         map.setLayoutProperty(APARTMENT_SELECTED_LAYER,'text-field',selectedLabel.layout!['text-field']);
       }
+      node.dataset.selectedPropertyNavigation=confirmedPropertyNavigationPoint(point,latest.current.vectorData?.property?.release_id??'')?'official-site-marker':'unconfirmed';
       node.dataset.selectedPropertyComplex=valid?point.complexId:'';node.dataset.propertyFilterKey=filterKeyRef.current;
     };
     refreshSelectedPointRef.current=refreshSelectedPoint;
