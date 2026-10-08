@@ -43,7 +43,8 @@ def inspect(*, receipt_path: Path, client_dir: Path, worker_dir: Path,
     entries = read_json(manifest_path)
     prior = {entry['target']: entry for entry in entries
              if not entry['target'].startswith('_worker.js/')
-             and entry['target'] not in PAGES_FILES}
+             and entry['target'] not in PAGES_FILES
+             and not entry['target'].startswith('collection/')}
     if retire_3d:
         # Explicitly retire only the spatial renderer and its private workers.
         retired = {('MapScene', 'js'), ('MapScene', 'css'),
@@ -62,6 +63,8 @@ def inspect(*, receipt_path: Path, client_dir: Path, worker_dir: Path,
     if not worker_receipt['worker_files']:
         raise ValueError('Pages base has no application Worker')
     frontend._verify_current_worker(worker, worker_receipt)
+    if (client / 'collection').exists():
+        raise ValueError('Frontend cannot replace the separately published collection')
     result = frontend._frontend_entries(client, prior)
     frontend._verify_current_worker(worker, worker_receipt)
     if (digest(receipt_path) != receipt_hash

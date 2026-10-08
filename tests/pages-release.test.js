@@ -45,12 +45,19 @@ describe('independent Pages release stages',()=>{
     expect(pagesHeaders(output)).toBe(output);
   });
   it('retires spatial routes and Cesium without removing the shared 2D geography',async()=>{
-    const f=await fixture(),full=await stagePagesApp({...f,data});
+    const f=await fixture();
+    const manifestPath=path.join(f.bundle,'asset-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
+    const target='collection/assets/collection-example.js',body='export const preserved=true;';
+    await put(path.join(f.client,target),body);manifest.push({target,bytes:body.length,sha256:sha(body)});
+    await put(manifestPath,json(manifest));const receipt=JSON.parse(await readFile(f.receiptPath,'utf8'));
+    receipt.manifest_hash=sha(json(manifest));receipt.count=manifest.length;await put(f.receiptPath,json(receipt));
+    const full=await stagePagesApp({...f,data});
     const retired=await stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:full.receiptPath,retire3d:true});
     const checked=await verifyPagesStage(retired.receiptPath,{projectRoot:f.projectRoot});
     expect(checked.entries.map(entry=>entry.target)).toContain('data/sample.geojson');
     expect(checked.entries.some(entry=>entry.target==='_redirects'||entry.target.startsWith('cesium/'))).toBe(false);
     expect(checked.receipt.policy.data).toEqual(data);
+    expect(await readFile(path.join(checked.client,target),'utf8')).toBe(body);
   });
   it('hardlinks audited immutable assets, privately copies the existing API and keeps the original bundle byte-identical',async()=>{
     const f=await fixture(),before=await readFile(f.receiptPath),result=await stagePagesApp({...f,data});

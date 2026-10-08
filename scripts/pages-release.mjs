@@ -163,7 +163,7 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
 // Large 3D payloads stay in a verified immutable legacy deployment, never in
 // the active 2D staging closure. The small catalog and all 2D/traffic data stay.
 export const LEGACY_SPATIAL_PREFIXES=Object.freeze(['data/retiled/','data/terrain/','data/hierarchy/','data/building-streams/','data/building-parts/']);
-const fixedPagesFile=target=>target.startsWith('data/')||target.startsWith('_worker.js/')||['_headers','404.html','_routes.json','_redirects'].includes(target);
+const fixedPagesFile=target=>target.startsWith('collection/')||target.startsWith('data/')||target.startsWith('_worker.js/')||['_headers','404.html','_routes.json','_redirects'].includes(target);
 async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable,retire3d=false){
   const client=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,clientDirectory));
   const worker=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,workerDirectory));
