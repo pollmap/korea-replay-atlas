@@ -54,6 +54,56 @@ AUDITED_ADDITIONAL_CHUNKS = {
         'bytes': 12559,
     },
 }
+# PR96 lazy imports change packaging only. Every emitted module default was
+# compared with its canonical JSON via deepStrictEqual; exact hashes below pin
+# both sides. This inventory is source-reviewed, never accepted from dist/options.
+AUDITED_LAZY_FACT_CHUNKS = {('seoul-apartment-facts', 'js'): {'bytes': 311999,
+                                   'sha256': '208b830a95d395342a2cc721214ccc56677d6b183c1484ab335845f87f5e617e',
+                                   'source_bytes': 311735,
+                                   'source_sha256': '291e990283b91bb04cb0d7eaa8d73bac5b219c56f8602609cec655d82c9f1dbc'},
+ ('seoul-apartment-facts-2da3955e5d587c40', 'js'): {'bytes': 311999,
+                                                    'sha256': '17844984298e6e491f1084f528b9e366aaee060afc1016d8f7a09170e2ced65a',
+                                                    'source_bytes': 311735,
+                                                    'source_sha256': '6509648ced57410b61d16b4dd7a3ae9ddf8991fdfa6d21acca48cdf3f62cc782'},
+ ('seoul-apartment-facts-54bf1817fdcc7bd9', 'js'): {'bytes': 311999,
+                                                    'sha256': '65bee6e8619c3141e7a428841b548f5496d899199907e61b7f5d4d911c690c0d',
+                                                    'source_bytes': 311735,
+                                                    'source_sha256': '77a4a9b6cca3a94de8ed9d6a43d90d652b04010a7636eefabfad2c2d23fea378'},
+ ('seoul-apartment-facts-87d1c67336e97209', 'js'): {'bytes': 311999,
+                                                    'sha256': '51d3dd77b5b3f88c51edb2799d3cf8e35c69ddf51ae30ef64d5d363c4e526a48',
+                                                    'source_bytes': 311735,
+                                                    'source_sha256': '55f9bbc732b2b79d9ee9674e8c3a7184bb7960ff4126be369e01b7d899857a9e'},
+ ('seoul-apartment-facts-8879dff1b31ac5f0', 'js'): {'bytes': 310902,
+                                                    'sha256': '1448b6208f63fa403a798ac3d20e1e7c0431096eb275a3c8718e58eea4026a16',
+                                                    'source_bytes': 310638,
+                                                    'source_sha256': '3d90b898455bfa31badc34ac6b51cd2c397ed35044b5ea0cf367b74ec0687d28'},
+ ('seoul-apartment-facts-8deba5b9951e48da', 'js'): {'bytes': 311999,
+                                                    'sha256': '4391f9ff2fb8ff8a24f09a52a3b9dd8de0cf156590b820c7476ec5e0facb4653',
+                                                    'source_bytes': 311735,
+                                                    'source_sha256': '394976b3e4613806978ac8dd2703e815ad7587fc6bc68a6f1a19edd9ee0fd735'},
+ ('seoul-apartment-facts-b87eea7c1c03dc21', 'js'): {'bytes': 310902,
+                                                    'sha256': '540e585a8c66fada20058be3db9db3bed69b15e8d4167fcecd3be74c14c606dc',
+                                                    'source_bytes': 310638,
+                                                    'source_sha256': '8d8701a41203a89d41705ca829e125002cb5e3da0a5d5e51a6c91663f2df290e'},
+ ('seoul-apartment-facts-ceeff63959643461', 'js'): {'bytes': 306466,
+                                                    'sha256': '85b756913a4c1da34cc168fca6cdd76f0e3108a4a79d8252766ff3f9661786cb',
+                                                    'source_bytes': 306203,
+                                                    'source_sha256': 'bcc11963a071e28f9bad8d5fdf88de9837d2560b7fc757ba521b959f6f860cff'}}
+for _family_key, _chunk in AUDITED_LAZY_FACT_CHUNKS.items():
+    AUDITED_ADDITIONAL_CHUNKS[_family_key] = {key: _chunk[key] for key in ('sha256', 'bytes')}
+FACTS_SOURCE_ROOT = Path(__file__).resolve().parents[1] / 'src/data'
+
+
+def _verify_lazy_facts_chunk(family, sha, size):
+    rule = AUDITED_LAZY_FACT_CHUNKS.get(family)
+    if rule is None:
+        return
+    source = FACTS_SOURCE_ROOT / (family[0] + '.json')
+    if (rule['sha256'] != sha or rule['bytes'] != size
+            or regular_file(source).st_size != rule['source_bytes']
+            or digest(source) != rule['source_sha256']):
+        raise ValueError('Lazy facts module or canonical source differs from audited bytes')
+
 SEOUL_KAPT_GEOJSON_SHA = '8360eb2d88be0ab4259b5d92e5a98d25372e6bf19ad739dfbad6c26622debe82'
 SEOUL_KAPT_JOINED_SHA = '33058dae0a1d86c302b2f1c5b0dff9d71241a60031880f4f738c9fe506611792'
 SEOUL_KAPT_RECENT_SHA = 'b63b62af834062de98b142f4caef4f8a2087bd8e713c15ba3351fcf3dc06859c'
@@ -70,6 +120,8 @@ SEOUL_KAPT_ASSET_HASHES = {
 }
 SEOUL_KAPT_GEOJSON = re.compile(r'assets/seoul-kapt-points-([a-f0-9]{16})-[A-Za-z0-9_-]{8}\.geojson\Z')
 PROPERTY_NAVIGATION = re.compile(r'assets/seoul-property-navigation-(?:[a-f0-9]{16}-)?[A-Za-z0-9_-]{8}\.json\Z')
+PROPERTY_NAVIGATION_EVIDENCE = re.compile(r'assets/seoul-property-navigation-evidence-ceeff63959643461-[A-Za-z0-9_-]{8}\.json\Z')
+PROPERTY_NAVIGATION_EVIDENCE_BYTES = ('0c0109fe1c1bf3c59f33bab47b5e05154c2c25a80865c5b5ddaf6dbaf3e3874f', 55327)
 PROPERTY_NAVIGATION_SHA = 'b93cbc63ea3e74836f349ed11dc73742ee2095f9ba258a13b9812c726879cf7e'
 PROPERTY_NAVIGATION_ASSETS = {
     ('856ef8862b77887ad1eec0c2f42e77a0c46e0adcfcf27498ed05a1ab3fefb859', 54875),
@@ -304,7 +356,8 @@ def _region_asset_inventory():
 def _approved_point_asset(name: str, sha: str, size: int) -> bool:
     match = SEOUL_KAPT_GEOJSON.fullmatch(name)
     return bool(match and SEOUL_KAPT_ASSET_HASHES.get(match[1]) == sha and size <= 2 * 1024 * 1024
-                or PROPERTY_NAVIGATION.fullmatch(name) and (sha, size) in PROPERTY_NAVIGATION_ASSETS)
+                or PROPERTY_NAVIGATION.fullmatch(name) and (sha, size) in PROPERTY_NAVIGATION_ASSETS
+                or PROPERTY_NAVIGATION_EVIDENCE.fullmatch(name) and (sha, size) == PROPERTY_NAVIGATION_EVIDENCE_BYTES)
 FORBIDDEN_NAME = re.compile(r'(?i)(?:^|[-_.])(?:secrets?|credentials?|tokens?|private|id_rsa)(?:$|[-_.])')
 CREDENTIAL_PATTERNS = (
     re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----'),
@@ -340,7 +393,7 @@ def _frontend_name(name: str) -> None:
     if (any(part.startswith('.') for part in name.split('/'))
             or FORBIDDEN_NAME.search(Path(name).name)):
         raise ValueError('Private or hidden files are forbidden in the frontend')
-    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name) and not PROPERTY_METRIC_ASSET.fullmatch(name):
+    if name not in MUTABLE_ROOT and not name.startswith('cesium/') and not _family(name) and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not PROPERTY_NAVIGATION_EVIDENCE.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name) and not PROPERTY_METRIC_ASSET.fullmatch(name):
         raise ValueError('Unknown frontend file; full staging is required')
 
 
@@ -396,12 +449,13 @@ def _frontend_entries(client: Path, previous: dict):
             if family not in families:
                 additional_families.add(family)
             seen_families.add(family)
-        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name) and not PROPERTY_METRIC_ASSET.fullmatch(name):
+        elif name not in old and not SEOUL_KAPT_GEOJSON.fullmatch(name) and not PROPERTY_NAVIGATION.fullmatch(name) and not PROPERTY_NAVIGATION_EVIDENCE.fullmatch(name) and not REGION_ASSET.fullmatch(name) and not POI_ASSET.fullmatch(name) and not PROPERTY_METRIC_ASSET.fullmatch(name):
             raise ValueError('Unknown frontend file; full staging is required')
         size = regular_file(path).st_size
         if not 0 <= size < release.MAX_FILE_BYTES:
             raise ValueError('Frontend file exceeds the static asset size ceiling')
         sha = digest(path)
+        _verify_lazy_facts_chunk(family, sha, size)
         if family in additional_families and AUDITED_ADDITIONAL_CHUNKS[family] != {'sha256': sha, 'bytes': size}:
             raise ValueError('Additional frontend module differs from audited bytes')
         prior = old.get(name)

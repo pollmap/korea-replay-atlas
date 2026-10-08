@@ -97,7 +97,7 @@ async function createStage(projectRoot,project,entries,generated,sources,policy,
   await parallel(entries,async entry=>{
     const destination=path.join(client,entry.target);
     if(generated.has(entry.target))await writeNew(destination,generated.get(entry.target));
-    else {const method=await copyImmutable(sources.get(entry.target),destination,{copyOnly});if(method==='linked')linked++;else copied++;}
+    else {const method=await copyImmutable(sources.get(entry.target),destination,{copyOnly:copyOnly||entry.target.startsWith('_worker.js/')});if(method==='linked')linked++;else copied++;}
     if((await lstat(destination)).size!==entry.bytes||await hashFile(destination)!==entry.sha256)throw new Error('Staged asset failed final integrity verification: '+entry.target);
   });
   await writeNew(path.join(directory,'wrangler.json'),json(configuration));
@@ -164,6 +164,18 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
 // the active 2D staging closure. The small catalog and all 2D/traffic data stay.
 export const LEGACY_SPATIAL_PREFIXES=Object.freeze(['data/retiled/','data/terrain/','data/hierarchy/','data/building-streams/','data/building-parts/']);
 const fixedPagesFile=target=>target.startsWith('collection/')||target.startsWith('data/')||target.startsWith('_worker.js/')||['_headers','404.html','_routes.json','_redirects'].includes(target);
+// Exact PR95 retirement only; Python independently checks the whole Worker tree.
+// Policy/adapter, application data, source snapshots and collection stay pinned.
+export function validateRetiredWorkerReplacement(replacements,sourceEntries,worker,retire3d){
+  if(!Array.isArray(replacements)||replacements.length>1)throw new Error('Invalid audited Worker replacement inventory');
+  if(!replacements.length)return [];
+  const entry=replacements[0],prior=sourceEntries.find(row=>row.target==='_worker.js/app/index.js');
+  if(!retire3d||!entry||entry.target!=='_worker.js/app/index.js'||entry.transition!=='sun-runtime-retirement-20261009'
+    ||entry.previous_sha256!=='f2d2d04f607fdca15f50fb863bbb1fab94aef713851c89bc9eeb9dd14f218acf'
+    ||entry.sha256!=='d5547d557c8802ef8de00284844cfc375d1a4d9912f78fbaedd9e736b036c17d'||entry.bytes!==149458
+    ||prior?.sha256!==entry.previous_sha256||prior?.bytes!==157095||path.resolve(entry.path)!==path.join(worker,'index.js'))throw new Error('Worker replacement is not the audited 2D retirement');
+  return replacements;
+}
 async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable,retire3d=false){
   const client=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,clientDirectory));
   const worker=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,workerDirectory));
@@ -186,7 +198,9 @@ async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDir
     if(fixedPagesFile(entry.target)||path.resolve(entry.path)!==path.join(client,entry.target))throw new Error('Frontend attempts to replace fixed data or Pages policy');
     await noLinks(projectRoot,entry.path);
   }
-  return payload.files;
+  const workerReplacements=validateRetiredWorkerReplacement(payload.worker_replacements??[],source.entries,worker,retire3d);
+  for(const entry of workerReplacements)await noLinks(projectRoot,entry.path);
+  return {files:payload.files,workerReplacements};
 }
 export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,legacy3dOrigin,retire3d=false,data,snapshotOrigin=null,candidateReceiptPath=null,copyOnly=false,clientDirectory=null,workerDirectory=null,pythonExecutable=process.platform==='win32'?'python':'python3'}){
   projectRoot=path.resolve(projectRoot);
@@ -205,10 +219,15 @@ export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,l
     const priorFrontend=new Map(source.entries.map(entry=>[entry.target,entry]));
     for(const entry of entries)if(!fixedPagesFile(entry.target))sources.delete(entry.target);
     entries=entries.filter(entry=>fixedPagesFile(entry.target));
-    for(const entry of frontend){
+    for(const entry of frontend.files){
       entries.push({target:entry.target,bytes:entry.bytes,sha256:entry.sha256});
       const prior=priorFrontend.get(entry.target),unchanged=prior?.sha256===entry.sha256&&prior?.bytes===entry.bytes;
       sources.set(entry.target,unchanged?path.join(source.client,entry.target):entry.path);
+    }
+    for(const entry of frontend.workerReplacements){
+      entries=entries.filter(prior=>prior.target!==entry.target);
+      entries.push({target:entry.target,bytes:entry.bytes,sha256:entry.sha256});
+      sources.set(entry.target,entry.path);
     }
   }
   const generated=new Map();

@@ -698,3 +698,41 @@ def test_only_the_exact_preserved_public_revision_archive_is_approved():
     assert not frontend._approved_metric_asset(name, 'a'*64, size)
     assert not frontend._approved_metric_asset(name, sha, size+1)
     assert not frontend._approved_metric_asset('assets/property-revisions-ffffffffffffffff-abcdefgh.json', sha, size)
+
+
+def test_navigation_evidence_requires_exact_source_audited_bytes(fixture):
+    source = Path(__file__).resolve().parents[1] / 'src/data/seoul-property-navigation-evidence-ceeff63959643461.json'
+    target = fixture.client / 'assets/seoul-property-navigation-evidence-ceeff63959643461-12345678.json'
+    target.write_bytes(source.read_bytes())
+    _, prior = frontend._prior_metadata(fixture.bundle)
+    assert any(row['target'] == target.relative_to(fixture.client).as_posix()
+               for row in frontend._frontend_entries(fixture.client, prior))
+    target.write_bytes(source.read_bytes().replace(b'A10025850', b'A10025851'))
+    with pytest.raises(ValueError):
+        frontend._frontend_entries(fixture.client, prior)
+
+
+def test_lazy_fact_modules_require_both_compiled_and_source_bytes(fixture, monkeypatch):
+    family = ('seoul-apartment-facts-fixture', 'js')
+    target = fixture.client / 'assets/seoul-apartment-facts-fixture-abcdefgh.js'
+    target.write_bytes(b'export default {rows:[]};')
+    canonical = fixture.root / 'canonical-facts'
+    canonical.mkdir()
+    source = canonical / (family[0] + '.json')
+    source.write_bytes(b'{"rows":[]}')
+    rule = {'sha256': digest(target), 'bytes': target.stat().st_size,
+            'source_sha256': digest(source), 'source_bytes': source.stat().st_size}
+    monkeypatch.setattr(frontend, 'FACTS_SOURCE_ROOT', canonical)
+    monkeypatch.setattr(frontend, 'AUDITED_LAZY_FACT_CHUNKS', {family: rule})
+    monkeypatch.setitem(frontend.AUDITED_ADDITIONAL_CHUNKS, family,
+                        {key: rule[key] for key in ('sha256', 'bytes')})
+    _, prior = frontend._prior_metadata(fixture.bundle)
+    assert any(row['target'] == target.relative_to(fixture.client).as_posix()
+               for row in frontend._frontend_entries(fixture.client, prior))
+    source.write_bytes(b'{"rows":["changed"]}')
+    with pytest.raises(ValueError, match='Lazy facts'):
+        frontend._frontend_entries(fixture.client, prior)
+    source.write_bytes(b'{"rows":[]}')
+    target.write_bytes(b'export default {rows:["changed"]};')
+    with pytest.raises(ValueError, match='Lazy facts'):
+        frontend._frontend_entries(fixture.client, prior)
