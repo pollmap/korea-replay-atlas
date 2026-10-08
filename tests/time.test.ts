@@ -1,8 +1,8 @@
 import {describe,it,expect} from 'vitest';
-import {kstDate,kstInstant,kstSeconds,recordingDays,solarPosition,trackPosition} from '../shared/time';
+import {kstDate,kstInstant,kstSeconds,recordingDays,trackPosition} from '../shared/time';
 import type {Asset,Track} from '../shared/contracts';
 
-describe('KST and solar clock',()=>{
+describe('KST clock',()=>{
   it('maps Korean midnight to the previous UTC day',()=>{
     expect(new Date(kstInstant('2026-09-16',0)).toISOString()).toBe('2026-09-15T15:00:00.000Z');
     expect(kstDate('2026-09-15T15:00:00Z')).toBe('2026-09-16');
@@ -13,12 +13,7 @@ describe('KST and solar clock',()=>{
     expect(()=>kstInstant('2026-09-16',86400)).toThrow();
     expect(()=>kstInstant('invalid',0)).toThrow();
   });
-  it('keeps nighttime below the horizon and expresses bearing from north',()=>{
-    const noon=solarPosition(kstInstant('2026-09-16',12*3600),36.332,127.433);
-    const midnight=solarPosition(kstInstant('2026-09-16',0),36.332,127.433);
-    expect(noon.altitude).toBeGreaterThan(40);expect(noon.azimuth).toBeGreaterThan(150);expect(noon.azimuth).toBeLessThan(200);
-    expect(midnight.altitude).toBeLessThan(0);
-  });
+
 });
 const track:Track={id:'test-only',label:'test fixture',layer:'bus',position_evidence:'calculation',max_gap_seconds:120,provenance:{source_id:'test',source_record_id:'test',dataset_version:'test',observed_at:null,retrieved_at:'2026-09-16T00:00:00Z',evidence_type:'observation',input_hash:'test',transform_version:'test'},points:[{time:'2026-09-16T00:00:00Z',lon:127,lat:36},{time:'2026-09-16T00:01:00Z',lon:127.001,lat:36.001},{time:'2026-09-16T00:10:00Z',lon:128,lat:37}]};
 describe('observation-bounded replay',()=>{

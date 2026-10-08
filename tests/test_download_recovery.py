@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from pipeline import core, building_heights, buildings
+from pipeline import core
 
 
 class Response:
@@ -64,19 +64,10 @@ def test_waiting_for_same_writer_has_a_deadline(tmp_path):
             with core._download_lock(path,time.monotonic()+.05):pass
 
 
-def test_optional_ghsl_failure_keeps_unknown_and_backoff(tmp_path,monkeypatch):
-    calls=[]
-    def unavailable(row,column):calls.append((row,column));raise TimeoutError('test deadline')
-    monkeypatch.setattr(building_heights,'tile',unavailable)
-    monkeypatch.setattr(building_heights,'UNAVAILABLE',{})
-    failures={}
-    assert building_heights.estimates([126.4,126.4],[37.6,37.6],failures=failures)==[(None,None),(None,None)]
-    assert len(calls)==1
-    assert set(failures.values())=={'TimeoutError'}
-    with pytest.raises(TimeoutError):building_heights.estimates([126.4],[37.6])
 
 
-def test_source_height_and_floors_survive_optional_grid_failure(tmp_path,monkeypatch):
+def test_2d_footprints_preserve_ids_without_terrain_or_height_downloads(tmp_path,monkeypatch):
+    from pipeline import buildings
     import pyarrow as pa
     import pyarrow.parquet as pq
     from shapely.geometry import box
@@ -89,19 +80,21 @@ def test_source_height_and_floors_survive_optional_grid_failure(tmp_path,monkeyp
     monkeypatch.setattr(buildings,'LOCAL',tmp_path)
     monkeypatch.setitem(buildings.REGIONS,'synthetic-test',(127,36,127.001,36.001))
     monkeypatch.setattr(buildings,'extract',lambda region:raw)
-    monkeypatch.setattr(buildings,'sample_heights',lambda lons,lats:[10]*len(lons))
     monkeypatch.setattr(buildings,'register_asset',lambda *args,**kwargs:None)
-    def estimates(lons,lats,*,failures):
-        assert len(lons)==1  # No GHSL request is required for source height or floors.
-        failures['R5_C29']='TimeoutError'
-        return [(None,None)]
-    monkeypatch.setattr(buildings,'estimates',estimates)
+    def unexpected_request(*args,**kwargs):
+        raise AssertionError('2D normalization must not request terrain or height grids')
+    monkeypatch.setattr(core.requests,'get',unexpected_request)
     result=buildings.buildings('synthetic-test')
     values={f['id']:f['properties'] for f in json.loads(result.read_text(encoding='utf-8'))['features']}
     assert values['source']['height']==22
     assert values['floors']['height']==9
     assert values['unknown']['height'] is None
-    retry=json.loads((tmp_path/'audit/building-height-retries/synthetic-test.json').read_text())
-    assert retry['retry_required']
-    assert retry['source_record_ids']==['unknown']
-    assert retry['failed_tiles']=={'R5_C29':'TimeoutError'}
+    document=json.loads(result.read_text(encoding='utf-8'))
+    assert set(values)=={'source','floors','unknown'}
+    for row,feature in zip(rows,document['features']):
+        assert feature['id']==row['id']==feature['properties']['source_record_id']
+        assert feature['geometry']['coordinates']==json.loads(json.dumps(box(127,36,127.0001,36.0001).__geo_interface__['coordinates']))
+        assert 'base_height' not in feature['properties']
+    assert not (tmp_path/'raw/terrain').exists()
+    assert not (tmp_path/'raw/ghsl').exists()
+    assert not (tmp_path/'audit/building-height-retries').exists()

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import water_partition as water
-from pipeline.retile import restore_features
+from pipeline.geometry_compaction import restore_features
 
 
 def feature(identity='water-a', lon=127, lat=36):

@@ -1,4 +1,3 @@
-import SunCalc from 'suncalc';
 import type {Asset,LayerId,Track} from './contracts';
 export const KST_OFFSET = 9 * 3600_000;
 export function kstDate(instant: string | number | Date): string {
@@ -29,10 +28,6 @@ export function recordingDays(assets:Asset[]) {
     }
   }
   return [...days.values()].sort((a,b)=>a.from-b.from);
-}
-export function solarPosition(instant: number, lat: number, lon: number) {
-  const p=SunCalc.getPosition(new Date(instant),lat,lon);
-  return {altitude:p.altitude*180/Math.PI, azimuth:(p.azimuth*180/Math.PI+180)%360};
 }
 export function trackPosition(track: Track, instant: number) {
   const pts = track.points;
