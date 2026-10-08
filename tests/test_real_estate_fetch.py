@@ -310,3 +310,15 @@ def test_expired_owner_cannot_overwrite_a_new_collectors_checkpoint(tmp_path):
     assert c.db.execute('SELECT COUNT(*) FROM snapshots').fetchone()[0]==0
     assert c.db.execute('SELECT COUNT(*) FROM calls').fetchone()[0]==1
     c.close()
+
+
+def test_collection_uses_next_payload_budget_not_fixed_five_gib(tmp_path, monkeypatch):
+    from collections import namedtuple
+    import shutil
+    usage = namedtuple('Usage', 'total used free')
+    c = collector(tmp_path, lambda *args, **kwargs: xml())
+    c.reserve_bytes = 2 * 1024**3
+    monkeypatch.setattr(shutil, 'disk_usage', lambda _: usage(100*1024**3,97*1024**3,3*1024**3))
+    result = c.collect(KEY, max_requests=1, min_interval=0)
+    assert result['requests'] == 1
+    c.close()

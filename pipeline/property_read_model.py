@@ -19,7 +19,7 @@ def sha256(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def publish(data, *, reserve_bytes=30 * 1024**3):
+def publish(data, *, reserve_bytes=0):
     """Online backup is consistent even while the collector is committing."""
     data = Path(data).absolute(); _reject_links(data)
     source = data / 'collector/checkpoint.sqlite'; _reject_links(source)
