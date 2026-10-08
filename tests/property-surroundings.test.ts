@@ -86,3 +86,22 @@ it('uses a corroborated official navigation marker without claiming a verified e
   expect(output({...point,complexId:'other'})).toContain('위치 확인 중');
   expect(output({...point,releaseId:'property-other'})).toContain('위치 확인 중');
 });
+
+
+it('opens the existing school records directly from a dedicated detail section',()=>{
+  const osm={id:'osm',label:'OpenStreetMap',url:'https://www.openstreetmap.org/copyright',asOf:'2026-09-27'};
+  const school:SurroundingsRecord={id:'school-one',category:'school',type:'elementary',name:'검증초등학교',distanceMeters:400,source:osm};
+  const schoolSource:SurroundingsSourceState={status:'ready',scope,category:'school',coverageRadius:3000,complete:false,records:[school],source:osm};
+  const html=renderToStaticMarkup(createElement(PropertySurroundings,{complex,region:'검증 지역',releaseId:scope.releaseId,category:'school',sources:{school:schoolSource,transport:ready()}}));
+  expect(html).toContain('주변 학교</h3>');expect(html).toContain('학교 목록');
+  expect(html).toContain('검증초등학교');expect(html).toContain('직선 400m');
+  expect(html).toContain('공개지도(OSM) 수록 학교');expect(html).toContain('배정 학교와 다릅니다.');
+  expect(html).not.toContain('가역');expect(html).not.toContain('자료 연결 전');
+  expect(html).not.toContain('aria-label="주변 정보 종류"');
+  expect(html).toContain('주변 검색 반경');expect(html).toContain('가까운순');expect(html).toContain('학교알리미');
+});
+it('keeps missing school positions distinct from zero schools and permits an explicit map reference',()=>{
+  const html=renderToStaticMarkup(createElement(PropertySurroundings,{complex,region:'검증 지역',releaseId:scope.releaseId,category:'school',onUseMapCenter:()=>null}));
+  expect(html).toContain('학교 목록');expect(html).toContain('위치 확인 중');expect(html).toContain('현재 지도 중심으로 보기');
+  expect(html).toContain('자료 연결 전');expect(html).not.toContain('0곳');expect(html).not.toContain('자료 불러오는 중');
+});

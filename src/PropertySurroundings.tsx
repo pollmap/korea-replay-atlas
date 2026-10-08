@@ -7,11 +7,11 @@ import {loadPropertyPoi} from './property-poi-loader';
 import {validPoiCenter,type PoiCenter} from '../shared/property-poi';
 import type {Place} from '../shared/contracts';
 
-interface Props {complex:PropertyComplex;region:string;releaseId:string;navigationPoint?:PropertyMapPoint|null;active?:boolean;sources?:Partial<Record<SurroundingsCategory,SurroundingsSourceState>>;onRetry?:(category:SurroundingsCategory)=>void;onUseMapCenter?:()=>PoiCenter|null;onLocate?:(place:Place)=>void;}
+interface Props {complex:PropertyComplex;region:string;releaseId:string;navigationPoint?:PropertyMapPoint|null;active?:boolean;category?:SurroundingsCategory;sources?:Partial<Record<SurroundingsCategory,SurroundingsSourceState>>;onRetry?:(category:SurroundingsCategory)=>void;onUseMapCenter?:()=>PoiCenter|null;onLocate?:(place:Place)=>void;}
 /** The keyed child resets local filters when either the complex or immutable release changes. */
-export default function PropertySurroundings(props:Props){return <SurroundingsContent key={`${props.releaseId}:${props.complex.id}`} {...props}/>;}
-function SurroundingsContent({complex,region,releaseId,navigationPoint,active=false,sources,onRetry,onUseMapCenter,onLocate}:Props){
-  const [filter,setFilter]=useState(DEFAULT_SURROUNDINGS_FILTER);
+export default function PropertySurroundings(props:Props){return <SurroundingsContent key={`${props.releaseId}:${props.complex.id}:${props.category??'all'}`} {...props}/>;}
+function SurroundingsContent({complex,region,releaseId,navigationPoint,active=false,category:fixedCategory,sources,onRetry,onUseMapCenter,onLocate}:Props){
+  const [filter,setFilter]=useState(()=>fixedCategory?surroundingsFilterChange(DEFAULT_SURROUNDINGS_FILTER,{category:fixedCategory}):DEFAULT_SURROUNDINGS_FILTER);
   const [manualCenter,setManualCenter]=useState<PoiCenter|null>(null),[centerError,setCenterError]=useState(''),[attempt,setAttempt]=useState(0),[limit,setLimit]=useState(20);
   const listHeading=useRef<HTMLHeadingElement>(null);
   const officialPoint=confirmedPropertyNavigationPoint(navigationPoint,releaseId,complex.id);
@@ -34,10 +34,11 @@ function SurroundingsContent({complex,region,releaseId,navigationPoint,active=fa
   const locateReference=(point:PoiCenter)=>onLocate?.({id:'poi:search-reference',name:'주변 탐색 기준점',region,lon:point.longitude,lat:point.latitude,range:filter.radius*3});
   const stateLabel={unconnected:'자료 연결 전',loading:'자료 불러오는 중',error:'자료를 불러오지 못했습니다',empty:'조건에 맞는 자료가 없습니다',ready:'확인된 자료',partial:'일부 자료 확인'}[view.state];
   const sourceUrl=view.source?surroundingsSourceUrl(view.source.url):undefined;
-  return <section className="property-surroundings" aria-label={`${complex.name} 주변 정보`}>
-    <header><div><span className="surroundings-eyebrow">주변 둘러보기</span><h3>{complex.name}</h3></div><span className="surroundings-radius-badge">반경 {surroundingsRadiusLabel(filter.radius)}</span></header>
+  return <section className="property-surroundings" aria-label={`${complex.name} 주변 ${fixedCategory==='school'?'학교':'정보'}`}>
+    <header><div>{!fixedCategory&&<span className="surroundings-eyebrow">주변 둘러보기</span>}<h3>{fixedCategory?`주변 ${category}`:complex.name}</h3></div><span className="surroundings-radius-badge">반경 {surroundingsRadiusLabel(filter.radius)}</span></header>
+    {fixedCategory==='school'&&<p className="surroundings-source">공개지도(OSM) 수록 학교 · 직선거리 · 배정 학교와 다릅니다.</p>}
     {onUseMapCenter&&<div className="surroundings-reference"><p>{manualCenter?'선택한 지도 기준점 · 단지 위치와 다를 수 있습니다':complex.position?'검증된 단지 위치 기준':officialPoint?'서울시 공식 지도 기준점 · 직선거리':'위치 확인 중 · 지도 중심으로 탐색 가능'}</p><button onClick={()=>{const point=onUseMapCenter();if(point&&validPoiCenter(point)){setManualCenter({longitude:point.longitude,latitude:point.latitude});setCenterError('');setLimit(20);}else setCenterError('지도가 준비되면 다시 선택해 주세요.');}}>현재 지도 중심으로 보기</button>{manualCenter&&onLocate&&<button onClick={()=>locateReference(manualCenter)}>기준점 보기</button>}{manualCenter&&defaultCenter&&<button onClick={()=>{setManualCenter(null);setLimit(20);}}>단지 위치로 복원</button>}{centerError&&<span role="alert">{centerError}</span>}</div>}
-    <nav className="surroundings-categories" aria-label="주변 정보 종류">{SURROUNDINGS_CATEGORIES.map(([id,label])=><button key={id} aria-pressed={filter.category===id} onClick={()=>change({category:id})}>{label}</button>)}</nav>
+    {!fixedCategory&&<nav className="surroundings-categories" aria-label="주변 정보 종류">{SURROUNDINGS_CATEGORIES.map(([id,label])=><button key={id} aria-pressed={filter.category===id} onClick={()=>change({category:id})}>{label}</button>)}</nav>}
     <div className="surroundings-distance" role="group" aria-label="주변 검색 반경">{SURROUNDINGS_RADII.map(radius=><button key={radius} aria-pressed={radius===filter.radius} onClick={()=>change({radius:radius as SurroundingsRadius})}>{surroundingsRadiusLabel(radius)}</button>)}</div>
     <div className="surroundings-filters"><label>유형<select value={filter.type} onChange={event=>change({type:event.target.value as SurroundingsType|'all'})}><option value="all">전체</option>{SURROUNDINGS_TYPES[filter.category].filter(([id])=>id!=='road').map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label><label>정렬<select value={filter.sort} onChange={event=>change({sort:event.target.value as 'distance'|'name'})}><option value="distance">가까운순</option><option value="name">이름순</option></select></label></div>
     <div className="surroundings-list-heading"><h4 ref={listHeading} tabIndex={-1}>{category} 목록</h4><span>{view.count===null?(view.state==='partial'&&view.records.length>0?`지도기록 ${view.records.length}개`:'자료 확인 전'):`${view.count}곳`}</span></div>
@@ -46,6 +47,6 @@ function SurroundingsContent({complex,region,releaseId,navigationPoint,active=fa
     {view.records.length>20&&<nav className="surroundings-pages" aria-label="시설 목록 페이지"><button disabled={pageStart===0} onClick={()=>turnPage(-1)}>이전 시설</button><span aria-live="polite">{pageStart+1}–{Math.min(pageEnd,view.records.length)} / {view.records.length}</span><button disabled={pageEnd>=view.records.length} onClick={()=>turnPage(1)}>다음 시설</button></nav>}
     {view.unknownDistances>0&&<p className="surroundings-source">거리 미확인 {view.unknownDistances}곳은 반경 목록에서 제외했습니다.</p>}
     {view.source&&<p className="surroundings-source">{sourceUrl?<a href={sourceUrl} target="_blank" rel="noopener noreferrer">{view.source.label} ↗</a>:view.source.label} · {view.source.asOf.slice(0,10)} 기준 · 직선거리{view.source.id.startsWith('osm')?' · ODbL · 보행 경로·통학구역과 다릅니다.':''}</p>}
-    <PropertyMapLinks complex={complex} region={region}/>
+    {fixedCategory==='school'?<p className="surroundings-source"><a href="https://www.schoolinfo.go.kr/" target="_blank" rel="noopener noreferrer">학교알리미 ↗</a></p>:<PropertyMapLinks complex={complex} region={region}/>}
   </section>;
 }
