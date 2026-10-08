@@ -91,7 +91,12 @@ def backup(root, backups, *, progress=None):
 def collect_once(root, backups, secret_file, *, max_requests=500, progress=None):
     from .bulk_work import bulk_work
     with bulk_work(Path(root).parent):
-        return _collect_once(root, backups, secret_file, max_requests=max_requests, progress=progress)
+        report = _collect_once(root, backups, secret_file, max_requests=max_requests, progress=progress)
+    # Retirement reacquires the project lock in a bounded child process. Never
+    # nest migrate() inside the collection/backup lock above.
+    from .property_working_retirement import after_backup
+    report['working_retirement'] = after_backup(root, backups, report.get('backup'), progress=progress)
+    return report
 
 
 def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None):
@@ -109,15 +114,15 @@ def _collect_once(root, backups, secret_file, *, max_requests=500, progress=None
         stamp = instant()
         trades = available_trades(collector.db, day=datetime.now(KST).date().isoformat())
         if not trades:
-            return {'finished_at': stamp, 'collection': {'stop_reason': 'local_daily_budget', 'requests': 0},
-                    'public_release': False}
-        # A retained fallback does not complete a pending/partial refresh. Only
-        # unfinished jobs are selected; completed jobs are never force-refreshed.
-        retries = requeue_safe_failures(collector.db, stamp, limit=5,
-                                       first_acquisition_only=False, scope='priority-nine')
-        report = collector.collect(read_key(secret_file), max_requests=max_requests,
-                                   max_bytes=COLLECTION_BYTES, daily_budget=8000, min_interval=.3,
-                                   timeout=60, first_acquisition_only=False, collect_trades=trades, progress=progress)
+            retries = {'requeued': 0}
+            report = {'stop_reason': 'local_daily_budget', 'requests': 0}
+        else:
+            # A retained fallback does not complete a pending/partial refresh.
+            retries = requeue_safe_failures(collector.db, stamp, limit=5,
+                                           first_acquisition_only=False, scope='priority-nine')
+            report = collector.collect(read_key(secret_file), max_requests=max_requests,
+                                       max_bytes=COLLECTION_BYTES, daily_budget=8000, min_interval=.3,
+                                       timeout=60, first_acquisition_only=False, collect_trades=trades, progress=progress)
     finally:
         collector.close()
     from .property_backup_idle import reuse as reuse_backup, remember as remember_backup
@@ -300,6 +305,12 @@ class PropertyAPI:
                          'read_model_error': self.read_model.error_code,
                          'publication': read_state(self.data / 'read-model-status.json'),
                          'collector_state': read_state(self.data / 'worker-status.json').get('state', 'not_started')}
+        if parts.path == '/api/v1/property/working-store-reader' and not parts.query:
+            from .real_estate_working_store import reader_capability
+            try:
+                return 200, {**reader_capability(self.root), 'build': os.environ.get('APP_BUILD', 'local')}
+            except (RealEstateError, OSError, sqlite3.Error, ValueError):
+                return 503, {'ready': False, 'error_code': 'working_store_reader_not_ready'}
         if parts.path == '/api/v1/property/acquisition' and not parts.query:
             return 200, self.acquisition()
         if parts.path == '/api/v1/property/transactions':

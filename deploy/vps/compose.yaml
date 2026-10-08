@@ -34,6 +34,9 @@ services:
     environment:
       APP_BUILD: ${APP_BUILD}
       KOREA_REPLAY_WORKING_ARCHIVE: /backups
+      KOREA_REPLAY_AUTO_RETIRE_WORKING: ${KOREA_REPLAY_AUTO_RETIRE_WORKING:-0}
+      KOREA_REPLAY_RETIRE_MAX_FILES: ${KOREA_REPLAY_RETIRE_MAX_FILES:-2000}
+      KOREA_REPLAY_RETIRE_MAX_SECONDS: ${KOREA_REPLAY_RETIRE_MAX_SECONDS:-120}
     volumes:
       - /srv/services/korea-replay/shared/data:/data
       - /srv/services/korea-replay/backups/cas:/backups
