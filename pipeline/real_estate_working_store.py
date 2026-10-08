@@ -209,6 +209,10 @@ def plan(root, store):
                 references[ref['path']] = ref
         for (descriptor,) in db.execute('SELECT descriptor FROM snapshots'):
             ref = json.loads(descriptor); references[ref['path']] = ref
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='property_correction_queue'").fetchone():
+            for (pages,) in db.execute('SELECT pages FROM property_correction_queue'):
+                for ref in json.loads(pages):
+                    references[ref['path']] = ref
     matched = sum(1 for name, ref in references.items() if name in eligible
                   and ref['sha256'] == eligible[name]['sha256'] and ref['bytes'] == eligible[name]['bytes'])
     plain = plain_bytes = missing_plain = size_conflicts = 0

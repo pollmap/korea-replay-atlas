@@ -187,6 +187,9 @@ def audit_checkpoint(root, database=None, *, descriptors=None):
             refs.extend(json.loads(pages))
             if snapshot: refs.append(json.loads(snapshot))
         refs.extend(json.loads(r[0]) for r in db.execute('SELECT descriptor FROM snapshots'))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='property_correction_queue'").fetchone():
+            for row in db.execute('SELECT pages FROM property_correction_queue'):
+                refs.extend(json.loads(row[0]))
         registry = db.execute("SELECT value FROM meta WHERE key='registry_sha256'").fetchone()[0]
         registry_path = root / f'registry/{registry}.json'
         _reject_links(registry_path)
