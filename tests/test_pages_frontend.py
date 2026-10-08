@@ -103,3 +103,41 @@ def test_separate_collection_is_preserved_outside_frontend_build(pages, fixture)
     (fixture.client / 'collection/index.html').write_text('replacement')
     with pytest.raises(ValueError, match='separately published collection'):
         pages_frontend.inspect(**pages)
+
+
+def test_worker_retirement_is_exact_and_does_not_disable_inventory_checks(pages, fixture, monkeypatch):
+    import shutil
+    shutil.rmtree(fixture.client / 'cesium')
+    for path in (fixture.client / 'assets').glob('search.worker-*'): path.unlink()
+    old = digest(fixture.worker / 'index.js')
+    body = b'export default {sunRetired:true};'
+    (fixture.worker / 'index.js').write_bytes(body)
+    monkeypatch.setattr(pages_frontend, 'RETIRED_WORKER_FROM', old)
+    monkeypatch.setattr(pages_frontend, 'RETIRED_WORKER_TO', digest(fixture.worker / 'index.js'))
+    monkeypatch.setattr(pages_frontend, 'RETIRED_WORKER_BYTES', len(body))
+    result = pages_frontend.inspect(**pages, retire_3d=True)
+    assert result['worker_replacements'] == [{
+        'target': '_worker.js/app/index.js', 'path': str(fixture.worker / 'index.js'),
+        'bytes': len(body), 'sha256': digest(fixture.worker / 'index.js'),
+        'previous_sha256': old, 'transition': pages_frontend.WORKER_TRANSITION}]
+    with pytest.raises(ValueError):
+        pages_frontend.inspect(**pages, retire_3d=False)
+    (fixture.worker / 'extra.js').write_text('export const injected=true;')
+    with pytest.raises(ValueError):
+        pages_frontend.inspect(**pages, retire_3d=True)
+    (fixture.worker / 'extra.js').unlink()
+    (fixture.worker / 'index.js').write_bytes(body + b'//changed')
+    with pytest.raises(ValueError):
+        pages_frontend.inspect(**pages, retire_3d=True)
+
+
+def test_post_inspection_worker_mutation_is_rejected(pages, fixture, monkeypatch):
+    from pipeline import frontend_release
+    original = frontend_release._frontend_entries
+    def changed(client, prior):
+        value = original(client, prior)
+        (fixture.worker / 'index.js').write_text('export default {injected:true};')
+        return value
+    monkeypatch.setattr(frontend_release, '_frontend_entries', changed)
+    with pytest.raises(ValueError):
+        pages_frontend.inspect(**pages)

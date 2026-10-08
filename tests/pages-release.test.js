@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,readFile,writeFile,rm,stat,symlink} from 'node:fs/promises
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {stagePagesApp,stagePagesData,verifyPagesStage,copyImmutable,pagesHeaders,stagePagesLeanApp,LEGACY_SPATIAL_PREFIXES} from '../scripts/pages-release.mjs';
+import {stagePagesApp,stagePagesData,verifyPagesStage,copyImmutable,pagesHeaders,stagePagesLeanApp,LEGACY_SPATIAL_PREFIXES,validateRetiredWorkerReplacement} from '../scripts/pages-release.mjs';
 import {deployPagesStage,verifyPagesRemote} from '../scripts/pages-api.mjs';
 const roots=[],sha=value=>createHash('sha256').update(value).digest('hex'),json=value=>JSON.stringify(value);
 const release='pub-0123456789abcdef',data={origin:'https://1234abcd.korea-replay-data.pages.dev',manifest_path:'/data/atlas/atlas-fixture/manifest.json',manifest_sha256:'a'.repeat(64)};
@@ -62,7 +62,7 @@ describe('independent Pages release stages',()=>{
   it('hardlinks audited immutable assets, privately copies the existing API and keeps the original bundle byte-identical',async()=>{
     const f=await fixture(),before=await readFile(f.receiptPath),result=await stagePagesApp({...f,data});
     const checked=await verifyPagesStage(result.receiptPath,{projectRoot:f.projectRoot});
-    expect(checked.receipt.linked).toBe(6);expect(await readFile(f.receiptPath)).toEqual(before);
+    expect(checked.receipt.linked).toBe(5);expect(checked.receipt.copied).toBe(1);expect(await readFile(f.receiptPath)).toEqual(before);
     expect((await stat(path.join(f.client,'index.html'))).ino).toBe((await stat(path.join(checked.client,'index.html'))).ino);
     expect(checked.configuration.services).toEqual([{binding:'KOREA_API',service:'korea-replay'}]);
     expect(JSON.parse(await readFile(path.join(checked.client,'_routes.json'),'utf8'))).toEqual({version:1,include:['/api/*'],exclude:[]});
@@ -86,6 +86,21 @@ describe('independent Pages release stages',()=>{
     // Reuse the lean base after old spatial copies are removed, no rehydration.
     await rm(full.directory,{recursive:true});await rm(f.bundle,{recursive:true});
     await expect(stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:lean.receiptPath,legacy3dOrigin:'https://abcdef12.korea-replay.pages.dev',snapshotOrigin:'https://1234abcd.korea-replay.pages.dev'})).rejects.toThrow('separately verified candidate');
+  });
+  it('keeps the staged application Worker independent of future build or base edits',async()=>{
+    const f=await fixture(),manifestPath=path.join(f.bundle,'asset-manifest.json'),manifest=JSON.parse(await readFile(manifestPath,'utf8'));
+    const target='cesium/Workers/retired.js',body='export const spatial=true;';
+    await put(path.join(f.client,target),body);manifest.push({target,bytes:body.length,sha256:sha(body)});
+    await put(manifestPath,json(manifest));const receipt=JSON.parse(await readFile(f.receiptPath,'utf8'));
+    receipt.manifest_hash=sha(json(manifest));receipt.count=manifest.length;await put(f.receiptPath,json(receipt));
+    const full=await stagePagesApp({...f,data});
+    const lean=await stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:full.receiptPath,retire3d:true});
+    const prior=path.join(full.directory,'client/_worker.js/app/index.js'),next=path.join(lean.directory,'client/_worker.js/app/index.js');
+    const bytes=await readFile(next);
+    expect((await stat(prior)).ino).not.toBe((await stat(next)).ino);
+    await writeFile(prior,'changed disposable fixture Worker');
+    expect(await readFile(next)).toEqual(bytes);
+    await verifyPagesStage(lean.receiptPath,{projectRoot:f.projectRoot});
   });
   it('supports exclusive copy fallback without ever replacing an existing file',async()=>{
     const f=await fixture(),destination=path.join(f.projectRoot,'.local/copied.html');
@@ -190,4 +205,23 @@ it('checks compressed file bytes and decoded hash before accepting a data stage'
  await expect(stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication})).resolves.toBeDefined();
  entry.transport.decoded_sha256='0'.repeat(64);await put(propertyPublication,json(receipt));
  await expect(stagePagesData({projectRoot:f.projectRoot,mapPublication,propertyPublication})).rejects.toThrow('Decoded publication');
+});
+
+describe('source-audited 2D Worker retirement',()=>{
+  const worker=path.resolve('dist/korea_replay'),old='f2d2d04f607fdca15f50fb863bbb1fab94aef713851c89bc9eeb9dd14f218acf';
+  const source=[{target:'_worker.js/app/index.js',bytes:157095,sha256:old}];
+  const replacement={target:'_worker.js/app/index.js',path:path.join(worker,'index.js'),bytes:149458,sha256:'d5547d557c8802ef8de00284844cfc375d1a4d9912f78fbaedd9e736b036c17d',previous_sha256:old,transition:'sun-runtime-retirement-20261009'};
+  it('accepts only the exact inspected runtime transition with explicit 3D retirement',()=>{
+    expect(validateRetiredWorkerReplacement([replacement],source,worker,true)).toEqual([replacement]);
+    expect(validateRetiredWorkerReplacement([],source,worker,false)).toEqual([]);
+    expect(()=>validateRetiredWorkerReplacement([replacement],source,worker,false)).toThrow();
+  });
+  it.each(['target','path','bytes','sha256','previous_sha256','transition'])('rejects a changed %s before copying the candidate',field=>{
+    const changed={...replacement,[field]:field==='bytes'?1:field==='target'?'_worker.js/policy.js':'changed'};
+    expect(()=>validateRetiredWorkerReplacement([changed],source,worker,true)).toThrow();
+  });
+  it('does not authorize another base Worker or multiple modules',()=>{
+    expect(()=>validateRetiredWorkerReplacement([replacement],[{...source[0],sha256:'0'.repeat(64)}],worker,true)).toThrow();
+    expect(()=>validateRetiredWorkerReplacement([replacement,replacement],source,worker,true)).toThrow();
+  });
 });
