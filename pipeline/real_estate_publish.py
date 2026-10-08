@@ -19,6 +19,7 @@ from .real_estate_regions import load_registry, SOURCE_PAGE
 from .real_estate_storage import decode_snapshot
 from .property_transaction_assets import emit_month_packs
 from .property_transport import encode as encode_asset, decode as decode_asset
+from .property_verification_cache import version as verification_version
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
@@ -30,7 +31,7 @@ SOURCES = [
     {'id':'molit-apt-rent','dataset_id':'15126474','label':'국토교통부 아파트 전월세 신고·확정일자 자료',
      'page_url':'https://www.data.go.kr/data/15126474/openapi.do','evidence_type':'official_report'},
 ]
-POLICY = 'property-publication-v4-retained-verified-snapshots'
+POLICY = 'property-publication-v5-stable-complete-rechecks'
 
 
 def coverage(jobs):
@@ -212,8 +213,15 @@ def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=1
     if not jobs or len(jobs)>MAX_LEDGER_JOBS:raise RealEstateError('invalid_job_ledger')
     official={r['lawd_code']:r for r in registry['regions']}
     if any(j['lawd_code'] not in official for j in jobs):raise RealEstateError('unknown_legal_region')
+    # A completed snapshot is unchanged when only the operational calls/queue
+    # advances. Retained pending/failed jobs expose their last attempt publicly,
+    # so that timestamp remains meaningful there. Bind reuse to the actual
+    # verifier/normalizer code; unchanged source descriptors alone are not enough.
     fingerprint={'policy':POLICY,'registry_sha256':registry_hash,
-        'jobs':[{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at','_last_attempt_at')} for j in jobs]}
+        'verification_version':verification_version(),
+        'jobs':[{**{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at')},
+                 '_last_attempt_at':None if j['status'] in ('complete','empty') else j['_last_attempt_at']}
+                for j in jobs]}
     if packed_transactions:fingerprint['transaction_layout']='direct-bounded-month-packs-v1'
     if compressed_transactions:fingerprint['transport']='explicit-gzip-transactions-v1'
     release='property-'+sha256(canonical_bytes(fingerprint))[:16]

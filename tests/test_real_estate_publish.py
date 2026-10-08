@@ -216,3 +216,78 @@ def test_466_retained_and_307_new_snapshots_publish_without_editing_ledger(tmp_p
     assert sum('refresh' in p for p in visible)==466
     with sqlite3.connect(root/'checkpoint.sqlite') as db:
         assert list(db.execute('SELECT id,status,pages,snapshot FROM jobs ORDER BY id'))==[tuple(x) for x in before]
+
+
+@pytest.mark.parametrize('empty',[False,True])
+def test_unchanged_recheck_calls_reuse_complete_publication_without_reparsing(tmp_path,monkeypatch,empty):
+    import pipeline.real_estate_publish as module
+    if empty:
+        root=tmp_path/'checkpoint'
+        c=Collector(root,registry(),months=1,clock=lambda:STAMP,transport=lambda *a,**k:xml(),reserve_bytes=0)
+        c.collect(KEY,max_requests=2,min_interval=0);c.close()
+    else:root=setup(tmp_path)
+    output=tmp_path/'candidates';original=publish(root,registry(),output)
+    before={str(p.relative_to(output)):p.read_bytes() for p in output.rglob('*') if p.is_file()}
+    with sqlite3.connect(root/'checkpoint.sqlite') as db:
+        db.execute("INSERT INTO calls(day,trade_type,job_id,page_no,started_at,status) VALUES('2026-09-21','sale','sale/11110/202609',1,'2026-09-21T00:00:00Z','stored')")
+        # Operational correction receipts do not change the published snapshot.
+        from pipeline.property_refresh_scheduler import initialize
+        initialize(db)
+        row=db.execute("SELECT snapshot FROM jobs WHERE trade_type='sale'").fetchone()[0]
+        db.execute("INSERT INTO property_correction_queue VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",('sale/11110/202609','recent','complete','[]',row,'2026-09-21T00:00:00Z','2026-09-21T00:00:00Z',None,None,0,'2026-09-21T00:00:00Z','test-normalizer'))
+    version=module.verification_version()
+    monkeypatch.setattr(module,'verification_version',lambda:version)
+    monkeypatch.setattr(module,'verify_snapshot',lambda *a:pytest.fail('unchanged publication reparsed source'))
+    assert publish(root,registry(),output)==original
+    assert {str(p.relative_to(output)):p.read_bytes() for p in output.rglob('*') if p.is_file()}==before
+    with sqlite3.connect(root/'checkpoint.sqlite') as db:
+        assert db.execute('SELECT COUNT(*) FROM calls').fetchone()[0]==3
+        assert db.execute('SELECT COUNT(*) FROM property_correction_queue').fetchone()[0]==1
+
+
+def test_new_failed_attempt_changes_retained_snapshot_release(tmp_path):
+    root=setup(tmp_path);output=tmp_path/'candidates'
+    with sqlite3.connect(root/'checkpoint.sqlite') as db:
+        db.execute("UPDATE jobs SET status='failed',pages='[]',error_code='upstream_timeout' WHERE trade_type='sale'")
+    before=publish(root,registry(),output)
+    with sqlite3.connect(root/'checkpoint.sqlite') as db:
+        db.execute("INSERT INTO calls(day,trade_type,job_id,page_no,started_at,status) VALUES('2026-09-21','sale','sale/11110/202609',1,'2026-09-21T00:00:00Z','failed')")
+    after=publish(root,registry(),output)
+    assert before['release_id']!=after['release_id']
+    assert before['audit']['source_rows']==after['audit']['source_rows']==4
+    region=json.loads((output/after['release_id']/f"data/property/{after['release_id']}/regions/11110.json").read_bytes())
+    assert next(p for p in region['partitions'] if p['trade_type']=='sale')['refresh']['attempted_at']=='2026-09-21T00:00:00Z'
+
+
+def test_normalizer_version_change_invalidates_existing_publication(tmp_path,monkeypatch):
+    import pipeline.real_estate_publish as module
+    root=setup(tmp_path);output=tmp_path/'candidates';before=publish(root,registry(),output)
+    original=module.verify_snapshot;verified=[]
+    def verify(*args):verified.append(args[1]['id']);return original(*args)
+    monkeypatch.setattr(module,'verification_version',lambda:'f'*64)
+    monkeypatch.setattr(module,'verify_snapshot',verify)
+    after=publish(root,registry(),output)
+    assert before['release_id']!=after['release_id'] and len(verified)==2
+
+
+@pytest.mark.parametrize('change',['price','cancellation'])
+def test_changed_correction_keeps_source_invalidation(tmp_path,change):
+    from pipeline import property_refresh_scheduler as corrections
+    root=setup(tmp_path);output=tmp_path/'candidates';before=publish(root,registry(),output)
+    def transport(*args,**kwargs):
+        if args[1]=='rent':
+            row=rent();row['aptSeq']='11110-99999';return xml([row,row])
+        row=sale()
+        if change=='price':row['dealAmount']='30,000'
+        else:row=sale(True)
+        return xml([row,sale(True)])
+    c=Collector(root,registry(),months=1,as_of=STAMP,clock=lambda:'2026-09-21T00:00:00Z',transport=transport,reserve_bytes=0)
+    batch=corrections.plan(c.db,'2026-09-21T00:00:00Z',scope='nationwide',trades=('sale',),max_requests=1)
+    result=c.collect(KEY,max_requests=1,min_interval=0,correction=batch);c.close()
+    assert result['correction']['changed_jobs']==1
+    after=publish(root,registry(),output)
+    assert before['release_id']!=after['release_id']
+    region=json.loads((output/after['release_id']/f"data/property/{after['release_id']}/regions/11110.json").read_bytes())
+    metric=next(x for x in region['metrics'] if x['trade_type']=='sale')
+    assert metric['cancelled_rows']==(2 if change=='cancellation' else 1)
+    if change=='price':assert metric['median_price_per_m2_krw']>3000000
