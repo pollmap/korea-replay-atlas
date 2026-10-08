@@ -44,6 +44,14 @@ describe('independent Pages release stages',()=>{
     expect((await stat(path.join(f.client,'_headers'))).ino).not.toBe((await stat(path.join(checked.client,'_headers'))).ino);
     expect(pagesHeaders(output)).toBe(output);
   });
+  it('retires spatial routes and Cesium without removing the shared 2D geography',async()=>{
+    const f=await fixture(),full=await stagePagesApp({...f,data});
+    const retired=await stagePagesLeanApp({projectRoot:f.projectRoot,receiptPath:full.receiptPath,retire3d:true});
+    const checked=await verifyPagesStage(retired.receiptPath,{projectRoot:f.projectRoot});
+    expect(checked.entries.map(entry=>entry.target)).toContain('data/sample.geojson');
+    expect(checked.entries.some(entry=>entry.target==='_redirects'||entry.target.startsWith('cesium/'))).toBe(false);
+    expect(checked.receipt.policy.data).toEqual(data);
+  });
   it('hardlinks audited immutable assets, privately copies the existing API and keeps the original bundle byte-identical',async()=>{
     const f=await fixture(),before=await readFile(f.receiptPath),result=await stagePagesApp({...f,data});
     const checked=await verifyPagesStage(result.receiptPath,{projectRoot:f.projectRoot});
@@ -51,7 +59,8 @@ describe('independent Pages release stages',()=>{
     expect((await stat(path.join(f.client,'index.html'))).ino).toBe((await stat(path.join(checked.client,'index.html'))).ino);
     expect(checked.configuration.services).toEqual([{binding:'KOREA_API',service:'korea-replay'}]);
     expect(JSON.parse(await readFile(path.join(checked.client,'_routes.json'),'utf8'))).toEqual({version:1,include:['/api/*'],exclude:[]});
-    await expect(stagePagesApp({...f,data})).rejects.toThrow(/exist/i);
+    expect((await stagePagesApp({...f,data})).receiptPath).toBe(result.receiptPath);
+    expect(await readFile(f.receiptPath)).toEqual(before);
   });
   it('stages 2D without large spatial payloads, preserving 2D data and an immutable legacy route',async()=>{
     const f=await fixture();

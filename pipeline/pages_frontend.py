@@ -18,7 +18,7 @@ PAGES_FILES = frozenset(('_routes.json', '_redirects'))
 
 
 def inspect(*, receipt_path: Path, client_dir: Path, worker_dir: Path,
-            artifact_sha256: str, root: Path = ROOT):
+            artifact_sha256: str, root: Path = ROOT, retire_3d: bool = False):
     no_links(root)
     root = Path(root).resolve()
     receipt_path = frontend._inside(root, receipt_path, 'Pages receipt')
@@ -44,6 +44,16 @@ def inspect(*, receipt_path: Path, client_dir: Path, worker_dir: Path,
     prior = {entry['target']: entry for entry in entries
              if not entry['target'].startswith('_worker.js/')
              and entry['target'] not in PAGES_FILES}
+    if retire_3d:
+        # Explicitly retire only the spatial renderer and its private workers.
+        retired = {('MapScene', 'js'), ('MapScene', 'css'),
+                   ('geometry.worker', 'js'), ('search.worker', 'js')}
+        prior = {name: entry for name, entry in prior.items()
+                 if not name.startswith('cesium/') and frontend._family(name) not in retired}
+        if any(p.relative_to(client).as_posix().startswith('cesium/')
+               or frontend._family(p.name if p.parent == client else p.relative_to(client).as_posix()) in retired
+               for p in client.rglob('*') if p.is_file()):
+            raise ValueError('Retired 3D assets remain in the new frontend')
     worker_receipt = {'worker_files': [
         {'target': 'worker/' + entry['target'][len('_worker.js/app/'):],
          'sha256': entry['sha256']}
@@ -66,7 +76,7 @@ def main():
     result = inspect(receipt_path=Path(request['receiptPath']),
                      client_dir=Path(request['clientDirectory']),
                      worker_dir=Path(request['workerDirectory']),
-                     artifact_sha256=request['artifactSha256'])
+                     artifact_sha256=request['artifactSha256'], retire_3d=request.get('retire3d') is True)
     print(json.dumps(result, ensure_ascii=False))
 
 

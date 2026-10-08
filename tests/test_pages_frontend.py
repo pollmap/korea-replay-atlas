@@ -72,3 +72,17 @@ def test_rejects_missing_worker_inventory(pages):
     atomic_json(pages['receipt_path'], receipt)
     with pytest.raises(ValueError, match='no application Worker'):
         pages_frontend.inspect(**pages)
+
+
+def test_retirement_requires_vendor_removed_but_preserves_other_audits(pages, fixture):
+    import shutil
+    with pytest.raises(ValueError, match='Retired 3D'):
+        pages_frontend.inspect(**pages, retire_3d=True)
+    shutil.rmtree(fixture.client / 'cesium')
+    for prefix in ('MapScene-', 'geometry.worker-', 'search.worker-'):
+        for path in (fixture.client / 'assets').glob(prefix+'*'): path.unlink()
+    result = pages_frontend.inspect(**pages, retire_3d=True)
+    assert not any(row['target'].startswith('cesium/') for row in result['files'])
+    (fixture.worker / 'index.js').write_text('changed')
+    with pytest.raises(ValueError):
+        pages_frontend.inspect(**pages, retire_3d=True)
