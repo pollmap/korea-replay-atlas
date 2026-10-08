@@ -222,13 +222,81 @@ def plan(root, store):
             'payload_hashes_verified': False, 'source_calls': 0, 'writes': 0}
 
 
+def _discard_candidate(root):
+    candidate = _index(root).with_name(INDEX + '.next')
+    # Only this command's fixed scratch names, under the exclusive writer lock.
+    # Never remove a journal belonging to the current published index.
+    for suffix in ('', '-journal', '-wal', '-shm'):
+        path = Path(str(candidate) + suffix); _reject_links(path)
+        if path.exists():
+            path.unlink()
+    return candidate
+
+
+def _sync_directory(path):
+    if os.name != 'nt':
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+
+def _publish_index(root, store, pending, progress):
+    """Never write the SQLite file mounted read-only by the API.
+
+    Only a closed, journal-free candidate replaces that file. An unclean process
+    death can leave a hot journal beside the candidate, never beside the current
+    index. Readers that already opened the old inode can finish their reads.
+    """
+    candidate = _discard_candidate(root)
+    current = _index(root)
+    try:
+        with closing(sqlite3.connect(candidate)) as index:
+            source = _open_index(root)
+            if source is not None:
+                with closing(source):
+                    source.backup(index)
+            index.execute('PRAGMA journal_mode=DELETE')
+            index.execute('PRAGMA synchronous=FULL')
+            index.executescript("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);"
+                                "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,descriptor TEXT NOT NULL);")
+            meta = dict(index.execute('SELECT key,value FROM meta'))
+            if meta and (meta.get('schema') != SCHEMA or meta.get('archive_root') != str(store.root)):
+                raise RealEstateError('working_store_configuration_changed')
+            index.executemany('INSERT OR IGNORE INTO meta VALUES (?,?)',
+                              [('schema', SCHEMA), ('archive_root', str(store.root))])
+            for row, _, new in pending:
+                if new:
+                    index.execute('INSERT INTO files VALUES (?,?)',
+                                  (row['path'], canonical_bytes(row).decode()))
+            if progress:
+                progress({'phase': 'index-prepared', 'files': len(pending)})
+            index.commit()
+            if index.execute('PRAGMA integrity_check').fetchall() != [('ok',)]:
+                raise RealEstateError('working_store_index_integrity')
+        # All SQLite connections are closed before publication. The source of
+        # replacement cannot need recovery on an API's read-only filesystem.
+        if any(Path(str(candidate) + suffix).exists() for suffix in ('-journal', '-wal', '-shm')):
+            raise RealEstateError('working_store_index_not_closed')
+        with candidate.open('rb') as handle:
+            os.fsync(handle.fileno())
+        os.replace(candidate, current)
+        _sync_directory(current.parent)
+        if progress:
+            progress({'phase': 'index-published', 'files': len(pending)})
+    finally:
+        # A SIGKILL deliberately bypasses this block; the next writer removes
+        # only its abandoned candidate after reacquiring both project locks.
+        _discard_candidate(root)
+
+
 def migrate(root, store, *, limit=1000, retire_plaintext=False,
             readers_deployed=False, progress=None):
     """Bounded/resumable migration from an already verified backup-set head.
 
-    No source calls, archive writes, snapshot changes or ledger changes. Run the
-    read-compatible app/worker first. The index commits before each unlink. A
-    crash before or after that point leaves either plaintext, CAS, or both.
+    No source calls, archive writes, snapshot changes or ledger changes. New
+    mappings are published as one closed SQLite candidate before any unlink.
     """
     from .bulk_work import bulk_work
     from .real_estate_local_archive import _lock
@@ -263,58 +331,60 @@ def migrate(root, store, *, limit=1000, retire_plaintext=False,
             ledger.execute('BEGIN IMMEDIATE')
             if ledger.execute('SELECT 1 FROM lease WHERE expires>?', (time.time(),)).fetchone():
                 raise RealEstateError('archive_collector_active')
-            index_path = _index(root)
-            with closing(sqlite3.connect(index_path)) as index:
-                index.execute('PRAGMA journal_mode=DELETE')
-                index.execute('PRAGMA synchronous=FULL')
-                index.executescript("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);"
-                                    "CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY,descriptor TEXT NOT NULL);")
-                meta = dict(index.execute('SELECT key,value FROM meta'))
-                if meta and (meta.get('schema') != SCHEMA or meta.get('archive_root') != str(store.root)):
-                    raise RealEstateError('working_store_configuration_changed')
-                index.executemany('INSERT OR IGNORE INTO meta VALUES (?,?)',
-                                  [('schema', SCHEMA), ('archive_root', str(store.root))])
-                index.commit()
+            _discard_candidate(root)
+            current = _open_index(root)
+            pending = []
+            try:
+                if current is not None:
+                    meta = dict(current.execute('SELECT key,value FROM meta'))
+                    if meta.get('archive_root') != str(store.root):
+                        raise RealEstateError('working_store_configuration_changed')
                 for row in rows:
                     row = _validated_row(row)
                     _, path = _path(root, row['path'])
-                    encoded = canonical_bytes(row).decode()
-                    old = index.execute('SELECT descriptor FROM files WHERE path=?', (row['path'],)).fetchone()
-                    if old and old[0] != encoded:
-                        # A repacked backup may point at new objects for identical
-                        # bytes. Retain the already verified backing reference.
+                    old = (current.execute('SELECT descriptor FROM files WHERE path=?',
+                           (row['path'],)).fetchone() if current is not None else None)
+                    if old:
+                        # Keep prior backing packs even if a later backup repacks
+                        # identical bytes; every earlier retired mapping survives.
                         prior = _validated_row(json.loads(old[0]))
                         if prior['sha256'] != row['sha256'] or prior['bytes'] != row['bytes']:
                             raise RealEstateError('working_store_reference_mismatch')
-                        row, encoded = prior, old[0]
+                        row = prior
                     if old and (not retire_plaintext or not path.exists()):
                         continue
                     if verified >= limit:
                         break
                     archived = read_file(row, getter)
-                    present = path.exists()
-                    if present:
+                    if path.exists():
                         if read_reference(root, row) != archived:
                             raise RealEstateError('working_store_source_changed')
                     elif old is None:
-                        # Adoption cannot quietly fill an unrelated missing file.
                         raise RealEstateError('working_store_missing')
                     verified += 1
-                    if old is None:
-                        index.execute('INSERT INTO files VALUES (?,?)', (row['path'], encoded))
-                        index.commit(); indexed += 1
-                    if retire_plaintext and present:
-                        # Verify a fresh read of the committed mapping before unlink.
-                        saved, location = _row(root, row['path'])
-                        if saved != row or Path(location) != store.root:
-                            raise RealEstateError('working_store_reference_mismatch')
-                        _reject_links(path)
-                        if read_reference(root, row) != archived:
-                            raise RealEstateError('working_store_source_changed')
-                        path.unlink(); retired += 1; retired_bytes += row['bytes']
-                    if progress:
-                        progress({'verified': verified, 'indexed': indexed,
-                                  'retired': retired, 'retired_logical_bytes': retired_bytes})
+                    pending.append((row, path, old is None))
+            finally:
+                if current is not None:
+                    current.close()
+            indexed = sum(new for _, _, new in pending)
+            if indexed:
+                _publish_index(root, store, pending, progress)
+            # No SQLite writer ever opens the published index. A kill here leaves
+            # all mappings readable, including files retired by earlier batches.
+            for row, path, _ in pending:
+                if retire_plaintext and path.exists():
+                    saved, location = _row(root, row['path'])
+                    if saved != row or Path(location) != store.root:
+                        raise RealEstateError('working_store_reference_mismatch')
+                    archived = read_file(row, getter)
+                    _reject_links(path)
+                    if read_reference(root, row) != archived:
+                        raise RealEstateError('working_store_source_changed')
+                    path.unlink(); retired += 1; retired_bytes += row['bytes']
+                if progress:
+                    progress({'phase': 'retired' if retire_plaintext else 'verified',
+                              'verified': verified, 'indexed': indexed,
+                              'retired': retired, 'retired_logical_bytes': retired_bytes})
     return {'head': head, 'verified': verified, 'indexed': indexed, 'retired': retired,
             'retired_logical_bytes': retired_bytes, 'source_calls': 0,
             'ledger_changed': False, 'archive_objects_written': 0}

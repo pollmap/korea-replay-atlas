@@ -1,5 +1,10 @@
 from contextlib import closing
 import json
+import os
+import select
+import signal
+import subprocess
+import sys
 import sqlite3
 import time
 
@@ -74,8 +79,9 @@ def test_interrupted_migration_resumes_without_duplicate_archive_or_ledger_chang
     root, store, rows = setup(tmp_path)
     checkpoint = (root / 'checkpoint.sqlite').read_bytes()
     previous = files(store.root)
-    def interrupted(_):
-        raise RuntimeError('interrupted_after_commit')
+    def interrupted(value):
+        if value['phase'] == 'retired':
+            raise RuntimeError('interrupted_after_commit')
     with pytest.raises(RuntimeError, match='interrupted_after_commit'):
         migrate(root, store, retire_plaintext=True, readers_deployed=True, progress=interrupted)
     assert len([row for row in rows if not (root / row['path']).exists()]) == 1
@@ -300,3 +306,92 @@ def test_plan_has_no_writes_and_distinguishes_new_unarchived_references(tmp_path
         db.execute('INSERT INTO snapshots VALUES (?,?,?,?)', ('test', '0' * 64, json.dumps(descriptor), STAMP))
         db.commit()
     assert plan(root, store)['ledger_references_not_in_head'] == 1
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Production runs on Linux; exercises POSIX SIGKILL and held inodes')
+@pytest.mark.parametrize('kill_phase', ['index-prepared', 'index-published', 'retired'])
+def test_sigkill_during_index_publication_keeps_ro_api_and_previous_inode_readable(tmp_path, kill_phase):
+    from pipeline.vps_runtime import PropertyAPI
+    from pipeline.real_estate_working_store import _open_index
+    from test_vps_runtime import acquired
+    data, root = acquired(tmp_path)
+    store = LocalArchiveSet(tmp_path / 'cas'); backup_set(root, store)
+    migrate(root, store, retire_plaintext=True, readers_deployed=True)
+    uri = '/api/v1/property/transactions?regionCode=11110&month=202609&trade=rent'
+    expected = PropertyAPI(data).dispatch(uri)
+    assert expected[0] == 200 and expected[1]['total'] == 2
+    previous_index = (root / INDEX).read_bytes()
+    # Source head now contains additional immutable files while existing API
+    # records already rely exclusively on the published compressed-file index.
+    fresh = []
+    for number in range(200):
+        payload = xml() + ('<!-- new-source-' + str(number) + ' -->').encode()
+        name = 'raw/rent/11110/202609/' + sha256(payload) + '.xml'
+        fresh.append(immutable(root, name, payload))
+    backup_set(root, store)
+    old_reader = _open_index(root)
+    old_reader.execute('BEGIN')
+    previous_count = old_reader.execute('SELECT COUNT(*) FROM files').fetchone()[0]
+    script = r"""
+import json, signal, sqlite3, sys
+from pathlib import Path
+from pipeline.real_estate_local_archive_set import LocalArchiveSet
+from pipeline.real_estate_working_store import INDEX, migrate
+root, archive, phase = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+real_connect = sqlite3.connect
+def connect(database, *args, **kwargs):
+    db = real_connect(database, *args, **kwargs)
+    if str(database).endswith(INDEX + '.next'):
+        # Force a genuine dirty-page spill and hot rollback journal during the
+        # uncommitted candidate transaction, without relying on host RAM size.
+        db.execute('PRAGMA cache_size=1')
+        db.execute('PRAGMA cache_spill=ON')
+    return db
+sqlite3.connect = connect
+def progress(value):
+    if value['phase'] == phase:
+        journal = root / (INDEX + '.next-journal')
+        header = journal.read_bytes()[:8].hex() if journal.exists() else None
+        print(json.dumps({'phase': phase, 'journal': header}), flush=True)
+        signal.pause()
+migrate(root, LocalArchiveSet(archive), limit=1000, retire_plaintext=True,
+        readers_deployed=True, progress=progress)
+"""
+    process = subprocess.Popen([sys.executable, '-c', script, str(root), str(store.root), kill_phase],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        ready, _, _ = select.select([process.stdout], [], [], 30)
+        assert ready, 'migration did not reach the requested kill point'
+        line = process.stdout.readline()
+        assert line, process.stderr.read()
+        reached = json.loads(line)
+        if kill_phase == 'index-prepared':
+            assert reached['journal'] not in (None, '0000000000000000')
+            assert (root / INDEX).read_bytes() == previous_index
+            assert all((root / item['path']).exists() for item in fresh)
+        process.kill()
+        process.communicate(timeout=10)
+        assert process.returncode == -signal.SIGKILL
+        # This path opens the current index mode=ro. No recovery writer is run.
+        assert PropertyAPI(data).dispatch(uri) == expected
+        assert old_reader.execute('SELECT COUNT(*) FROM files').fetchone()[0] == previous_count
+        if kill_phase == 'index-prepared':
+            assert (root / (INDEX + '.next-journal')).exists()
+            assert (root / INDEX).read_bytes() == previous_index
+            assert all((root / item['path']).exists() for item in fresh)
+        else:
+            assert not (root / (INDEX + '-journal')).exists()
+        old_reader.close(); old_reader = None
+        # Replay cleans only the abandoned candidate, preserves the old index
+        # mappings, and finishes without recreating any previously retired file.
+        migrate(root, store, limit=1000, retire_plaintext=True, readers_deployed=True)
+        assert PropertyAPI(data).dispatch(uri) == expected
+        assert all(not (root / item['path']).exists() for item in fresh)
+        assert not (root / (INDEX + '.next-journal')).exists()
+        assert not (root / (INDEX + '.next')).exists()
+        assert audit_checkpoint(root)['verified_references'] > 0
+    finally:
+        if process.poll() is None:
+            process.kill(); process.communicate(timeout=10)
+        if old_reader is not None:
+            old_reader.close()
