@@ -66,7 +66,7 @@ describe('selected-period complex list summaries',()=>{
 describe('PC list period controls and pending state',()=>{
   it('provides working period choices and keeps unconnected investment conditions disabled',()=>{
     const html=renderToStaticMarkup(createElement(PropertyComplexList,{complexes:[complex('a')],rows:[],dataReady:true,trade:'sale',onSelect:()=>{},release:'property-a'.padEnd(25,'a'),savedFilterRegion:'11110',month:'202609',periodMonths:36,onPeriodMonths:()=>{},area:'84-band',onArea:()=>{}}));
-    expect(html).toContain('aria-label="단지 목록 조회 기간"');expect(html).toContain('<option value="36" selected="">최근 3년</option>');expect(html).toContain('최근 20년');expect(html).toContain('선택 기간의 거래 요약을 불러오는 중');expect(html).not.toContain('현재 조건 0건');expect(html).toContain('aria-pressed="true"');
+    expect(html).toContain('aria-label="단지 목록 조회 기간"');expect(html).toContain('<option value="36" selected="">최근 3년</option>');expect(html).toContain('최근 20년');expect(html).toContain('거래 불러오는 중');expect(html).not.toContain('현재 조건 0건');expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('단지·투자 조건');expect(html).toContain('disabled="" title="공식 자료 연결 전">공급면적');expect(html).toContain('갭가격 · 연결 전');
   });
 });

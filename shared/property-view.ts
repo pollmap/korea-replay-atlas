@@ -4,7 +4,7 @@ import {eligiblePropertyTransactions} from './property';
 import {HISTORY_RANGES,type HistoryRange} from './property-history';
 import {readRentKind,rentKindMatches,type RentKind} from './property-rent';
 import type {PriceBasis} from './property-pricing';
-import {EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDiscoveryBounds} from './property-discovery';
+import {EMPTY_PROPERTY_DISCOVERY_FILTERS,propertyDiscoveryBounds,type PropertyDiscoverySort,type PropertyDiscoveryFilters} from './property-discovery';
 export interface LatestPriceSelection {latestPriceMinEok?:string;latestPriceMaxEok?:string;}
 /** Qualifies apartments by their last valid contract; never filters historical rows. */
 export function latestPriceBounds(view:LatestPriceSelection){return propertyDiscoveryBounds({...EMPTY_PROPERTY_DISCOVERY_FILTERS,priceMinEok:view.latestPriceMinEok??'',priceMaxEok:view.latestPriceMaxEok??''},'sale');}
@@ -15,15 +15,26 @@ function readLatestPrice(p:URLSearchParams):LatestPriceSelection{
   if(bounds.errors.length&&!(bounds.priceMin!==null&&bounds.priceMax!==null&&bounds.priceMin>bounds.priceMax))return {};
   return {...(min?{latestPriceMinEok:min}:{}),...(max?{latestPriceMaxEok:max}:{})};
 }
+/** Candidate metadata conditions stay in the same navigation state as price/area. */
+export interface PropertyListSelection {listQuery?:string;listSort?:PropertyDiscoverySort;buildYearMin?:string;buildYearMax?:string;hasTrades?:boolean;}
+export function propertyListFilters(view:PropertyListSelection):PropertyDiscoveryFilters{
+  return {...EMPTY_PROPERTY_DISCOVERY_FILTERS,query:view.listQuery??'',sort:view.listSort??'recent',buildYearMin:view.buildYearMin??'',buildYearMax:view.buildYearMax??'',hasTrades:view.hasTrades??false};
+}
+function readListSelection(p:URLSearchParams):PropertyListSelection{
+  const query=p.get('listQuery')??'',sort=p.get('listSort')??'',min=p.get('buildYearMin')??'',max=p.get('buildYearMax')??'';
+  const textValid=p.getAll('listQuery').length<=1&&query.length<=120&&Array.from(query).every(c=>c.charCodeAt(0)>=32&&c.charCodeAt(0)!==127);
+  const yearsValid=p.getAll('buildYearMin').length<=1&&p.getAll('buildYearMax').length<=1&&[min,max].every(v=>!v||/^\d{1,4}$/.test(v));
+  return {...(textValid&&query?{listQuery:query}:{}),...(p.getAll('listSort').length===1&&['recent','count','name','price-low','price-high','pyeong-low','pyeong-high'].includes(sort)?{listSort:sort as PropertyDiscoverySort}:{}),...(yearsValid?{...(min?{buildYearMin:min}:{}),...(max?{buildYearMax:max}:{})}:{}),...(p.getAll('hasTrades').length===1&&p.get('hasTrades')==='1'?{hasTrades:true}:{})};
+}
 export type PropertyType='apartment'|'officetel';
 export type PropertyMarkerDisplay='price-area'|'price'|'unit-price'|'name';
 export type PropertyDetailSection='trades'|'facts'|'fees'|'life'|'schools'|'region'|'costs'|'compare';
-export interface PropertyViewState extends LatestPriceSelection {markerDisplay?:PropertyMarkerDisplay;priceBasis?:PriceBasis;areaBasis?:'exclusive'|'supply';detailSection?:PropertyDetailSection;legalDong?:string;regionQuery?:string;propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
+export interface PropertyViewState extends LatestPriceSelection,PropertyListSelection {markerDisplay?:PropertyMarkerDisplay;priceBasis?:PriceBasis;areaBasis?:'exclusive'|'supply';detailSection?:PropertyDetailSection;legalDong?:string;regionQuery?:string;propertyType?:PropertyType;rentKind?:RentKind;region:string;trade:'sale'|'rent';month:string;complex:string;area:string;compare:string[];compareComplexes:string[];includeReview:boolean;historyMonths:HistoryRange;}
 export function readPropertyView(hash:string,period:{from:string;to:string;latest_complete_month:string}):PropertyViewState{
   const p=new URLSearchParams(hash.replace(/^#/,'')),region=p.get('regionCode')??'',month=p.get('month')??'',complex=p.get('complex')??'',area=p.get('area')??'';
   const legalDong=p.get('legalDong')??'';
   const propertyType:PropertyType=p.get('propertyType')==='officetel'?'officetel':'apartment';
-  return {...readLatestPrice(p),...(/^\d{5}$/.test(region)&&p.getAll('legalDong').length===1&&legalDong.trim()===legalDong&&legalDong.length>0&&legalDong.length<=80&&Array.from(legalDong).every(char=>char.charCodeAt(0)>=32&&char.charCodeAt(0)!==127)?{legalDong}:{}),...(p.get('regionQuery')&&p.get('regionQuery')!.length<=80&&Array.from(p.get('regionQuery')!).every(char=>char.charCodeAt(0)>=32)?{regionQuery:p.get('regionQuery')!}:{}),propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
+  return {...readLatestPrice(p),...readListSelection(p),...(/^\d{5}$/.test(region)&&p.getAll('legalDong').length===1&&legalDong.trim()===legalDong&&legalDong.length>0&&legalDong.length<=80&&Array.from(legalDong).every(char=>char.charCodeAt(0)>=32&&char.charCodeAt(0)!==127)?{legalDong}:{}),...(p.get('regionQuery')&&p.get('regionQuery')!.length<=80&&Array.from(p.get('regionQuery')!).every(char=>char.charCodeAt(0)>=32)?{regionQuery:p.get('regionQuery')!}:{}),propertyType,...(p.get('trade')==='rent'&&readRentKind(p.get('rentKind'))!=='all'?{rentKind:readRentKind(p.get('rentKind'))}:{}),region:/^\d{5}$/.test(region)?region:'',trade:p.get('trade')==='rent'?'rent':'sale',
     month:/^\d{4}(?:0[1-9]|1[0-2])$/.test(month)&&month>=period.from&&month<=period.to?month:period.latest_complete_month,
     complex:propertyType==='apartment'&&/^molit-apt:\d{5}:[A-Za-z0-9_-]{1,64}$/.test(complex)?complex:'',
     area:validAreaFilter(area)?area:'',

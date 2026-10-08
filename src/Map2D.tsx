@@ -1,3 +1,4 @@
+import {propertyExplorationRegions,propertyProvinceLabel} from '../shared/property-scope';
 import {loadMapPricePreset} from './property-map-presets';
 import {loadRegionFilterMetrics,type RegionFilterMetrics} from './region-filter-metrics';
 import {selectedRegionBoundary,regionAdministrativeDongs,clearRegionBoundaryCache} from './region-selection';
@@ -23,9 +24,9 @@ import {resolveSceneAssets} from './catalog';
 import {EMPTY_MEASUREMENT,measureMap,measurementGeoJSON,type Measurement} from '../shared/map-tools';
 import {mapCoverageLabel,type MapCatalog2D} from '../shared/map-tiles';
 import {createMapTilesProtocol} from './map-tiles-protocol';
-import {atlasFetch} from './atlas-client';
+import {atlasFetch,fetchPinnedJson} from './atlas-client';
 import {vectorLayers} from './vector-style';
-import type {PropertyRegions,PropertyRelease} from '../shared/property';
+import {parsePropertyRegionDetail,parsePropertyComplexes,type PropertyComplex,type PropertyRegions,type PropertyRelease} from '../shared/property';
 import {pickedPropertyProvince,pickedPropertyRegion,provinceMapLayer,regionMapBubbleImage,regionMapData,regionMapLayer,PROVINCE_MAP_LAYER,REGION_MAP_IMAGE,REGION_MAP_LAYER,REGION_MAP_SOURCE} from './region-map-layer';
 
 import {apartmentMapLayer,APARTMENT_MAP_LAYER,APARTMENT_SELECTED_LAYER,type ApartmentLabelMode} from './apartment-map-layer';
@@ -95,7 +96,16 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
     return()=>controller.abort();
   },[metricRelease]);
   const activeMetrics=filterMetrics?.release===metricRelease?filterMetrics:null;
-  const regions=useMemo(()=>{const input=props.vectorData;return regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:input.regions,filterMetrics:activeMetrics?.data,filterMetricState:activeMetrics?.state,complexPriceFiltered:!!props.propertyView?.latestPriceMinEok||!!props.propertyView?.latestPriceMaxEok,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);},[props.vectorData,activeMetrics,props.propertyView?.latestPriceMinEok,props.propertyView?.latestPriceMaxEok,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
+  const regions=useMemo(()=>{
+    const input=props.vectorData;
+    const visibleRegions=propertyExplorationRegions(input?.regions?.regions??[],props.propertyRegion);
+    const data=regionMapData(input?.property&&input.regions?{map:input.map,property:input.property,regions:{...input.regions,regions:visibleRegions},filterMetrics:activeMetrics?.data,filterMetricState:activeMetrics?.state,complexPriceFiltered:!!props.propertyView?.latestPriceMinEok||!!props.propertyView?.latestPriceMaxEok||!!props.propertyView?.legalDong||!!props.propertyView?.listQuery||!!props.propertyView?.buildYearMin||!!props.propertyView?.buildYearMax||!!props.propertyView?.hasTrades,trade:props.propertyTrade,month:props.propertyView?.month,historyMonths:props.propertyView?.historyMonths,area:props.propertyView?.area,rentKind:props.propertyView?.rentKind}:null);
+    for(const marker of data.provinces.features){
+      const name=String(marker.properties.property_province_name??'');
+      if(name==='충청남도'||name==='충청북도')marker.properties.display_name=propertyProvinceLabel(name,visibleRegions);
+    }
+    return data;
+},[props.vectorData,props.propertyRegion,activeMetrics,props.propertyView?.latestPriceMinEok,props.propertyView?.latestPriceMaxEok,props.propertyView?.legalDong,props.propertyView?.listQuery,props.propertyView?.buildYearMin,props.propertyView?.buildYearMax,props.propertyView?.hasTrades,props.propertyTrade,props.propertyView?.month,props.propertyView?.historyMonths,props.propertyView?.area,props.propertyView?.rentKind]);
   const regionDataRef=useRef(regions),refreshRegionsRef=useRef<(()=>void)|null>(null);regionDataRef.current=regions;
   useEffect(()=>{
     const view=latest.current.propertyView,release=latest.current.vectorData?.property?.release_id;
@@ -105,11 +115,24 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       let base=apartmentBases.current.get(url);
       if(!base){const response=await atlasFetch(url,{signal:controller.signal});if(!response.ok)throw new Error('단지 표식 조회 실패');base=await response.json() as FeatureCollection<Point>;if(apartmentBases.current.size>=2)apartmentBases.current.delete(apartmentBases.current.keys().next().value!);apartmentBases.current.set(url,base);}
       if(base.type!=='FeatureCollection'||!Array.isArray(base.features)||base.features.length>4000)throw new Error('단지 표식 자료 오류');
-      const publish=(data:MapPriceData)=>{if(!controller.signal.aborted)setPriceData({key:filterKey,data:propertyMapPrices(base,release,view,data)});};
+      let complexes:PropertyComplex[]|undefined;
+      const metadataRequested=!!view.legalDong||!!view.listQuery||!!view.buildYearMin||!!view.buildYearMax;
+      const publish=(data:MapPriceData)=>{if(!controller.signal.aborted)setPriceData({key:filterKey,data:propertyMapPrices(base,release,view,{...data,complexes,metadataState:complexes?'ready':data.state==='error'?'error':'loading'})});};
       publish({state:'loading',rows:[],partitions:[]});
       try{
         const linked=base.features.some(feature=>feature.properties?.property_release_id===release&&String(feature.properties?.property_complex_id).startsWith(`molit-apt:${view.region}:`));
-        const result=view.propertyType!=='officetel'&&view.region&&linked?(await loadMapPricePreset(release,view,controller.signal)??await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal,undefined,{trade:view.trade,area:view.area,rentKind:view.rentKind})):null;
+        const metadataTask=(async()=>{
+          if(!metadataRequested)return;
+          const input=latest.current.vectorData,region=input?.regions?.regions.find(row=>row.lawd_code===view.region);
+          if(!input||!region)throw new Error('단지 조건의 지역 자료가 없습니다.');
+          const detail=parsePropertyRegionDetail(await fetchPinnedJson(region.index,input.origin,controller.signal));
+          if(detail.release_id!==release||detail.lawd_code!==view.region||!detail.complexes)throw new Error('단지 조건의 자료 버전이 다릅니다.');
+          const list=parsePropertyComplexes(await fetchPinnedJson(detail.complexes,input.origin,controller.signal));
+          if(list.release_id!==release||list.lawd_code!==view.region)throw new Error('단지 조건의 자료 버전이 다릅니다.');
+          complexes=list.complexes;
+        })();
+        const priceTask=view.propertyType!=='officetel'&&view.region&&linked?(async()=>await loadMapPricePreset(release,view,controller.signal)??await loadComplexPriceSummaries(release,view.region,historyMonths(view.month,view.historyMonths),controller.signal,undefined,{trade:view.trade,area:view.area,rentKind:view.rentKind}))():Promise.resolve(null);
+        const [result]=await Promise.all([priceTask,metadataTask]);
         publish(result?{state:'ready',...result}:{state:'missing',rows:[],partitions:[]});
       }catch(error){if(controller.signal.aborted)return;publish({state:'error',rows:[],partitions:[]});if(element.current)element.current.dataset.propertySummaryError=error instanceof Error?error.message:'가격 요약 조회 실패';}
     })().catch(()=>{if(!controller.signal.aborted&&element.current)element.current.dataset.propertySummaryError='단지 표식 조회 실패';});
@@ -121,13 +144,13 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       facilityMarker.current?.remove();facilityMarker.current=null;
       if(place.id.startsWith('poi:')){const label=document.createElement('div');label.className='property-poi-marker';label.textContent=place.name;label.setAttribute('role','img');label.setAttribute('aria-label',`${place.name} 지도 위치`);facilityMarker.current=new Marker({element:label,anchor:'bottom'}).setLngLat([place.lon,place.lat]).addTo(map);}
       const node=map.getContainer(),padding=map2DOverviewPadding(node.clientWidth,node.clientHeight,options?.overviewPanelVisible??!!latest.current.overviewPanelVisible,options?.focused??latest.current.focused);
-      if(place.id==='korea')map.fitBounds(NATIONAL_OVERVIEW,{padding,duration:700});
+      if(place.id==='korea')map.fitBounds(NATIONAL_OVERVIEW,{padding,duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
       // Offset the target into the unobscured viewport without persisting camera
       // padding, which would otherwise shift later national fits/shared cameras.
-      else map.flyTo({center:[place.lon,place.lat],offset:[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2],zoom:place.id.startsWith('molit-apt:')?15:map2DZoom(place.lat,place.range,Math.max(64,Math.min(node.clientHeight-padding.top-padding.bottom,node.clientWidth-padding.left-padding.right))),bearing:0,pitch:0,duration:700});
+      else map.flyTo({center:[place.lon,place.lat],offset:[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2],zoom:place.id.startsWith('molit-apt:')?15:map2DZoom(place.lat,place.range,Math.max(64,Math.min(node.clientHeight-padding.top-padding.bottom,node.clientWidth-padding.left-padding.right))),bearing:0,pitch:0,duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
     },
-    north:()=>{mapRef.current?.easeTo({bearing:0,duration:450});},
-    overhead:()=>{mapRef.current?.easeTo({bearing:0,pitch:0,duration:450});},
+    north:()=>{mapRef.current?.easeTo({bearing:0,duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});},
+    overhead:()=>{mapRef.current?.easeTo({bearing:0,pitch:0,duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});},
     camera:()=>null,
     flatCamera:()=>{const map=mapRef.current;if(!map)return null;const center=map.getCenter();return [center.lng,center.lat,map.getZoom(),map.getBearing()] as FlatCamera;},
     viewport:()=>{const map=mapRef.current;if(!map)return null;const center=map.getCenter();return {...latest.current.initialPlace,lon:center.lng,lat:center.lat,range:Math.max(100,Math.min(2500000,map2DHeight(center.lat,map.getZoom(),map.getContainer().clientHeight)))};},
@@ -256,7 +279,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       setSelectedDong(feature?.properties.name??'');node.dataset.selectedAdministrativeDong=feature?String(feature.id):'';
       if(locate&&feature){
         const positions=feature.geometry.coordinates.flat(2),bounds=positions.reduce((box,p)=>[Math.min(box[0],p[0]),Math.min(box[1],p[1]),Math.max(box[2],p[0]),Math.max(box[3],p[1])],[Infinity,Infinity,-Infinity,-Infinity]);
-        map.fitBounds([[bounds[0],bounds[1]],[bounds[2],bounds[3]]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),maxZoom:14,duration:450});
+        map.fitBounds([[bounds[0],bounds[1]],[bounds[2],bounds[3]]],{padding:map2DOverviewPadding(node.clientWidth,node.clientHeight,!!latest.current.overviewPanelVisible,latest.current.focused),maxZoom:14,duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
       }
     };
     selectDongRef.current=selectDong;
@@ -292,7 +315,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
         const key=`${point.releaseId}:${point.complexId}`;
         if(centeredPropertyKey!==key){
           centeredPropertyKey=key;
-          map.easeTo({center:[point.longitude,point.latitude],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:300});
+          map.easeTo({center:[point.longitude,point.latitude],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
         }
       }
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
@@ -398,7 +421,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
             if(matchMedia('(max-width:780px)').matches){
               centeredPropertyKey=`${latest.current.vectorData?.property?.release_id}:${identity}`;
               // Keep the selected point above the mobile bottom sheet.
-              map.easeTo({center:[coordinates[0],coordinates[1]],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:300});
+              map.easeTo({center:[coordinates[0],coordinates[1]],offset:[0,-Math.min(150,Math.round(node.clientHeight*.2))],duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
             }
             return;
           }
@@ -411,7 +434,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       const regionCode=pickedPropertyRegion(hits,regionDataRef.current);
       if(regionCode&&latest.current.onPropertyRegion){pickController?.abort();latest.current.onPropertyRegion(regionCode);return;}
       const provinceCenter=pickedPropertyProvince(hits,regionDataRef.current);
-      if(provinceCenter){const hit=hits.find(row=>row.source===REGION_MAP_SOURCE&&row.layer.id===PROVINCE_MAP_LAYER);const name=hit?.properties?.property_province_name;if(typeof name==='string')latest.current.onPropertyProvince?.(name);map.easeTo({center:provinceCenter,zoom:7,duration:450});return;}
+      if(provinceCenter){const hit=hits.find(row=>row.source===REGION_MAP_SOURCE&&row.layer.id===PROVINCE_MAP_LAYER);const name=hit?.properties?.property_province_name;if(typeof name==='string')latest.current.onPropertyProvince?.(name);map.easeTo({center:provinceCenter,zoom:7,duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});return;}
       const dongHit=hits.find(feature=>feature.layer.id===DONG_HIT_LAYER);
       if(dongHit){
         selectDong(String(dongHit.id));
@@ -476,6 +499,6 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
   useEffect(()=>{refreshRegionsRef.current?.();},[regions,props.measurement]);
   useEffect(()=>{refreshSelectedPointRef.current?.();},[props.propertyMapPoint,props.vectorData,props.propertyTrade,labelMode,filterKey,priceData]);
   useEffect(()=>{const map=mapRef.current;if(!map)return;const source=map.getSource('measure') as GeoJSONSource|undefined;source?.setData(measurementGeoJSON(props.measurement??EMPTY_MEASUREMENT));map.getCanvas().style.cursor=props.measurement&&props.measurement.mode!=='none'?'crosshair':'';},[props.measurement]);
-  return <>{regionName&&<div className="selected-region-caption" role="status" title={boundaryView.date?`경계 기준일 ${boundaryView.date}`:undefined}><strong>{boundaryView.loading?regionName:boundaryView.name||regionName}{!boundaryView.loading&&selectedDong?` › ${selectedDong}`:''}</strong><small className={boundaryView.error?'boundary-warning':'boundary-meta'}>{boundaryView.error?'선택 지역의 경계를 불러오지 못했습니다':boundaryView.loading?'경계 불러오는 중':boundaryView.name?`${selectedDong?'행정동 경계':'행정구역 경계'} · ${boundaryView.date}`:'경계 자료 미연결'}</small>{boundaryView.error&&<button onClick={()=>refreshBoundaryRef.current?.()}>다시 불러오기</button>}{dongOptions.length>0&&!boundaryView.loading&&!boundaryView.error&&<select aria-label="행정동 범위 선택" value={dongOptions.find(row=>row.name===selectedDong)?.id??''} onChange={event=>selectDongRef.current?.(event.target.value,true)}><option value="">행정동 전체</option>{dongOptions.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select>}</div>}{props.propertyView&&props.onMarkerDisplay&&<label className="map-apartment-label-control"><span>표식</span><select aria-label="지도 단지 표식 표시 기준" value={labelMode} onChange={event=>props.onMarkerDisplay?.(event.target.value as NonNullable<PropertyViewState['markerDisplay']>)}><option value="price-area">가격·전용평</option><option value="price">가격</option><option value="unit-price">전용 평당가</option><option value="name">단지명</option></select></label>}<div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.total>0&&<div className="region-map-caption" role="note" tabIndex={0} title={regions.notice} aria-label={`${regions.caption}. ${regions.notice}`}><strong>{regions.caption}</strong><span>{regions.data.features.length}개 지역 표식 · 미수집 등 {regions.uncollected}개 · 위치 미연결 {regions.excluded}개</span></div>}</>;
+  return <>{regionName&&<div className="selected-region-caption" role="status" title={boundaryView.date?`경계 기준일 ${boundaryView.date}`:undefined}><strong>{boundaryView.loading?regionName:boundaryView.name||regionName}{!boundaryView.loading&&selectedDong?` › ${selectedDong}`:''}</strong><small className={boundaryView.error?'boundary-warning':'boundary-meta'}>{boundaryView.error?'선택 지역의 경계를 불러오지 못했습니다':boundaryView.loading?'경계 불러오는 중':boundaryView.name?`${selectedDong?'행정동 경계':'행정구역 경계'} · ${boundaryView.date}`:'경계 자료 미연결'}</small>{boundaryView.error&&<button onClick={()=>refreshBoundaryRef.current?.()}>다시 불러오기</button>}{dongOptions.length>0&&!boundaryView.loading&&!boundaryView.error&&<select aria-label="행정동 범위 선택" value={dongOptions.find(row=>row.name===selectedDong)?.id??''} onChange={event=>selectDongRef.current?.(event.target.value,true)}><option value="">행정동 전체</option>{dongOptions.map(row=><option key={row.id} value={row.id}>{row.name}</option>)}</select>}</div>}{props.propertyView&&props.onMarkerDisplay&&<label className="map-apartment-label-control"><span>표식</span><select aria-label="지도 단지 표식 표시 기준" value={labelMode} onChange={event=>props.onMarkerDisplay?.(event.target.value as NonNullable<PropertyViewState['markerDisplay']>)}><option value="price-area">가격·전용평</option><option value="price">가격</option><option value="unit-price">전용 평당가</option><option value="name">단지명</option></select></label>}<div ref={element} className="map-scene map-scene-2d" role="region" aria-label="대한민국 2D 지도"/><div className="seoul-kapt-note" role="note">아파트 이름을 선택해 상세 보기 · 서울시 제공 위치 검토 중</div>{regions.total>0&&<details className="region-map-caption map-source-help"><summary>지도 자료</summary><strong>{regions.caption}</strong><p>{regions.notice}</p></details>}</>;
 });
 export default Map2D;

@@ -1,4 +1,5 @@
 import {describe,it,expect} from 'vitest';
+import type {PropertyComplex} from '../shared/property';
 import type {FeatureCollection,Point} from 'geojson';
 import {propertyMapPrices,propertyMapFilterKey,type ComplexPriceSummary,type MapPriceData} from '../src/property-map-prices';
 import {parseComplexPriceSummaries,parseComplexMonthSummaryPack} from '../src/property-summary-client';
@@ -72,4 +73,18 @@ it('keeps zero deposit qualifiers independent of the monthly payment',()=>{
   const monthly={...report,trade_type:'rent' as const,rent_kind:'monthly' as const,latest_price_krw:null,latest_deposit_krw:0,latest_monthly_rent_krw:1_500_000};
   const selected={...view,trade:'rent' as const,rentKind:'monthly' as const,latestPriceMinEok:'0',latestPriceMaxEok:'0'};
   expect(labels(selected,{...ready,rows:[monthly]})).toMatchObject({filtered_price_match:true,filtered_price_label:'0만 / 월 150만'});
+});
+
+it('uses the same legal dong, name and construction-year qualification as the candidate list',()=>{
+  const complexInfo={id:complex,source_complex_id:'apt-1',lawd_code:'11710',name:'해뜨는아파트',legal_dong_name:'가락동',build_year:2018,observed_name_variants:[],legal_dong_code:null,lot_number:null,position:null,identity_status:'source_apt_seq',source_ids:[],source_input_sha256:[],first_contract_month:'200610',last_contract_month:'202609',address_conflict:false} as PropertyComplex;
+  const data={...ready,metadataState:'ready' as const,complexes:[complexInfo]};
+  expect(labels({...view,legalDong:'가락동',listQuery:'해 뜨는',buildYearMin:'2010'},data)).toMatchObject({filtered_price_match:true,filtered_price_label:'9억'});
+  for(const selection of [{legalDong:'문정동'},{listQuery:'다른단지'},{buildYearMax:'2000'}]){
+    expect(labels({...view,...selection},data)).toMatchObject({filtered_price_match:false,filtered_label:'단지 조건 밖'});
+    expect(propertyMapFilterKey(release,{...view,...selection})).not.toBe(propertyMapFilterKey(release,view));
+  }
+  expect(labels({...view,legalDong:'가락동'},{...ready,metadataState:'loading'})).toMatchObject({filtered_price_match:true,filtered_label:'조건 확인 중'});
+  expect(labels({...view,legalDong:'가락동'},{...ready,metadataState:'error'})).toMatchObject({filtered_label:'조건 조회 실패'});
+  expect(labels({...view,hasTrades:true},{...ready,rows:[]})).toMatchObject({filtered_price_match:false});
+  expect(propertyMapFilterKey(release,view)).toBe(propertyMapFilterKey(release,{...view,listSort:'price-high'}));
 });
