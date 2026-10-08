@@ -75,3 +75,14 @@ it('bounds dense facility lists to twenty rows without dropping source records',
   expect(html).toContain('지도기록 85개');expect(html).toContain('시설 목록 페이지');
   expect(html).toContain('다음 시설');expect(html).not.toContain('시설 84');
 });
+
+
+it('uses a corroborated official navigation marker without claiming a verified entrance',()=>{
+  const point={complexId:complex.id,kaptCode:'A10000000',longitude:127.1,latitude:37.5,releaseId:scope.releaseId,coordinateStatus:'provider_xy_crs_unconfirmed' as const,navigationEvidence:{method:'official_site_marker_same_kapt_code_and_coordinates' as const,pointSemantics:'provider_map_navigation_marker' as const,sourceUrl:'https://openapt.seoul.go.kr/',checkedAt:'2026-10-08T16:14:03Z',markerResponseSha256:'a'.repeat(64),navigationPageSha256:'b'.repeat(64)}};
+  const output=(navigationPoint:typeof point)=>renderToStaticMarkup(createElement(PropertySurroundings,{complex,region:'검증 지역',releaseId:scope.releaseId,navigationPoint,onUseMapCenter:()=>null}));
+  const html=output(point);
+  expect(html).toContain('서울시 공식 지도 기준점 · 직선거리');
+  expect(html).not.toContain('검증된 단지 위치 기준');
+  expect(output({...point,complexId:'other'})).toContain('위치 확인 중');
+  expect(output({...point,releaseId:'property-other'})).toContain('위치 확인 중');
+});
