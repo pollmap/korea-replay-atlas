@@ -19,6 +19,7 @@ from .real_estate_regions import load_registry, SOURCE_PAGE
 from .real_estate_storage import decode_snapshot
 from .property_transaction_assets import emit_month_packs
 from .property_transport import encode as encode_asset, decode as decode_asset
+from .property_verification_cache import version as verification_version
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
@@ -30,7 +31,7 @@ SOURCES = [
     {'id':'molit-apt-rent','dataset_id':'15126474','label':'국토교통부 아파트 전월세 신고·확정일자 자료',
      'page_url':'https://www.data.go.kr/data/15126474/openapi.do','evidence_type':'official_report'},
 ]
-POLICY = 'property-publication-v4-retained-verified-snapshots'
+POLICY = 'property-publication-v5-stable-complete-rechecks'
 
 
 def coverage(jobs):
@@ -185,6 +186,109 @@ def collect_complexes(records):
     return result
 
 
+def reused_publication(final, release, max_files):
+    """Verify the complete published reference graph without reparsing source XML.
+
+    Receipts are local recovery metadata, not trusted authority. Every reference
+    must resolve to one listed, hashed asset of the expected immutable release.
+    Old plain transactions and new explicit-gzip month packs share this contract.
+    """
+    def invalid():raise RealEstateError('invalid_reused_publication')
+    def integer(value):return type(value) is int and value >= 0
+    def digest(value):return isinstance(value,str) and re.fullmatch(r'[a-f0-9]{64}',value)
+    receipt=final/'publication.json';_reject_links(receipt.absolute())
+    if not receipt.is_file() or not 0 < receipt.stat().st_size <= 64*1024**2:invalid()
+    try:
+        publication=json.loads(receipt.read_bytes())
+        if (not isinstance(publication,dict) or type(publication.get('schema_version')) is not int
+                or publication['schema_version']!=1 or publication.get('kind')!='property-publication'
+                or publication.get('release_id')!=release):invalid()
+        files=publication.get('files')
+        if not isinstance(files,list) or not files:invalid()
+        if len(files)>max_files:raise RealEstateError('publication_file_limit')
+        prefix=f'data/property/{release}/';listed={}
+        for entry in files:
+            if not isinstance(entry,dict):invalid()
+            name=entry.get('path');size=entry.get('byte_length')
+            if (not isinstance(name,str) or not name.startswith(prefix) or name in listed
+                    or not integer(size) or not 0<size<=MAX_ASSET or not digest(entry.get('sha256'))):invalid()
+            listed[name]=entry
+        audit=publication.get('audit');head=publication.get('property_release')
+        if (not isinstance(audit,dict) or not integer(audit.get('files')) or audit['files']!=len(files)
+                or not integer(audit.get('bytes')) or audit['bytes']!=sum(f['byte_length'] for f in files)
+                or not integer(audit.get('source_rows')) or not integer(audit.get('complexes'))
+                or not isinstance(head,dict) or head.get('release_id')!=release
+                or head.get('path')!=prefix+'manifest.json' or not digest(head.get('sha256'))):invalid()
+        manifest_entry=listed.get(head['path'])
+        if not manifest_entry or head['sha256']!=manifest_entry['sha256'] or 'transport' in manifest_entry:invalid()
+        referenced={head['path']};regions=set();region_bodies=set();complex_count=0;source_rows=0;stale_jobs=0
+        def reference(ref, expected=None, transaction_code=None):
+            if not isinstance(ref,dict):invalid()
+            url=ref.get('url')
+            if not isinstance(url,str) or not url.startswith('/'+prefix):invalid()
+            name=url[1:];entry=listed.get(name)
+            if not entry or expected is not None and name!=expected:invalid()
+            if transaction_code is not None and not re.fullmatch(re.escape(prefix)+r'(?:transactions|transaction-packs)/'+re.escape(transaction_code)+r'/[0-9-]+\.json',name):invalid()
+            if 'transport' in entry:
+                transport=ref.get('transport');encoded=entry['transport']
+                if (not isinstance(transport,dict) or not isinstance(encoded,dict)
+                        or transport.get('encoding')!='gzip' or transport.get('sha256')!=entry['sha256']
+                        or type(transport.get('bytes')) is not int or transport['bytes']!=entry['byte_length']
+                        or ref.get('sha256')!=encoded.get('decoded_sha256')
+                        or type(ref.get('bytes')) is not int or ref['bytes']!=encoded.get('decoded_bytes')):invalid()
+            elif ('transport' in ref or ref.get('sha256')!=entry['sha256']
+                    or type(ref.get('bytes')) is not int or ref['bytes']!=entry['byte_length']):invalid()
+            referenced.add(name)
+        for name,entry in listed.items():
+            body=checked_read(final,{'path':name,'sha256':entry['sha256'],'bytes':entry['byte_length'],
+                                    **({'transport':entry['transport']} if 'transport' in entry else {})},MAX_ASSET)
+            relative=name[len(prefix):]
+            # The byte hash/decoded hash checks above still cover every payload.
+            # Only small indexes are interpreted; do not normalize transactions again.
+            if re.fullmatch(r'(?:transactions|transaction-packs)/[0-9]{5}/[0-9-]+\.json',relative):continue
+            value=json.loads(body)
+            if (not isinstance(value,dict) or type(value.get('schema_version')) is not int
+                    or value['schema_version']!=1 or value.get('release_id')!=release):invalid()
+            if relative=='manifest.json':
+                if value.get('kind')!='property-release' or value.get('coverage')!=audit.get('coverage'):invalid()
+                reference(value.get('regions'),prefix+'regions.json')
+            elif relative=='regions.json':
+                if value.get('kind')!='property-regions' or not isinstance(value.get('regions'),list) or not value['regions']:invalid()
+                for row in value['regions']:
+                    code=row.get('lawd_code') if isinstance(row,dict) else None
+                    if not isinstance(code,str) or not re.fullmatch(r'[0-9]{5}',code) or code in regions:invalid()
+                    regions.add(code);reference(row.get('index'),prefix+f'regions/{code}.json')
+            elif re.fullmatch(r'regions/[0-9]{5}\.json',relative):
+                code=relative[8:13]
+                if (value.get('kind')!='property-region' or value.get('lawd_code')!=code
+                        or not isinstance(value.get('partitions'),list) or not value['partitions']):invalid()
+                region_bodies.add(code);parts=set()
+                for part in value['partitions']:
+                    if not isinstance(part,dict):invalid()
+                    key=(part.get('deal_month'),part.get('trade_type'))
+                    if (not isinstance(key[0],str) or not re.fullmatch(r'[0-9]{4}(?:0[1-9]|1[0-2])',key[0])
+                            or key[1] not in ('sale','rent') or key in parts
+                            or not isinstance(part.get('transactions'),list)):invalid()
+                    parts.add(key);count=part.get('source_rows')
+                    if count is not None and not integer(count):invalid()
+                    if count and not part['transactions']:invalid()
+                    source_rows+=count or 0;stale_jobs+=int('refresh' in part)
+                    for ref in part['transactions']:reference(ref,transaction_code=code)
+                if value.get('complexes') is not None:reference(value['complexes'],prefix+f'complexes/{code}.json')
+            elif re.fullmatch(r'complexes/[0-9]{5}\.json',relative):
+                if (value.get('kind')!='property-complexes' or value.get('lawd_code')!=relative[10:15]
+                        or not isinstance(value.get('complexes'),list)):invalid()
+                complex_count+=len(value['complexes'])
+            else:invalid()
+        if (regions!=region_bodies or set(listed)!=referenced or source_rows!=audit['source_rows']
+                or complex_count!=audit['complexes'] or 'stale_jobs' in audit and
+                (not integer(audit['stale_jobs']) or stale_jobs!=audit['stale_jobs'])):invalid()
+        return publication
+    except (KeyError,TypeError,ValueError) as error:
+        if isinstance(error,RealEstateError):raise
+        raise RealEstateError('invalid_reused_publication') from None
+
+
 def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=18_000, checkpoint=None, progress=None, packed_transactions=False, compressed_transactions=False, audit_cache=None):
     if type(packed_transactions) is not bool or type(compressed_transactions) is not bool:raise RealEstateError('invalid_transaction_layout')
     if not isinstance(reserve_bytes,int) or isinstance(reserve_bytes,bool) or reserve_bytes<0:
@@ -212,8 +316,15 @@ def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=1
     if not jobs or len(jobs)>MAX_LEDGER_JOBS:raise RealEstateError('invalid_job_ledger')
     official={r['lawd_code']:r for r in registry['regions']}
     if any(j['lawd_code'] not in official for j in jobs):raise RealEstateError('unknown_legal_region')
+    # A completed snapshot is unchanged when only the operational calls/queue
+    # advances. Retained pending/failed jobs expose their last attempt publicly,
+    # so that timestamp remains meaningful there. Bind reuse to the actual
+    # verifier/normalizer code; unchanged source descriptors alone are not enough.
     fingerprint={'policy':POLICY,'registry_sha256':registry_hash,
-        'jobs':[{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at','_last_attempt_at')} for j in jobs]}
+        'verification_version':verification_version(),
+        'jobs':[{**{k:j[k] for k in ('id','status','snapshot','pages','error_code','updated_at')},
+                 '_last_attempt_at':None if j['status'] in ('complete','empty') else j['_last_attempt_at']}
+                for j in jobs]}
     if packed_transactions:fingerprint['transaction_layout']='direct-bounded-month-packs-v1'
     if compressed_transactions:fingerprint['transport']='explicit-gzip-transactions-v1'
     release='property-'+sha256(canonical_bytes(fingerprint))[:16]
@@ -225,11 +336,7 @@ def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=1
     output.mkdir(parents=True,exist_ok=True)
     final=output/release
     if final.exists():
-        publication=json.loads((final/'publication.json').read_text(encoding='utf-8'))
-        if len(publication['files'])>max_files:raise RealEstateError('publication_file_limit')
-        for f in publication['files']:
-            checked_read(final,{'path':f['path'],'sha256':f['sha256'],'bytes':f['byte_length'],**({'transport':f['transport']} if 'transport' in f else {})},MAX_ASSET)
-        return publication
+        return reused_publication(final,release,max_files)
     if shutil.disk_usage(output).free<reserve_bytes+2*TARGET_ASSET:
         raise RealEstateError('disk_reserve')
     stage=Path(tempfile.mkdtemp(prefix='.property-incomplete-',dir=output))

@@ -247,3 +247,60 @@ def test_reader_proof_fails_without_index_or_accessible_cas(tmp_path, monkeypatc
     monkeypatch.setenv('KOREA_REPLAY_WORKING_ARCHIVE', str(tmp_path / 'missing-mount'))
     code, body = api.dispatch('/api/v1/property/working-store-reader')
     assert code == 503 and body == {'ready': False, 'error_code': 'working_store_reader_not_ready'}
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Linux shared-lock subprocess')
+def test_real_child_busy_is_safe_deferred_and_next_cycle_resumes(tmp_path,monkeypatch):
+    data,root,store=setup(tmp_path,monkeypatch)
+    source=source_file(root,'backed-before-competing-stage');backup_set(root,store)
+    before=file_bytes(root);head=store.head()
+    query='/api/v1/property/transactions?regionCode=11110&month=202609&trade=rent'
+    expected=vps_runtime.PropertyAPI(data).dispatch(query)
+    # Reproduce a candidate/stage taking the shared lock after collection released it.
+    with bulk_work(data):
+        result=auto.after_backup(root,store.root,{'status':'verified','head':head})
+    assert result=={'state':'deferred','source_calls':0,'retired':0,
+                    'error_code':'vps_bulk_work_busy','child_exit_code':1,'reason':'busy','retryable':True}
+    assert file_bytes(root)==before and (root/source['path']).exists()
+    assert vps_runtime.PropertyAPI(data).dispatch(query)==expected
+    # No inner retry is added. The next normal cycle uses the same successful head.
+    next_result=auto.after_backup(root,store.root,{'status':'unchanged','head':head})
+    assert next_result['state']=='complete' and next_result['retired']>0
+    assert not (root/source['path']).exists() and store.head()==head
+    assert vps_runtime.PropertyAPI(data).dispatch(query)==expected
+
+
+@pytest.mark.parametrize('stderr,expected',[
+    (b'working_store: working_store_reference_mismatch\n','working_store_reference_mismatch'),
+    (b'working_store: local_archive_writer_active\n','local_archive_writer_active'),
+    (b'working_store: archive_collector_active\n','archive_collector_active'),
+    (b'working_store: invented_error_serviceKey_secret\n','working_retirement_child_failed'),
+    (b'working_store: vps_bulk_work_busy\nserviceKey=never-log\n','working_retirement_child_failed'),
+    (b'Traceback: /secret/provider.json serviceKey=never-log','working_retirement_child_failed'),
+    (b'\xff\xfe secret','working_retirement_child_failed'),
+    (b'x'*(auto.MAX_MESSAGE+1),'working_retirement_child_failed'),
+])
+def test_child_diagnostics_only_keep_exact_allowlisted_code(tmp_path,monkeypatch,stderr,expected):
+    data,root,store=setup(tmp_path,monkeypatch)
+    class Failed:
+        returncode=1
+        def communicate(self,timeout):return b'',stderr
+    monkeypatch.setattr(auto.subprocess,'Popen',lambda *a,**k:Failed())
+    result=auto.after_backup(root,store.root,{'status':'verified','head':store.head()})
+    assert result['error_code']==expected and result['child_exit_code']==1
+    assert result['retired']==(0 if expected in auto.BUSY_CODES else None)
+    assert b'serviceKey' not in (data/auto.STATE).read_bytes()
+    assert b'never-log' not in (data/auto.STATE).read_bytes()
+    assert b'Traceback' not in (data/auto.STATE).read_bytes()
+    assert b'provider.json' not in (data/auto.STATE).read_bytes()
+
+
+def test_child_signal_is_recorded_without_claiming_oom(tmp_path,monkeypatch):
+    _,root,store=setup(tmp_path,monkeypatch)
+    class Killed:
+        returncode=-9
+        def communicate(self,timeout):return b'',b''
+    monkeypatch.setattr(auto.subprocess,'Popen',lambda *a,**k:Killed())
+    result=auto.after_backup(root,store.root,{'status':'verified','head':store.head()})
+    assert result['child_exit_code']==-9 and result['error_code']=='working_retirement_child_failed'
+    assert result['retired'] is None and 'oom' not in json.dumps(result)

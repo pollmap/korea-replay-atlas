@@ -26,6 +26,39 @@ READER_MARKER = 'working-store-readers.json'
 STATE = 'working-store-retirement.json'
 API_PROBE = 'http://api:8330/api/v1/property/working-store-reader'
 MAX_MESSAGE = 16 * 1024
+# Parse only this CLI's exact one-line protocol. Never retain arbitrary stderr,
+# a traceback, a URL, a file path or an inherited environment value.
+CHILD_ERROR_CODES = frozenset({
+    'vps_bulk_work_busy', 'local_archive_writer_active', 'archive_collector_active',
+    'working_store_head_changed', 'working_store_reference_mismatch',
+    'working_store_source_changed', 'working_store_missing', 'working_store_path',
+    'working_store_descriptor', 'working_store_schema', 'working_store_not_retirable',
+    'working_store_archive_missing', 'working_store_checkpoint_missing',
+    'working_store_configuration_changed', 'working_store_index_integrity',
+    'working_store_index_not_closed', 'working_store_readers_not_deployed',
+    'working_store_budget', 'archive_no_backup', 'archive_file_hash',
+    'archive_descriptor', 'local_archive_descriptor', 'local_archive_object_size',
+    'local_archive_object_changed', 'checkpoint_hash_mismatch', 'checkpoint_size_mismatch',
+    'archive_set_descriptor', 'archive_set_manifest', 'archive_set_group',
+    'archive_set_group_bytes', 'archive_set_totals', 'invalid_input',
+})
+BUSY_CODES = frozenset({'vps_bulk_work_busy', 'local_archive_writer_active', 'archive_collector_active'})
+
+
+class RetirementChildError(RealEstateError):
+    def __init__(self, code, exit_code):
+        super().__init__(code)
+        self.child_exit_code = exit_code
+
+
+def _child_error(stderr):
+    if len(stderr) <= MAX_MESSAGE:
+        match = re.fullmatch(rb'working_store: ([a-z0-9_]{1,80})\r?\n?', stderr)
+        if match:
+            code = match[1].decode('ascii')
+            if code in CHILD_ERROR_CODES:
+                return code
+    return 'working_retirement_child_failed'
 
 
 def _read(path):
@@ -82,16 +115,18 @@ def _execute(root, backups, head, limit, timeout):
     process = subprocess.Popen(command, cwd=Path(__file__).parent.parent,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
-        output, _ = process.communicate(timeout=timeout)
+        output, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         process.terminate()
         try:
             process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill(); process.communicate(timeout=5)
-        raise RealEstateError('working_retirement_timeout') from None
-    if process.returncode or len(output) > MAX_MESSAGE:
-        raise RealEstateError('working_retirement_child_failed')
+        raise RetirementChildError('working_retirement_timeout', process.returncode) from None
+    if process.returncode:
+        raise RetirementChildError(_child_error(stderr), process.returncode)
+    if len(output) > MAX_MESSAGE:
+        raise RetirementChildError('working_retirement_child_failed', process.returncode)
     value = json.loads(output)
     if (not isinstance(value, dict) or value.get('head') != head
             or value.get('source_calls') != 0 or value.get('archive_objects_written') != 0
@@ -152,6 +187,13 @@ def after_backup(root, backups, recovery, *, progress=None):
         state = {'state': 'deferred', 'source_calls': 0,
                  'retired': None if started else 0,
                  'error_code': error.code if isinstance(error, RealEstateError) else 'working_retirement_failed'}
+        if isinstance(error, RetirementChildError):
+            state['child_exit_code'] = error.child_exit_code
+            if error.code in BUSY_CODES:
+                # Both file locks and the live collector lease are checked before
+                # any migration writes/deletes. A competing candidate is ordinary
+                # backpressure; retry on the next existing worker cycle only.
+                state.update(retired=0, reason='busy', retryable=True)
         # Storage cleanup cannot turn a successful collection into a hold. Error
         # text, paths, request URLs and inherited environment are never logged.
         try:
