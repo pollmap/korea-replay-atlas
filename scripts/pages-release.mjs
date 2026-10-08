@@ -86,7 +86,13 @@ async function createStage(projectRoot,project,entries,generated,sources,policy,
   const suffix=policy?.snapshot_origin?'-production-'+new URL(policy.snapshot_origin).hostname.slice(0,8):'-candidate';
   const parent=path.join(projectRoot,'.local','pages-release');await mkdir(parent,{recursive:true});await noLinks(projectRoot,parent);
   const directory=descendant(parent,path.join(parent,project+'-'+artifactSha.slice(0,16)+suffix));
-  await mkdir(directory); // EEXIST is intentional: never resume by replacing a hardlinked input.
+  try{await mkdir(directory);}catch(error){
+    if(error.code!=='EEXIST')throw error;
+    // An identical completed stage is a no-op; partial or altered stages fail verification.
+    const existing=await verifyPagesStage(path.join(directory,'receipt.json'),{projectRoot});
+    if(existing.receipt.artifact_sha256!==artifactSha)throw new Error('Existing stage identity differs');
+    return {directory,receiptPath:path.join(directory,'receipt.json'),receipt:existing.receipt};
+  }
   const client=path.join(directory,'client');await mkdir(client);let linked=0,copied=0;
   await parallel(entries,async entry=>{
     const destination=path.join(client,entry.target);
@@ -157,12 +163,12 @@ export async function stagePagesApp({projectRoot=process.cwd(),receiptPath,data,
 // Large 3D payloads stay in a verified immutable legacy deployment, never in
 // the active 2D staging closure. The small catalog and all 2D/traffic data stay.
 export const LEGACY_SPATIAL_PREFIXES=Object.freeze(['data/retiled/','data/terrain/','data/hierarchy/','data/building-streams/','data/building-parts/']);
-const fixedPagesFile=target=>target.startsWith('data/')||target.startsWith('_worker.js/')||['_headers','404.html','_routes.json','_redirects'].includes(target);
-async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable){
+const fixedPagesFile=target=>target.startsWith('collection/')||target.startsWith('data/')||target.startsWith('_worker.js/')||['_headers','404.html','_routes.json','_redirects'].includes(target);
+async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable,retire3d=false){
   const client=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,clientDirectory));
   const worker=descendant(path.join(projectRoot,'dist'),path.resolve(projectRoot,workerDirectory));
   await noLinks(projectRoot,client);await noLinks(projectRoot,worker);
-  const request={receiptPath:path.join(source.directory,'receipt.json'),clientDirectory:client,workerDirectory:worker,artifactSha256:source.receipt.artifact_sha256};
+  const request={receiptPath:path.join(source.directory,'receipt.json'),clientDirectory:client,workerDirectory:worker,artifactSha256:source.receipt.artifact_sha256,retire3d};
   const payload=await new Promise((resolve,reject)=>{
     const child=spawn(pythonExecutable,['-m','pipeline.pages_frontend'],{cwd:projectRoot,stdio:['pipe','pipe','pipe']});
     let stdout='',stderr='',size=0;
@@ -182,19 +188,20 @@ async function inspectFreshFrontend(projectRoot,source,clientDirectory,workerDir
   }
   return payload.files;
 }
-export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,legacy3dOrigin,data,snapshotOrigin=null,candidateReceiptPath=null,copyOnly=false,clientDirectory=null,workerDirectory=null,pythonExecutable=process.platform==='win32'?'python':'python3'}){
+export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,legacy3dOrigin,retire3d=false,data,snapshotOrigin=null,candidateReceiptPath=null,copyOnly=false,clientDirectory=null,workerDirectory=null,pythonExecutable=process.platform==='win32'?'python':'python3'}){
   projectRoot=path.resolve(projectRoot);
-  const legacy=preview(legacy3dOrigin,'korea-replay');
+  const legacy=legacy3dOrigin?preview(legacy3dOrigin,'korea-replay'):null;
+  if(!retire3d&&!legacy)throw new Error('Legacy origin or explicit 3D retirement required');
   const source=await verifyPagesStage(path.resolve(projectRoot,receiptPath),{projectRoot});
   if(source.receipt.project!=='korea-replay')throw new Error('A verified application stage is required');
-  const redirectText=LEGACY_SPATIAL_PREFIXES.map(prefix=>`/${prefix}* ${legacy}/${prefix}:splat 302`).join('\n')+'\n';
+  const redirectText=retire3d?'':LEGACY_SPATIAL_PREFIXES.map(prefix=>`/${prefix}* ${legacy}/${prefix}:splat 302`).join('\n')+'\n';
   const oldRedirect=source.entries.find(entry=>entry.target==='_redirects');
-  if(oldRedirect&&await readFile(path.join(source.client,'_redirects'),'utf8')!==redirectText)throw new Error('Existing redirect policy differs; explicit migration required');
-  let entries=source.entries.filter(entry=>entry.target!==policyTarget&&entry.target!=='_redirects'&&!LEGACY_SPATIAL_PREFIXES.some(prefix=>entry.target.startsWith(prefix)));
+  if(oldRedirect&&!retire3d&&await readFile(path.join(source.client,'_redirects'),'utf8')!==redirectText)throw new Error('Existing redirect policy differs; explicit migration required');
+  let entries=source.entries.filter(entry=>entry.target!==policyTarget&&entry.target!=='_redirects'&&(!retire3d||!entry.target.startsWith('cesium/'))&&!LEGACY_SPATIAL_PREFIXES.some(prefix=>entry.target.startsWith(prefix)));
   const sources=new Map(entries.map(entry=>[entry.target,path.join(source.client,entry.target)]));
   if(Boolean(clientDirectory)!==Boolean(workerDirectory))throw new Error('Fresh frontend requires both clientDirectory and workerDirectory');
   if(clientDirectory){
-    const frontend=await inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable);
+    const frontend=await inspectFreshFrontend(projectRoot,source,clientDirectory,workerDirectory,pythonExecutable,retire3d);
     const priorFrontend=new Map(source.entries.map(entry=>[entry.target,entry]));
     for(const entry of entries)if(!fixedPagesFile(entry.target))sources.delete(entry.target);
     entries=entries.filter(entry=>fixedPagesFile(entry.target));
@@ -204,7 +211,8 @@ export async function stagePagesLeanApp({projectRoot=process.cwd(),receiptPath,l
       sources.set(entry.target,unchanged?path.join(source.client,entry.target):entry.path);
     }
   }
-  const generated=new Map([['_redirects',Buffer.from(redirectText)]]);entries.push(fileEntry('_redirects',generated.get('_redirects')));
+  const generated=new Map();
+  if(!retire3d){generated.set('_redirects',Buffer.from(redirectText));entries.push(fileEntry('_redirects',generated.get('_redirects')));}
   const policy={...source.receipt.policy,artifact_sha256:'',snapshot_origin:snapshotOrigin?preview(snapshotOrigin,'korea-replay'):null,data:dataPin(data??source.receipt.policy.data)};
   const policyBytes=Buffer.byteLength('export default '+JSON.stringify({...policy,artifact_sha256:'f'.repeat(64)})+';\n');
   if(entries.reduce((sum,entry)=>sum+entry.bytes,policyBytes)>256*1024*1024)throw new Error('Lean application exceeds 256 MiB; publish large data separately');

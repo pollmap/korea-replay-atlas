@@ -13,7 +13,13 @@ import './property-map-workspace.css';
 import './property-tools.css';
 import './property-usability.css';
 
-void startDownloadGate().catch(()=>{
+const collectionRequested=new URLSearchParams(location.search).get('collection')==='apartments';
+if(collectionRequested){
+  const destination=new URL('/collection/',location.origin);
+  const query=new URLSearchParams(location.search);query.delete('collection');
+  destination.search=query.toString();destination.hash=location.hash;
+  location.replace(destination.href);
+}else void startDownloadGate().catch(()=>{
   document.body.dataset.downloadGate='unavailable';document.body.dataset.downloadGateReason='startup_failed';document.body.dataset.downloadGateLimit='unavailable';
   const notice=document.getElementById('download-gate-notice')??document.createElement('p');
   notice.id='download-gate-notice';notice.setAttribute('role','status');notice.textContent='이 브라우저에서는 지도 불러오기 최적화가 제한됩니다.';

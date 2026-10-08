@@ -1,3 +1,4 @@
+import {HISTORY_RANGES,historyTick} from '../shared/property-history';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {expect,it} from 'vitest';
@@ -42,4 +43,13 @@ it('shows empty loan inputs and missing source states without fabricating number
   expect(pending).toContain('자료 연결 전');expect(pending).not.toContain('0원');
   const region=renderToStaticMarkup(createElement(PropertyRegionAnalysis,{region:'송파구',month:'202608',metrics:[]}));
   expect(region).toContain('미수집');expect(region).not.toContain('0건');
+});
+
+it('reserves label width between every tick and the final month on compact desktop charts',()=>{
+  for(const count of HISTORY_RANGES){
+    const labels=Array.from({length:count},(_,i)=>i).filter(i=>historyTick(i,count)).map(i=>({start:i===count-1?296-54:i/count*296,end:i===count-1?296:i/count*296+54}));
+    for(let i=1;i<labels.length;i++)expect(labels[i].start-labels[i-1].end).toBeGreaterThanOrEqual(8);
+    expect(historyTick(count-1,count)).toBe(true);
+  }
+  expect(historyTick(27,36)).toBe(false);
 });

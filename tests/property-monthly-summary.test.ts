@@ -62,3 +62,10 @@ it('sums an inclusive area range for the shared chart without treating it as one
   const result=monthlySummaryPoints(rows,partitions,{...selection,area:'range:60:85'});
   expect(result[2].count).toBe(9);expect(result[2].latest?.area_m2).not.toBe('85.01');
 });
+
+it('places price and contract date before area controls, and source notes after the raw record table',()=>{
+  const html=renderToStaticMarkup(createElement(PropertyMonthlySummary,props()));
+  expect(html.indexOf('history-summary')).toBeLessThan(html.indexOf('history-controls'));
+  expect(html.indexOf('history-controls')).toBeLessThan(html.indexOf('history-chart-toolbar'));
+  expect(html.indexOf('202608 원문표')).toBeLessThan(html.indexOf('<summary>자료 기준'));
+});

@@ -76,6 +76,12 @@ describe('property discovery provenance and filtering',()=>{
     expect(result.items[0]).toMatchObject({count:1,latest:{id:'older',area_m2:'84.99',price_krw:450_010_000}});
     expect(search([complex('a')],rows,{priceMaxEok:'4.5'}).items).toHaveLength(0);
   });
+  it('qualifies the latest same-area contract by budget and retains all same-area reports in counts',()=>{
+    const rows=[transaction('old','a',{contract_date:'2026-08-01',price_krw:3e8}),transaction('latest','a',{contract_date:'2026-08-20',price_krw:9e8})];
+    expect(search([complex('a')],rows,{priceMaxEok:'5',areaMinM2:'84',areaMaxM2:'85'}).items).toEqual([]);
+    expect(search([complex('a')],rows,{priceMinEok:'8',priceMaxEok:'10'}).items[0]).toMatchObject({count:2,latest:{id:'latest',price_krw:9e8}});
+    expect(rows).toHaveLength(2);
+  });
   it('treats valid zero rental deposits as amounts and never combines deposits with monthly rent',()=>{
     const row=transaction('rent','a',{trade_type:'rent',cancellation:'not_provided',source_id:'molit-apt-rent',price_krw:null,deposit_krw:0,monthly_rent_krw:1_500_000});
     expect(search([complex('a')],[row],{priceMinEok:'0',priceMaxEok:'0'},true,'rent').items[0]).toMatchObject({count:1,latest:{deposit_krw:0,monthly_rent_krw:1_500_000}});
@@ -159,7 +165,7 @@ it('restores the externally selected legal dong after a list remount or trade sw
     expect(html).toContain('<option value="교남동" selected="">교남동</option>');
     expect(html).toContain('교남 단지');expect(html).not.toContain('청운 단지');
     expect(html).toContain('교남동 조건 해제');expect(html).toContain('1개 단지');
-    expect(html).toContain('거래 자료 확인 전');expect(html).not.toContain('현재 조건 0건');
+    expect(html).toContain('거래 확인 전');expect(html).not.toContain('현재 조건 0건');
   }
 });
 it('retains an unavailable restored dong with an explicit option instead of showing unrelated apartments',()=>{

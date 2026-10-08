@@ -8,6 +8,8 @@ def main():
     parser.add_argument('--region',choices=list(REGIONS),default='daejeon')
     parser.add_argument('--max-level',type=int,default=10)
     args=parser.parse_args()
+    if args.command in ('tiles', 'terrain', 'merge-terrain', 'depth', 'bootstrap'):
+        parser.error('3D generation is retired. Use the 2D map_tiles_regional pipeline.')
     if args.command in ('country','bootstrap'):
         from .geography import country
         country()

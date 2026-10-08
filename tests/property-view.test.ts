@@ -107,3 +107,13 @@ it('restores bounded recent-contract price qualifiers, preserving an inverted ra
   expect(readPropertyView('#latestPriceMinEok=5&latestPriceMaxEok=3',period)).toMatchObject({latestPriceMinEok:'5',latestPriceMaxEok:'3'});
   expect(readPropertyView('',period).latestPriceMinEok).toBeUndefined();
 });
+
+it('restores named candidates, ordering and metadata conditions from shared navigation',()=>{
+  const query=new URLSearchParams({listQuery:'해뜨는 아파트',listSort:'pyeong-low',buildYearMin:'2000',buildYearMax:'2020',hasTrades:'1'});
+  const selected=readPropertyView('#'+query,{from:'200610',to:'202610',latest_complete_month:'202609'});
+  expect(selected).toMatchObject({listQuery:'해뜨는 아파트',listSort:'pyeong-low',buildYearMin:'2000',buildYearMax:'2020',hasTrades:true});
+  for(const hash of ['listQuery=a&listQuery=b','listQuery=%00x','listQuery='+ 'x'.repeat(121),'listSort=bogus','buildYearMin=2001.5','buildYearMax=-1','hasTrades=true']){
+    const value=readPropertyView('#'+hash,{from:'200610',to:'202610',latest_complete_month:'202609'});
+    expect([value.listQuery,value.listSort,value.buildYearMin,value.buildYearMax,value.hasTrades]).toEqual([undefined,undefined,undefined,undefined,undefined]);
+  }
+});

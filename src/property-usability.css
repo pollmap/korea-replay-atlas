@@ -1,7 +1,7 @@
 @import './apartment-facts.css';
 @import './property-surroundings.css';
 
-/* Price-first 2D property workspace; no changes to the 3D renderer or its chrome. */
+/* Price-first apartment workspace. */
 .atlas-shell.is-2d.is-exploring .property-rent-kinds{display:flex;gap:6px;margin:0 0 10px}
 .atlas-shell.is-2d.is-exploring .property-rent-kinds button{flex:1;min-height:36px;border:1px solid var(--md-line,#d9cee9);border-radius:6px;background:#fff;color:var(--md-ink,#625276);font:inherit;font-size:12px;cursor:pointer}
 .atlas-shell.is-2d.is-exploring .property-rent-kinds button[aria-pressed=true]{border-color:var(--md-accent,#7056bd);color:var(--md-accent,#5637a9);background:var(--md-surface,#eee7fc);font-weight:700}
@@ -194,12 +194,12 @@
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-advanced-conditions{margin-top:12px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-source-note{font-size:12px;line-height:16px;margin:2px 0}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-trade-only{margin:3px 0}
- .atlas-shell.is-2d.is-exploring .pc-detail .discovery-search input{height:34px;min-height:34px;margin-top:4px;font-size:12px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-search input{height:34px;min-height:34px;margin-top:4px;font-size:14px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-filter-chips{gap:4px;margin:0 0 7px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-filter-chips button{min-height:30px;font-size:12px;padding:4px 7px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-selects{gap:7px;margin:0 0 5px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-selects label{font-size:12px;gap:3px}
- .atlas-shell.is-2d.is-exploring .pc-detail .discovery-selects select{min-height:30px;height:30px;font-size:12px;padding:3px 5px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .discovery-selects select{min-height:32px;height:32px;font-size:13px;padding:3px 5px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-result-heading{margin:0;min-height:28px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-trade-only{font-size:12px;min-height:26px}
  .atlas-shell.is-2d.is-exploring .pc-detail .discovery-source-note{font-size:12px;margin:1px 0 5px}
@@ -230,7 +230,7 @@
  .atlas-shell.is-2d.is-exploring .pc-detail .property-history .history-controls{gap:6px;margin:0 0 4px;display:flex}
  .atlas-shell.is-2d.is-exploring .pc-detail .property-history .property-search{margin:0}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-period-select{flex:0 0 100px}
- .atlas-shell.is-2d.is-exploring .pc-detail .history-controls select,.atlas-shell.is-2d.is-exploring .pc-detail .chart-basis-select select{height:30px;min-height:30px;padding:3px 6px;font-size:12px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .history-controls select,.atlas-shell.is-2d.is-exploring .pc-detail .chart-basis-select select{height:32px;min-height:32px;padding:3px 6px;font-size:13px}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-summary{grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:2px 0 3px;margin:0}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-summary>div{gap:1px}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-summary strong{font-size:27px;line-height:30px}
@@ -246,12 +246,12 @@
  .atlas-shell.is-2d.is-exploring .pc-detail .history-selection-tools button{min-height:25px;height:25px;font-size:12px;padding:2px;border-radius:4px}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-point{min-height:0;font-size:12px;line-height:16px;padding:4px 6px;margin:3px 0;border-radius:4px}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-table-title{margin:5px 0 1px}
- .atlas-shell.is-2d.is-exploring .pc-detail .history-table-title h3{font-size:13px;margin:0}
+ .atlas-shell.is-2d.is-exploring .pc-detail .history-table-title h3{font-size:14px;margin:0}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-table-title button{min-height:26px;font-size:12px}
  .atlas-shell.is-2d.is-exploring .pc-detail .property-history th{padding:6px 4px;font-size:12px}
- .atlas-shell.is-2d.is-exploring .pc-detail .property-history td{padding:5px 4px;font-size:12px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .property-history td{padding:5px 4px;font-size:14px}
  .atlas-shell.is-2d.is-exploring .pc-detail .property-history td small{font-size:12px;margin-top:1px;line-height:13px}
- .atlas-shell.is-2d.is-exploring .pc-detail .history-record-link{min-height:22px;padding:0;font-size:12px}
+ .atlas-shell.is-2d.is-exploring .pc-detail .history-record-link{min-height:22px;padding:0;font-size:14px}
  .atlas-shell.is-2d.is-exploring .pc-detail .history-secondary-tools{margin:10px 0}
  .atlas-shell.is-2d.is-exploring .pc-detail :is(.complex-information,.detail-life-section,[data-detail-section=fees],[data-detail-section=schools],[data-detail-section=region],[data-detail-section=costs],.comparison-workspace){border-top:7px solid var(--md-surface,#f1edf6);padding-top:14px;margin-top:18px}
  .atlas-shell.is-2d.is-exploring .pc-detail .complex-information h3,.atlas-shell.is-2d.is-exploring .pc-detail .detail-life-section>h3{margin:0 0 12px;font-size:17px}
@@ -268,7 +268,7 @@
 .detail-personal-note,.property-display-settings{border-top:1px solid var(--md-line,#e8dfef);padding-top:8px;margin-top:14px;color:var(--md-muted,#73607f);font-size:12px}.detail-personal-note summary,.property-display-settings summary{min-height:34px;line-height:34px;cursor:pointer}.detail-personal-note textarea{box-sizing:border-box;width:100%;min-height:110px;resize:vertical;border:1px solid var(--md-line,#ddd1eb);border-radius:5px;padding:8px;font:inherit;line-height:1.6}.detail-personal-note>div{display:flex;gap:6px;margin:6px 0}.detail-personal-note button{min-height:32px;border:1px solid var(--md-line,#dfd3ee);border-radius:5px;padding:5px 10px;font:inherit;color:var(--md-muted,#65478e);background:#fff;cursor:pointer}.detail-personal-note small{font-size:12px;line-height:1.5}.property-display-settings label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0}.property-display-settings select{min-height:32px;max-width:180px;border:1px solid var(--md-line,#ddd1eb);border-radius:5px;padding:4px;font:inherit;color:var(--md-ink,#624780);background:#fff}
 @media(min-width:781px) and (max-height:730px){.atlas-shell.is-2d.is-exploring .pc-detail .history-chart{height:170px}}
 
-@media(min-width:781px){.atlas-shell.is-2d.is-exploring .pc-detail .history-chart text{font-size:13px}.atlas-shell.is-2d.is-exploring .pc-detail .history-chart circle{fill:var(--md-ink)}}
+@media(min-width:781px){.atlas-shell.is-2d.is-exploring .pc-detail .history-chart text{font-size:12px}.atlas-shell.is-2d.is-exploring .pc-detail .history-chart circle{fill:var(--md-ink)}}
 
 .atlas-shell.is-2d .property-chart-dialog {width:min(900px,calc(100vw - 64px));max-height:calc(100vh - 64px);padding:20px;border:1px solid var(--md-line);border-radius:6px;background:#fff;color:var(--md-ink);}
 .atlas-shell.is-2d .property-chart-dialog::backdrop {background:rgb(20 31 49 / .4);}
@@ -295,7 +295,7 @@
  .atlas-shell.is-2d .selected-region-caption .boundary-meta{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
  .atlas-shell.is-2d .selected-region-caption select{min-height:30px;border-radius:3px;background:#fff}
  .atlas-shell.is-2d .selected-region-caption button{min-height:30px;font-size:12px}
- .atlas-shell.is-2d .map-apartment-label-control{top:104px;right:80px;border-radius:4px;box-shadow:none;background:#fff}
+ .atlas-shell.is-2d .map-apartment-label-control{top:104px;right:12px;border-radius:4px;box-shadow:none;background:#fff}
  .atlas-shell.is-2d .map-apartment-label-control select{min-height:30px;border-radius:3px}
 }
 
@@ -304,4 +304,27 @@
  .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-header h2{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
  .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-header .property-back{margin:0;white-space:nowrap}
  .atlas-shell.is-2d .pc-detail.showing-region:has(.property-region-picker) .property-type-switch{margin:0}
+}
+
+/* Keep candidates available while giving the selected apartment more map space. */
+.candidate-list-toggle{display:none}
+@media(min-width:1600px){
+ .app-shell.atlas-shell.is-2d.is-exploring .candidate-list-toggle{display:block}
+ .app-shell.atlas-shell.is-2d.is-exploring:has(.property-panel.list-collapsed.showing-complex){--atlas-rail-width:420px}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex.list-collapsed .retained-complex-list{display:none}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex.list-collapsed>:is(.property-header,.complex-actionbar,.complex-section-nav,.property-body){margin-left:0}
+}
+@media(min-width:781px){
+ .atlas-shell.is-2d.is-exploring .property-panel{font-size:14px;line-height:1.45}
+ .atlas-shell.is-2d.is-exploring .property-panel :is(.apartment-fact-source,.apartment-fact-highlights small,.apartment-fact-highlights span,.property-saved-filters small,.property-saved-filters p,.property-saved-filters button,.history-sampling){font-size:12px}
+ .atlas-shell.is-2d.is-exploring .complex-actionbar button{white-space:nowrap}
+ .atlas-shell.is-2d.is-exploring .property-panel :is(.discovery-open,.history-selected,.complex-section-nav button){transition:background-color 180ms ease,color 180ms ease,border-color 180ms ease}
+ .atlas-shell.is-2d.is-exploring .property-panel button{transform:none;translate:none}
+ .atlas-shell.is-2d .map-source-help{display:block;left:auto;right:12px;bottom:36px;max-width:340px;padding:0;background:#fff;border:1px solid var(--md-line);border-radius:4px;box-shadow:none;font-size:12px}
+ .atlas-shell.is-2d .map-source-help summary{padding:6px 10px;cursor:pointer;color:var(--md-muted)}
+ .atlas-shell.is-2d .map-source-help[open]{padding-bottom:8px}
+ .atlas-shell.is-2d .map-source-help strong,.atlas-shell.is-2d .map-source-help p{display:block;padding:0 10px;line-height:1.5;max-height:230px;overflow:auto;white-space:normal}
+}
+@media(prefers-reduced-motion:reduce){
+ .atlas-shell.is-2d.is-exploring .property-panel :is(.discovery-open,.history-selected,.complex-section-nav button){transition:none}
 }

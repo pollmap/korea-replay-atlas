@@ -60,8 +60,9 @@ export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],r
   const byId=new Map<string,{count:number;latest:PropertyTransaction}>();
   if(dataReady)for(const row of rows){
     if(row.trade_type!==trade||row.complex_id===null||!propertyStatisticsEligible(row)||!rentKindMatches(row,filters.rentKind))continue;
-    const value=trade==='sale'?row.price_krw:row.deposit_krw;
-    if(!within(value,priceMin,priceMax)||!within(row.area_m2===null?null:Number(row.area_m2),areaMin,areaMax))continue;
+    // Budget qualifies the latest contract after the area/type scope is fixed.
+    // Applying it here would make an older cheap contract look like today's price.
+    if(!within(row.area_m2===null?null:Number(row.area_m2),areaMin,areaMax))continue;
     const current=byId.get(row.complex_id);
     if(!current){byId.set(row.complex_id,{count:1,latest:row});continue;}
     current.count++;
@@ -80,6 +81,7 @@ export function discoverPropertyComplexes(complexes:readonly PropertyComplex[],r
     }
     const records=byId.get(complex.id);
     if(dataReady&&transactionFiltered&&!records)continue;
+    if(dataReady&&records&&!within(trade==='sale'?records.latest.price_krw:records.latest.deposit_krw,priceMin,priceMax))continue;
     items.push({complex,count:dataReady?records?.count??0:null,latest:records?.latest??null});
   }
   items.sort((a,b)=>{

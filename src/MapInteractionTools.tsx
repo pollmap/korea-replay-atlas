@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState,type RefObject} from 'react';
 import type {Place} from '../shared/contracts';
-import type {MapHandle} from './MapScene';
+import type {MapHandle} from './map-handle';
 import {formatArea,formatDistance,mergeBookmarks,validateBookmarks,type MapBookmark,type Measurement,type MeasurementMode} from '../shared/map-tools';
 import {isKoreanMapPoint,kakaoPointLinks,type MapLinkPoint} from '../shared/external-maps';
 

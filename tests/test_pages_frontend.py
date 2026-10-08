@@ -72,3 +72,34 @@ def test_rejects_missing_worker_inventory(pages):
     atomic_json(pages['receipt_path'], receipt)
     with pytest.raises(ValueError, match='no application Worker'):
         pages_frontend.inspect(**pages)
+
+
+def test_retirement_requires_vendor_removed_but_preserves_other_audits(pages, fixture):
+    import shutil
+    with pytest.raises(ValueError, match='Retired 3D'):
+        pages_frontend.inspect(**pages, retire_3d=True)
+    shutil.rmtree(fixture.client / 'cesium')
+    for prefix in ('MapScene-', 'geometry.worker-', 'search.worker-'):
+        for path in (fixture.client / 'assets').glob(prefix+'*'): path.unlink()
+    result = pages_frontend.inspect(**pages, retire_3d=True)
+    assert not any(row['target'].startswith('cesium/') for row in result['files'])
+    (fixture.worker / 'index.js').write_text('changed')
+    with pytest.raises(ValueError):
+        pages_frontend.inspect(**pages, retire_3d=True)
+
+
+def test_separate_collection_is_preserved_outside_frontend_build(pages, fixture):
+    manifest = pages['receipt_path'].parent / 'asset-manifest.json'
+    entries = json.loads(manifest.read_text())
+    entries.append({'target': 'collection/assets/collection-12345678.js',
+                    'bytes': 10, 'sha256': 'c' * 64})
+    atomic_json(manifest, entries)
+    receipt = json.loads(pages['receipt_path'].read_text())
+    receipt['manifest_sha256'] = digest(manifest)
+    atomic_json(pages['receipt_path'], receipt)
+    result = pages_frontend.inspect(**pages)
+    assert not any(row['target'].startswith('collection/') for row in result['files'])
+    (fixture.client / 'collection').mkdir()
+    (fixture.client / 'collection/index.html').write_text('replacement')
+    with pytest.raises(ValueError, match='separately published collection'):
+        pages_frontend.inspect(**pages)
