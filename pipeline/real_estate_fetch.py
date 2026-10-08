@@ -294,7 +294,7 @@ class Collector:
             self.db.execute('INSERT OR REPLACE INTO lease VALUES(1,?,?)', (owner, time.time()+180))
         return owner
 
-    def _reserve(self, job, page_no, daily_budget, owner):
+    def _reserve(self, job, page_no, daily_budget, owner, correction=None):
         stamp = self.clock(); day = utc_instant(stamp).astimezone(KST).date().isoformat()
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
@@ -305,16 +305,21 @@ class Collector:
                                    (day, job['trade_type'])).fetchone()[0]
             if used >= daily_budget:
                 raise RealEstateError('local_daily_budget')
+            if correction is not None:
+                from .property_refresh_scheduler import reserve
+                reserve(self.db, correction, stamp, job['trade_type'])
             self.db.execute('UPDATE lease SET expires=? WHERE id=1', (time.time()+180,))
             result = self.db.execute('INSERT INTO calls(day,trade_type,job_id,page_no,started_at,status) VALUES(?,?,?,?,?,?)',
                 (day, job['trade_type'], job['id'], page_no, stamp, 'reserved'))
+            if correction is not None:
+                self.db.execute('INSERT INTO property_correction_calls VALUES (?,?)', (result.lastrowid, correction['bucket']))
             return result.lastrowid
 
     def _assert_owner(self,owner):
         row=self.db.execute('SELECT owner FROM lease WHERE id=1').fetchone()
         if row is None or row['owner']!=owner:raise RealEstateError('collector_lease_lost')
 
-    def _snapshot(self, job, pages):
+    def _partition(self, job, pages):
         if sum(p['bytes'] for p in pages)>64*1024**2:
             raise RealEstateError('batch_size_limit')
         parsed=[]
@@ -328,7 +333,11 @@ class Collector:
                 raise RealEstateError('checkpoint_hash_mismatch')
             parsed.append(normalize_xml_page(body,property_type=self.property_type,lawd_code=job['lawd_code'],deal_month=job['deal_month'],
                 retrieved_at=source['retrieved_at'],trade_type=job['trade_type']))
-        partition=build_partitions(parsed)[0]
+        return build_partitions(parsed)[0]
+
+    def _snapshot(self, job, pages):
+        from .real_estate_working_store import read_reference
+        partition = self._partition(job, pages)
         payload=canonical_bytes(partition);stored,encoding=encode_snapshot(payload);part_hash=sha256(stored)
         snapshot_ref={**immutable(self.root,f"snapshots/{job['id']}/{part_hash}.json.xz",stored),**encoding}
         if job['snapshot']:
@@ -368,11 +377,17 @@ class Collector:
 
     def collect(self, key, *, max_requests=100, max_bytes=64*1024**2, daily_budget=8000,
                 min_interval=0.3, timeout=60, page_size=1000, retry_failed=False, refresh=False,
-                collect_months=None, first_acquisition_only=False, collect_trades=None, progress=None):
+                collect_months=None, first_acquisition_only=False, collect_trades=None, progress=None, correction=None):
         if (not 1 <= max_requests <= 2000 or not 1 <= max_bytes <= 64*1024**2
                 or not 1 <= daily_budget <= 8000 or not 0 <= min_interval <= 60
                 or not 1 <= timeout <= 60 or not 1 <= page_size <= 1000):
             raise RealEstateError('invalid_collection_budget')
+        if correction is not None:
+            from . import property_refresh_scheduler as corrections
+            corrections.validate(correction)
+            if refresh or retry_failed or first_acquisition_only or collect_months or self.property_type != 'apartment':
+                raise RealEstateError('correction_conflicting_mode')
+            max_requests = min(max_requests, correction['max_requests'])
         if type(first_acquisition_only) is not bool:
             raise RealEstateError('invalid_acquisition_filter')
         if progress is not None and not callable(progress):
@@ -404,9 +419,11 @@ class Collector:
         condition += scope_condition(self.scope)
         # Bound the next XML + normalized snapshot, not a fixed 5 GiB margin.
         self._space(MAX_PAGE_BYTES + MAX_SNAPSHOT_BYTES + 1024**2)
-        owner = self._acquire(); used = 0; transferred = 0; stopped = 'work_complete'; failures = 0
+        owner = self._acquire(); used = 0; transferred = 0; stopped = 'work_complete'; failures = 0; changed_jobs = 0
         start = time.monotonic(); last_request = 0.0
         try:
+            if correction is not None:
+                corrections.prepare(self.db, correction, self.clock(), scope=self.scope)
             with self.db:
                 if retry_failed:
                     self.db.execute("UPDATE jobs SET status='pending',pages='[]',error_code=NULL WHERE status='failed'"+condition,collect_months or [])
@@ -415,8 +432,11 @@ class Collector:
             while used < max_requests and transferred < max_bytes:
                 if max_bytes-transferred < MAX_PAGE_BYTES and used:
                     stopped='run_budget'; break
-                job = self.db.execute("SELECT * FROM jobs WHERE status IN ('pending','partial')"+condition+
-                    ' ORDER BY collection_region_priority(lawd_code),priority,lawd_code,trade_type LIMIT 1',collect_months or []).fetchone()
+                if correction is not None:
+                    job = corrections.select_job(self.db, correction)
+                else:
+                    job = self.db.execute("SELECT * FROM jobs WHERE status IN ('pending','partial')"+condition+
+                        ' ORDER BY collection_region_priority(lawd_code),priority,lawd_code,trade_type LIMIT 1',collect_months or []).fetchone()
                 if job is None:
                     break
                 self._space(MAX_PAGE_BYTES+MAX_SNAPSHOT_BYTES+1024**2)
@@ -427,14 +447,17 @@ class Collector:
                     with self.db:
                         self.db.execute('BEGIN IMMEDIATE')
                         self._assert_owner(owner)
-                        self.db.execute("UPDATE jobs SET pages='[]',status='pending' WHERE id=?", (job['id'],))
+                        if correction is not None:
+                            self.db.execute("UPDATE property_correction_queue SET pages='[]',status='pending' WHERE job_id=?", (job['id'],))
+                        else:
+                            self.db.execute("UPDATE jobs SET pages='[]',status='pending' WHERE id=?", (job['id'],))
                 page_no = len(pages)+1
                 try:
-                    call_id = self._reserve(job, page_no, daily_budget, owner)
+                    call_id = self._reserve(job, page_no, daily_budget, owner, correction=correction)
                 except RealEstateError as error:
-                    if error.code != 'local_daily_budget':
+                    if error.code not in ('local_daily_budget', 'correction_day_changed'):
                         raise
-                    stopped = error.code; break
+                    stopped = 'run_budget' if error.code == 'correction_day_changed' else error.code; break
                 delay = min_interval - (time.monotonic()-last_request)
                 if delay > 0:
                     time.sleep(delay)
@@ -460,18 +483,28 @@ class Collector:
                     required = max(1, (page['total_count']+page_size-1)//page_size)
                     if required > 1000:
                         raise RealEstateError('page_count_limit')
-                    status = 'partial'; snapshot_ref = None
+                    status = 'partial'; snapshot_ref = None; unchanged = False
                     if len(pages) == required:
-                        status,snapshot_ref=self._snapshot(job,pages)
+                        if correction is not None:
+                            snapshot_ref = corrections.unchanged_snapshot(self, job, pages)
+                        if snapshot_ref is not None:
+                            status = job['status']; unchanged = True
+                        else:
+                            status,snapshot_ref=self._snapshot(job,pages)
                     with self.db:
                         self.db.execute('BEGIN IMMEDIATE')
                         self._assert_owner(owner)
                         self.db.execute('UPDATE calls SET finished_at=?,status=?,bytes=? WHERE id=?', (stamp,'validated',len(raw),call_id))
-                        self.db.execute('UPDATE jobs SET pages=?,status=?,error_code=NULL,snapshot=COALESCE(?,snapshot),updated_at=? WHERE id=?',
-                            (canonical_bytes(pages).decode(),status,canonical_bytes(snapshot_ref).decode() if snapshot_ref else None,stamp,job['id']))
+                        if correction is not None:
+                            corrections.save_pages(self.db, job, pages, status, snapshot_ref, stamp, unchanged=unchanged)
+                        else:
+                            self.db.execute('UPDATE jobs SET pages=?,status=?,error_code=NULL,snapshot=COALESCE(?,snapshot),updated_at=? WHERE id=?',
+                                (canonical_bytes(pages).decode(),status,canonical_bytes(snapshot_ref).decode() if snapshot_ref else None,stamp,job['id']))
                         if snapshot_ref:
                             self.db.execute('INSERT OR IGNORE INTO snapshots VALUES(?,?,?,?)',
                                 (job['id'],snapshot_ref['sha256'],canonical_bytes(snapshot_ref).decode(),stamp))
+                    if snapshot_ref and not unchanged:
+                        changed_jobs += 1
                     failures = 0
                 except (RealEstateError, OSError, ValueError, KeyError) as error:
                     failures += 1
@@ -480,7 +513,8 @@ class Collector:
                         self.db.execute('UPDATE calls SET finished_at=?,status=?,bytes=?,error_code=? WHERE id=?', (self.clock(),'failed',len(raw),code,call_id))
                         if code!='collector_lease_lost':
                             self._assert_owner(owner)
-                            self.db.execute("UPDATE jobs SET status='failed',error_code=?,updated_at=? WHERE id=?", (code,self.clock(),job['id']))
+                            table, column = ('property_correction_queue', 'job_id') if correction is not None else ('jobs', 'id')
+                            self.db.execute("UPDATE " + table + " SET status='failed',error_code=?,updated_at=? WHERE " + column + "=?", (code,self.clock(),job['id']))
                     if code in ('upstream_auth','upstream_quota','secret_reflection','credential_field_reflection',
                                 'disk_reserve','response_size_limit','checkpoint_error','collector_lease_lost','remote_checkpoint_error'):
                         stopped=code; break
@@ -495,6 +529,13 @@ class Collector:
                 'region_order':self.scope_info['policy'], 'scope':self.scope_info,
                 'scope_coverage':self.summary(scoped=True),
                 'budget_scope':'this_checkpoint_root_all_runs_provider_service; other_consumers_not_counted'}
+            if correction is not None:
+                report['correction'] = {'state': 'checked', 'lane': correction['lane'], 'jobs': len(correction['job_ids']),
+                                        'day': correction['day'], 'daily_lane_cap': correction['daily_lane_cap'],
+                                        'changed_jobs': changed_jobs, 'content_revision': corrections.content_revision(self.db),
+                                        'review_required': corrections.review_required(self.db)}
+                if report['stop_reason'] == 'consecutive_failures':
+                    report['stop_reason'] = 'run_budget'  # durable queue retry/backoff, not a collection hold
             payload=canonical_bytes(report); immutable(self.root,f'runs/{sha256(payload)}.json',payload)
             return report
         finally:
