@@ -1,6 +1,6 @@
 """Bounded map-price presets from audited monthly summaries and pinned point IDs."""
 from pathlib import Path
-import argparse,json,hashlib
+import argparse,json,hashlib,re
 from .real_estate import canonical_bytes,RealEstateError
 from .real_estate_publish import checked_read,MAX_ASSET
 from .real_estate_region_metrics import months,RANGES,AREAS,KINDS
@@ -18,11 +18,13 @@ def choose(rows,wanted,area,kind):
             selected[row['complex_id']]=row
     return [selected[k] for k in sorted(selected)]
 
-def build(publication, navigation, output):
-    source=Path(publication);pub=json.loads(source.read_bytes()); root=source.parent
+def build(publication, navigation, output, *, source_root=None):
+    source=Path(publication);pub=json.loads(source.read_bytes()); root=Path(source_root) if source_root is not None else source.parent
     nav=json.loads(Path(navigation).read_bytes()); release=pub['property_release_id']
     if nav['property_release_id']!=release:raise RealEstateError('map_preset_release_mismatch')
-    files={f['path']:{'path':f['path'],'bytes':f['byte_length'],'sha256':f['sha256']} for f in pub['files']}
+    files={f['path']:{'path':f['path'],'bytes':f['byte_length'],'sha256':f['sha256'],
+                     **({'transport':f['transport']} if 'transport' in f else {})} for f in pub['files']}
+    if len(files)!=len(pub['files']):raise RealEstateError('map_preset_duplicate_ref')
     def read(url):
         name=url.lstrip('/')
         if name not in files:raise RealEstateError('map_preset_missing_ref')
@@ -37,15 +39,29 @@ def build(publication, navigation, output):
     for ref in manifest['regions']:
         code=ref['lawd_code'];ids=by_region.get(code)
         if not ids:continue
-        index=read(ref['url']);rows=[];seen=set()
-        for asset in index['summaries']:
+        index=read(ref['url']);rows=[];seen=set();identities=set()
+        if index.get('property_release_id')!=release or index.get('lawd_code')!=code:
+            raise RealEstateError('map_preset_partition_mismatch')
+        complete={(p['deal_month'],p['trade_type']) for p in index['partitions'] if p['status'] in ('complete','empty')}
+        # Prefer bounded per-complex packs. A map needs linked point IDs, not
+        # every apartment's regional twenty-year monthly summary.
+        chunks=index.get('complex_chunks')
+        assets=[asset for identity in sorted(ids) for asset in chunks.get(identity,[])] if isinstance(chunks,dict) else index['summaries']
+        for asset in assets:
             url=asset['url']
             if url in seen:continue
             seen.add(url);body=read(url)
             if body['property_release_id']!=release or body['lawd_code']!=code:raise RealEstateError('map_preset_partition_mismatch')
+            if body['kind'] not in ('property-complex-summary-month-pack','property-complex-summary-pack','property-complex-summaries'):
+                raise RealEstateError('map_preset_partition_mismatch')
             batches=body['months'] if body['kind']=='property-complex-summary-month-pack' else [body]
             for part in batches:
-                rows.extend({k:r[k] for k in fields} for r in part['rows'] if r['complex_id'] in ids)
+                for row in part['rows']:
+                    if row['complex_id'] not in ids:continue
+                    identity=(row['complex_id'],row['deal_month'],row['trade_type'],row['rent_kind'],row['area_m2'])
+                    if identity in identities:raise RealEstateError('map_preset_duplicate_row')
+                    identities.add(identity)
+                    if (row['deal_month'],row['trade_type']) in complete:rows.append({k:row[k] for k in fields})
         pool=[];intern={};views={}
         for end in ends:
             for length in RANGES:
@@ -63,10 +79,12 @@ def build(publication, navigation, output):
             'source_publication_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),'navigation_sha256':hashlib.sha256(Path(navigation).read_bytes()).hexdigest()}
         raw=canonical_bytes(value)
         if len(raw)>1024*1024:raise RealEstateError('map_preset_file_budget')
-        target=output/(code+'.json')
+        if not re.fullmatch(r'property-[a-f0-9]{16}',release) or not re.fullmatch(r'[0-9]{5}',code):
+            raise RealEstateError('map_preset_identity')
+        target=output/(f'property-map-price-{release[9:]}-{code}.json')
         if target.exists() and target.read_bytes()!=raw:raise RealEstateError('immutable_output_changed')
         target.write_bytes(raw);results.append({'code':code,'bytes':len(raw),'source_rows':len(rows),'unique_selected_rows':len(pool),'points':len(ids)})
         print(json.dumps(results[-1]),flush=True)
     print(json.dumps({'regions':len(results),'bytes':sum(x['bytes'] for x in results),'source_calls':0,'source_rows':sum(x['source_rows'] for x in results)}))
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--publication',required=True);p.add_argument('--navigation',required=True);p.add_argument('--output',required=True);a=p.parse_args();build(a.publication,a.navigation,a.output)
+    p=argparse.ArgumentParser();p.add_argument('--publication',required=True);p.add_argument('--navigation',required=True);p.add_argument('--output',required=True);p.add_argument('--source-root');a=p.parse_args();build(a.publication,a.navigation,a.output,source_root=a.source_root)

@@ -132,7 +132,7 @@ PROPERTY_NAVIGATION_ASSETS = {
     ('4f0987966a5ea103cb4f91b1ef938fc8350640192e9f0c4ed0ad2c95d9863037', 55929),
     ('009c22e31c65d6c5def9f821bd3dab6a0083b433866c5d2ee612d78f85f6e36d', 55666),
 }
-PROPERTY_METRIC_ASSET = re.compile(r'assets/(property-(?:region-metrics|revisions|search-index)-[a-f0-9]{16}|official-(?:schools|fees)-[0-9]{8}|[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
+PROPERTY_METRIC_ASSET = re.compile(r'assets/(property-(?:region-metrics|revisions|search-index)-[a-f0-9]{16}|property-map-price-[a-f0-9]{16}-[0-9]{5}|official-(?:schools|fees)-[0-9]{8}|[0-9]{5})-[A-Za-z0-9_-]{8}\.json\Z')
 # Exact row-audited source bytes; this never accepts arbitrary frontend JSON.
 PROPERTY_METRIC_ASSETS = {'11110': {'sha256': '0f910ced0ccf4e895aa31598cb6c0f8b4b58b26ed1444ffae483a6f173f9b9e8', 'bytes': 56424}, '11140': {'sha256': '628e64de16db75b1f85f52c4c9ddc42942178dc37507e26540633bac8553f82a', 'bytes': 61020}, '11170': {'sha256': '321d4123c076b431aea4a088e9ff2da6ba1f76e8f28950528e91537de0bbedca', 'bytes': 73257}, '11200': {'sha256': '783ba4f0f7a9fd10ada1b949ea350352f9e3a7e57ba5f5775c1a672c60d0abad', 'bytes': 110342}, '11215': {'sha256': '3b5ef86cf774111bf644fc1438b9e319b0ead91d0ccd78dd25163b0be953d617', 'bytes': 67367}, '11230': {'sha256': '087a0553dc007e3ad835cb2e899fc7ef77d4947e37f2fe7b50a5d67919eebd64', 'bytes': 117089}, '11260': {'sha256': '1a4179e4c4db9882ae793d5db7ad244f3ec4491549212856426e684b482fd58e', 'bytes': 75389}, '11290': {'sha256': '3115e48f1662edc2769f3731b69a80a9e65baa10506ec66bb1a9cff136d9826e', 'bytes': 100626}, '11305': {'sha256': '17e6f4ffdcc81ae726dc2a6d7f5b20a8ada96da70bd6f6b33fbf37b94ceb14c6', 'bytes': 60035}, '11320': {'sha256': '49e7e8c05672a520c6bf958426c559e9a25bc9413e2fa598b64cf756b7d4d7da', 'bytes': 55388}, '11350': {'sha256': 'a455577844d574d5643af8d0cc24624abc5d831731fce3b0dbcc53e6de822f8d', 'bytes': 90145}, '11380': {'sha256': '0e478c5cc15a55133e2cd4072d13197429fd8b6f4f2d4d768ddd14fe98492272', 'bytes': 141518}, '11410': {'sha256': '1663ab04d58d1ec6f60a041d329c160fe8cdeaf6ef2b0eca76e7fc509e9afd4b', 'bytes': 98065}, '11440': {'sha256': '984e83705253e698f0bc852edbae7fede6ba8903d57e7cdd2f947da8843d213f', 'bytes': 135747}, '11470': {'sha256': '5bfa5a4816726d50e2f0cc17c17b61c8e6a10315f7bf31754bd5c6670cafd06b', 'bytes': 64463}, '11500': {'sha256': '1171c8b87680834436cca5544f8a8a4bb2949279ce14f8a4808cff031a19f0fc', 'bytes': 140132}, '11530': {'sha256': 'bcd78479c130801feb47a21ec3bb2f1fce575c8d7c87c9915203db621dd36a14', 'bytes': 91756}, '11545': {'sha256': '4a49bea75ca24d97cb112d7c1ef77525524ce4af189ae9c84d251817275fe5f7', 'bytes': 59801}, '11560': {'sha256': 'e54e6c6aeb73ff8db39346daf328b99af1ba373cc8647f44fb3c2d3cfbd40b7a', 'bytes': 127280}, '11590': {'sha256': '1a1ef5ef2e3c0cb6c2371d7284236adcc1a797366c4100a48f7ae1a12970eeb7', 'bytes': 115027}, '11620': {'sha256': 'cb4dd0d6195e7234147cb8629ad134c7cf1d67adf89edf7d2658f70c683603f8', 'bytes': 68399}, '11650': {'sha256': 'd9a55ea809b7e4a1da8d921d7f840b78a3285403d19fab291ebb9c41bae291b6', 'bytes': 182319}, '11680': {'sha256': 'f05065712619217e9d59220e8ef9c4e83abcb5e8655b7a7d7922ddc3891c471e', 'bytes': 156985}, '11710': {'sha256': '7658ab28be068fb232cf1a821d56b74ed7b7fb380a17b33badbc3038f3fdd35b', 'bytes': 129636}, '11740': {'sha256': 'b7f5431224885b79a3e3ab92eabe2b7cd9c097e177cddaa48033a5388e1b08df', 'bytes': 121964}, 'property-region-metrics-8879dff1b31ac5f0': {'sha256': '592713f558bf0224951d650e778ebd502d318e80a704f5fd7d277041086cdc73', 'bytes': 4000582}, 'property-region-metrics-b87eea7c1c03dc21': {'sha256': 'c7af492a53c95678e2f7fb6a7fbf7bcd33d8e9a3c7b96096f9f116a5f5195b67', 'bytes': 4008029}}
 
@@ -147,6 +147,36 @@ PROPERTY_METRIC_ASSETS['property-search-index-ceeff63959643461'] = {'sha256': '5
 PROPERTY_METRIC_ASSETS.update({
     'official-schools-20261010': {'bytes': 780751, 'sha256': '4254b2def52d08071a18f96f56feff02cdea78044706c6a37ece66099e35db1c'},
     'official-fees-20261010': {'bytes': 1277773, 'sha256': 'b3acaf8a7f81412b5dd55c7f926fc05fd21624912aa77e3f1ba649ae878decd4'},
+})
+
+# Current-release presets are derived from hash-verified public summary packs.
+# These exact bytes cannot be widened by a dist-supplied inventory.
+PROPERTY_METRIC_ASSETS.update({
+    'property-map-price-ceeff63959643461-11110': {'bytes': 52948, 'sha256': '6fb0b1563a130cc1c10e1b2e935a505b89b5e406d70600a97468adcb32e1e8c6'},
+    'property-map-price-ceeff63959643461-11140': {'bytes': 61216, 'sha256': '57191677f7a90325da4e1d2c71e68d430d4e874fa46929033d719d7f1ef24e58'},
+    'property-map-price-ceeff63959643461-11170': {'bytes': 73453, 'sha256': '4d4deaf84b18e57ee73e30753c6b53f125a20c5e06b631f8715792f412b7ab6e'},
+    'property-map-price-ceeff63959643461-11200': {'bytes': 110538, 'sha256': '0ddd886e77831009245dd5540089932a2c65f0088052bc0440604879a4582490'},
+    'property-map-price-ceeff63959643461-11215': {'bytes': 67563, 'sha256': 'f1c32d82fe207172d3fb43d3b4a580527822fcb0faae10b0dc1f5b8997c3a58f'},
+    'property-map-price-ceeff63959643461-11230': {'bytes': 117285, 'sha256': '809f142f49cf8805fb200c1f87ef1d3b707ee2754a5396fa153c1a28a1226b49'},
+    'property-map-price-ceeff63959643461-11260': {'bytes': 75585, 'sha256': 'bbd04ae182505fea171caec3a944f5f17a73696e4732375013fd9883a875f4a6'},
+    'property-map-price-ceeff63959643461-11290': {'bytes': 100822, 'sha256': '9306e1add03c2dbb614401db3ea655b5e6645666e812ad352285fee3b24e0641'},
+    'property-map-price-ceeff63959643461-11305': {'bytes': 60231, 'sha256': '6cfb071e4b11e8a2c6f06175945e33557b133c4a5287c1799a8096a601b4f5b4'},
+    'property-map-price-ceeff63959643461-11320': {'bytes': 55584, 'sha256': 'e4cbdf3c3eb3ee3991ccef3aa9711806a3915926337ab607bbde06f72f4458af'},
+    'property-map-price-ceeff63959643461-11350': {'bytes': 90341, 'sha256': 'a95754b07f8a30ccce6e76fe9ba7b8fc4f634df88dcfa877275329cbc7706f0b'},
+    'property-map-price-ceeff63959643461-11380': {'bytes': 141714, 'sha256': 'a599fa34a2fa34ca240d8044749c2936fec9fe8eee2b3e0de15f0777c623aa14'},
+    'property-map-price-ceeff63959643461-11410': {'bytes': 98261, 'sha256': '03c4c69193f9d2b93d692c1c5475862a9439c826d8cd5f0ab75cc2b8b2862f1e'},
+    'property-map-price-ceeff63959643461-11440': {'bytes': 135943, 'sha256': 'b5c88064feead43493b8880db434ed0d5546b51ed12279b7a5a17cf7d3de6d24'},
+    'property-map-price-ceeff63959643461-11470': {'bytes': 64659, 'sha256': '48c39386c79ee4d399257d324a681477d46f66281f2af13531698a429caa5b63'},
+    'property-map-price-ceeff63959643461-11500': {'bytes': 129257, 'sha256': 'fdb409ceafc1cf6da52eeeeaeb2dcec5bbb969a29cc64128ff84d422eac643fb'},
+    'property-map-price-ceeff63959643461-11530': {'bytes': 87430, 'sha256': 'b913f0da9f4ea5cc9402dd62cbc3e84e130703460a950b74553850f8c6a67b2c'},
+    'property-map-price-ceeff63959643461-11545': {'bytes': 60380, 'sha256': '1f87b0ab2e283ac7ba7bae279fd85cd0a4f7859c295c5a25516b1e84208c84ab'},
+    'property-map-price-ceeff63959643461-11560': {'bytes': 127476, 'sha256': 'ee8096d899235a27572e978746566f498893876dbc8898671af8cfe44331e14b'},
+    'property-map-price-ceeff63959643461-11590': {'bytes': 115223, 'sha256': '11b7da5300cc88d4c1339bc3a845960671a5722f18b8bff32d752094b14a7817'},
+    'property-map-price-ceeff63959643461-11620': {'bytes': 68595, 'sha256': '7d99e7ec0d2d755478c8814ac31080f1ce9f4192765b8cf0759e8b4f02132fe3'},
+    'property-map-price-ceeff63959643461-11650': {'bytes': 182515, 'sha256': '881cec73b933394ed674374d5cfd0c7bcd3b76e46e176c578c50c4103c09c45e'},
+    'property-map-price-ceeff63959643461-11680': {'bytes': 157559, 'sha256': 'd019df10ca402f3b6cdb8720ffaed9badcbf6975ee06a0034c95d38d3679936b'},
+    'property-map-price-ceeff63959643461-11710': {'bytes': 124353, 'sha256': 'd0ad01881287847b53c11380a9e9f57614c814b4a45d033a340ef4444b5e9e90'},
+    'property-map-price-ceeff63959643461-11740': {'bytes': 119472, 'sha256': '23297f8b49588e93832bb3e0a01660bfc3bdabba879a2ed34b6e0b21b61e7746'},
 })
 
 

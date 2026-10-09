@@ -1,4 +1,5 @@
-import {atlasFetch} from './atlas-client';
+import {atlasFetch,fetchPinnedMapPriceJson} from './atlas-client';
+import current from './data/map-price-presets-ceeff63959643461.json';
 import {areaMatches} from '../shared/property-area';
 import {historyMonths} from '../shared/property-history';
 import type {PropertyViewState} from '../shared/property-view';
@@ -6,6 +7,7 @@ import {parseComplexPriceSummaries} from './property-summary-client';
 import type {ComplexPriceSummary,SummaryPartition} from './property-map-prices';
 const urls=import.meta.glob<string>('./data/map-price-presets-b87eea7c1c03dc21/*.json',{eager:true,query:'?url',import:'default'});
 const registered='property-b87eea7c1c03dc21';
+const currentUrls=import.meta.glob<string>('./data/map-price-presets-ceeff63959643461/*.json',{eager:true,query:'?url',import:'default'});
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 export function parseMapPricePreset(value:unknown,release:string,view:PropertyViewState):{rows:ComplexPriceSummary[];partitions:SummaryPartition[]}|null{
   if(!object(value)||value.schema_version!==1||value.kind!=='property-map-price-presets'||value.property_release_id!==release||value.lawd_code!==view.region||!Array.isArray(value.point_ids)||value.point_ids.length>4000||!Array.isArray(value.partitions)||value.partitions.length>1200||!object(value.views))throw Error('지도 가격 자료 형식 오류');
@@ -30,6 +32,11 @@ export function parseMapPricePreset(value:unknown,release:string,view:PropertyVi
   return {rows,partitions:partitions.filter(p=>wanted.has(p.deal_month))};
 }
 export async function loadMapPricePreset(release:string,view:PropertyViewState,signal:AbortSignal){
+  if(release===current.release_id){
+    const stem=`property-map-price-${release.slice(9)}-${view.region}`,reference=current.files.find(row=>row.stem===stem);
+    const url=currentUrls[`./data/map-price-presets-ceeff63959643461/${stem}.json`];if(!reference||!url)return null;
+    return parseMapPricePreset(await fetchPinnedMapPriceJson(url,reference,signal),release,view);
+  }
   if(release!==registered)return null;
   const url=urls[`./data/map-price-presets-b87eea7c1c03dc21/${view.region}.json`];if(!url)return null;
   const response=await atlasFetch(url,{signal});if(!response.ok)throw Error('지도 가격 조회 실패');
