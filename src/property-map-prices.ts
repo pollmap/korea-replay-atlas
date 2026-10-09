@@ -53,7 +53,7 @@ export function propertyMapPrices(base:FeatureCollection<Point>,release:string,v
       unit=amount===null?'금액 미제공':`${moneyLabel(Math.round(amount/Number(row.area_m2)*M2_PER_PYEONG))}/전용평`;
       label=`${price}\n전용 ${exclusivePyeong(row.area_m2)}평`;
     }else label=data.state==='loading'?'조건 확인 중':data.state==='error'?'조회 실패':data.state==='missing'?'조건 미연결':complete?'해당 거래 없음':'미수집 포함';
-    return {...feature,properties:{...p,property_filter_key:key,filtered_price_match:priceMatch&&metadataMatch&&tradeMatch,filtered_label:label,filtered_price_label:price||label,filtered_unit_label:unit||label,
+    return {...feature,properties:{...p,property_filter_key:key,filtered_price_match:!!id&&(!view.region||id.startsWith(`molit-apt:${view.region}:`))&&priceMatch&&metadataMatch&&tradeMatch,filtered_label:label,filtered_price_label:price||label,filtered_unit_label:unit||label,
       filtered_contract_date:row?.latest_contract_date??'',filtered_area_m2:row?.area_m2??'',filtered_complete:complete&&data.state==='ready'}};
   })};
 }

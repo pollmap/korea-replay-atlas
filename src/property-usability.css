@@ -172,7 +172,7 @@
 
 /* PC apartment workspace: a single detail scroll surface, with price and chart first. */
 @media(min-width:781px){
- .app-shell.atlas-shell.is-2d.is-exploring{--atlas-header-height:48px;--atlas-rail-width:380px}
+ .app-shell.atlas-shell.is-2d.is-exploring{--atlas-header-height:48px;--atlas-rail-width:340px}
  .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .topbar{height:48px;min-height:48px}
  .app-shell.atlas-shell.is-2d.is-exploring .property-panel{top:48px;width:var(--atlas-rail-width);bottom:0}
  .app-shell.atlas-shell.is-2d.is-exploring .property-reopen{top:64px}
@@ -316,9 +316,9 @@
 
 /* Keep candidates available while giving the selected apartment more map space. */
 .candidate-list-toggle{display:none}
-@media(min-width:1600px){
+@media(min-width:1920px){
  .app-shell.atlas-shell.is-2d.is-exploring .candidate-list-toggle{display:block}
- .app-shell.atlas-shell.is-2d.is-exploring:has(.property-panel.list-collapsed.showing-complex){--atlas-rail-width:420px}
+ .app-shell.atlas-shell.is-2d.is-exploring:has(.property-panel.list-collapsed.showing-complex){--atlas-rail-width:400px}
  .app-shell.atlas-shell.is-2d.is-exploring .showing-complex.list-collapsed .retained-complex-list{display:none}
  .app-shell.atlas-shell.is-2d.is-exploring .showing-complex.list-collapsed>:is(.property-header,.complex-actionbar,.complex-section-nav,.property-body){margin-left:0}
 }

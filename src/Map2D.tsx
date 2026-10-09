@@ -1,3 +1,4 @@
+import {visibleMapPadding} from './property-map-viewport';
 import {propertyExplorationRegions,propertyProvinceLabel} from '../shared/property-scope';
 import {loadMapPricePreset} from './property-map-presets';
 import {loadRegionFilterMetrics,type RegionFilterMetrics} from './region-filter-metrics';
@@ -118,7 +119,7 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
       let complexes:PropertyComplex[]|undefined;
       const metadataRequested=!!view.legalDong||!!view.listQuery||!!view.buildYearMin||!!view.buildYearMax;
       const publish=(data:MapPriceData)=>{if(!controller.signal.aborted)setPriceData({key:filterKey,data:propertyMapPrices(base,release,view,{...data,complexes,metadataState:complexes?'ready':data.state==='error'?'error':'loading'})});};
-      publish({state:'loading',rows:[],partitions:[]});
+      // Preserve installed markers while new conditions load.
       try{
         const linked=base.features.some(feature=>feature.properties?.property_release_id===release&&String(feature.properties?.property_complex_id).startsWith(`molit-apt:${view.region}:`));
         const metadataTask=(async()=>{
@@ -317,7 +318,9 @@ const Map2D=forwardRef<MapHandle,Props>(function Map2D(props,ref){
         const key=navigation.key;
         if(centeredPropertyKey!==key){
           centeredPropertyKey=key;
-          map.easeTo({center:navigation.center,zoom:navigation.zoom,offset:[0,matchMedia('(max-width:780px)').matches&&!latest.current.focused?-Math.min(150,Math.round(node.clientHeight*.2)):0],duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
+          const panel=document.querySelector<HTMLElement>('.property-panel:not([hidden])')?.getBoundingClientRect();
+          const padding=visibleMapPadding(node.clientWidth,node.clientHeight,panel,latest.current.focused);
+          map.easeTo({center:navigation.center,zoom:navigation.zoom,offset:[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2],duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:200});
         }
       }
       if(map.getLayer(APARTMENT_SELECTED_LAYER)){
