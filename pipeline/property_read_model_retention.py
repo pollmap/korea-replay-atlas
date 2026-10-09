@@ -8,6 +8,21 @@ from .real_estate import RealEstateError, _reject_links
 from .property_read_model import ReadModel, sha256
 
 
+def publication_pin(data):
+    state = Path(data).absolute() / 'public-release-status.json'; _reject_links(state)
+    if not state.exists():
+        return None
+    if state.stat().st_size > 16384:
+        raise RealEstateError('read_model_publication_pin')
+    value = json.loads(state.read_bytes())
+    if value.get('state') not in ('preparing', 'candidate_ready', 'publishing', 'publish_failed'):
+        return None
+    generation = value.get('generation')
+    if not isinstance(generation, str) or not re.fullmatch(r'[a-f0-9]{32}-[a-f0-9]{64}', generation):
+        raise RealEstateError('read_model_publication_pin')
+    return generation
+
+
 def reclaim_generations(data, *, acknowledged_generation, keep=3, grace_seconds=3600, now=None):
     if type(keep) is not int or keep < 3 or type(grace_seconds) is not int or grace_seconds < 3600:
         raise RealEstateError('read_model_retention_policy')
@@ -26,6 +41,9 @@ def reclaim_generations(data, *, acknowledged_generation, keep=3, grace_seconds=
             generations.append(path)
     generations.sort(key=lambda p: p.stat().st_mtime_ns, reverse=True)
     protected = {current_path, *generations[:keep]}
+    pin = publication_pin(data)
+    if pin:
+        protected.add(folder / (pin + '.sqlite'))
     removed = []; skipped = []
     for path in generations:
         stat = path.stat()
@@ -47,6 +65,8 @@ def reclaim_generations(data, *, acknowledged_generation, keep=3, grace_seconds=
             if json.loads((folder / 'current.json').read_bytes()).get('generation') != generation:
                 return {'state': 'head_changed', 'deleted_files': len(removed),
                         'deleted_bytes': sum(removed), 'skipped_files': len(skipped)}
+            if publication_pin(data) == path.stem:
+                continue
             path.unlink()
             removed.append(stat.st_size)
         except OSError:

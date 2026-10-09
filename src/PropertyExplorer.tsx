@@ -22,6 +22,7 @@ import PropertySurroundings from './PropertySurroundings';
 import PropertyListingLink from './PropertyListingLink';
 import PropertyMapLinks from './PropertyMapLinks';
 import ApartmentFacts from './ApartmentFacts';
+import PropertyManagementFees from './PropertyManagementFees';
 import {RENT_KINDS,rentKindLabel,rentKindMatches,type RentKind} from '../shared/property-rent';
 import {areaLabel} from '../shared/property-area';
 import type {HistoryRange} from '../shared/property-history';
@@ -31,7 +32,7 @@ import {confirmedPropertyNavigationPoint,type PropertyMapPoint} from '../shared/
 import {findPropertyMapPoint} from './property-map-points';
 import PropertyWatchlist,{usePropertyWatchlist} from './PropertyWatchlist';
 import type {WatchedComplex} from '../shared/property-watchlist';
-import {DetailUnavailable,PropertyComplexNote,PropertyLoanCalculator,PropertyRegionAnalysis} from './PropertyDetailTools';
+import {PropertyComplexNote,PropertyLoanCalculator,PropertyRegionAnalysis} from './PropertyDetailTools';
 import {createDetailSectionTracker,isDetailScrollKey} from './property-desktop';
 
 export type {PropertyViewState} from '../shared/property-view';
@@ -241,7 +242,7 @@ export default function PropertyExplorer({mapLayout=false,atlas,hidden,onClose,o
         <p className="property-caption">각 점은 계약 한 건입니다.{displayed.length>1000?' 화면에는 최근 1,000건을 표시하며 전체 기록은 표·CSV에서 확인할 수 있습니다.':''}{trade==='rent'?' 보증금과 월세는 함께 확인하세요.':''} 거래 구성의 변화가 가격 상승률을 뜻하지 않습니다.</p>
         </details>}
         {complex&&<section hidden={!desktopDetail&&detailSection!=='info'} data-detail-section="facts" tabIndex={-1} className="complex-facts compact complex-information" aria-label="공식 단지 정보"><h3>단지·건물 정보</h3>{!desktopDetail&&<PropertyMapLinks complex={complex} region={region.name}/>} {mapLayout&&(desktopDetail||detailSection==='info')&&<ApartmentFacts complexId={complex.id} release={atlas.property.release_id}/>}<dl><div><dt>단지명</dt><dd>{complex.name}</dd></div><div><dt>지역</dt><dd>{region.name}</dd></div><div><dt>법정동·지번</dt><dd>{[complex.legal_dong_name,complex.lot_number].filter(Boolean).join(' ')||'원문 미제공'}</dd></div><div><dt>건축연도</dt><dd>{complex.build_year??'원문 미제공'}</dd></div><div><dt>공식 식별번호</dt><dd>{complex.source_complex_id}</dd></div></dl><details className="property-caption"><summary>건물정보 기준</summary><p>국토교통부 신고 원문 · 건축연도는 입주 예정일과 다릅니다.</p></details>{pointError&&<p className="property-caption" role="status">{pointError} <button onClick={()=>setPointAttempt(value=>value+1)}>위치 다시 불러오기</button></p>}{complex.position?<button onClick={()=>locateOnMap({id:complex.id,name:complex.name,region:region.name,lon:complex.position!.longitude,lat:complex.position!.latitude,range:1300})}>지도에서 보기 ↗</button>:<details className={providerPointLinked?'property-coordinate-note':undefined}><summary>{confirmedMapPoint?'서울시 공식 지도 기준점':providerPointLinked?'서울시 제공 점 · 좌표 정확도 검토 중':'지역 지도 표시 중 · 단지 좌표 미연결'}</summary><p>{confirmedMapPoint?'공식 단지 ID·도로명주소로 연결하고 서울시 지도와 같은 좌표임을 확인했습니다. 단지 경계·출입구를 뜻하지 않습니다.':providerPointLinked?'서울시 단지 점과 국토부 실거래 ID를 유일한 도로명주소·단지명으로 연결했습니다. 지도 점의 좌표계와 위치 의미는 아직 검증 중이며, 실거래 단지의 확정 좌표로 취급하지 않습니다.':'공식 좌표가 확인되지 않아 단지 위치를 임의로 표시하지 않습니다.'}</p></details>}{desktopDetail&&<PropertyComplexNote key={complex.id} complex={complex}/>}</section>}
-        {desktopDetail&&complex&&<div data-detail-section="fees" tabIndex={-1}><DetailUnavailable title="관리비" link={{label:'K-apt에서 확인',url:'https://www.k-apt.go.kr/'}}/></div>}
+        {desktopDetail&&complex&&<div data-detail-section="fees" tabIndex={-1}><PropertyManagementFees key={`${atlas.property.release_id}:${complex.id}`} complexId={complex.id} release={atlas.property.release_id} active={!hidden&&detailSection==='fees'}/></div>}
         {mapLayout&&complex&&<div hidden={!desktopDetail&&detailSection!=='surroundings'&&detailSection!=='commute'} data-detail-section="life" tabIndex={-1} className="detail-life-section">{desktopDetail&&<h3>교통·생활</h3>}<div hidden={!desktopDetail&&detailSection!=='surroundings'}><PropertySurroundings complex={complex} region={region.name} releaseId={atlas.property.release_id} navigationPoint={confirmedMapPoint} active={!hidden&&(detailSection==='life'||detailSection==='surroundings')} onUseMapCenter={onUseMapCenter} onLocate={locateOnMap}/></div>{(desktopDetail||detailSection==='commute')&&<PropertyCommute complex={complex} region={region.name}/>}</div>}
         {!mapLayout&&complex&&detailSection==='commute'&&<PropertyCommute complex={complex} region={region.name}/>}
         {desktopDetail&&complex&&<><div data-detail-section="schools" tabIndex={-1}><PropertySurroundings complex={complex} region={region.name} releaseId={atlas.property.release_id} navigationPoint={confirmedMapPoint} category="school" active={!hidden&&detailSection==='schools'} onUseMapCenter={onUseMapCenter} onLocate={locateOnMap}/></div><div data-detail-section="region" tabIndex={-1}><PropertyRegionAnalysis metrics={series} month={month} region={region.name}/></div><div data-detail-section="costs" tabIndex={-1}><PropertyLoanCalculator/></div></>}

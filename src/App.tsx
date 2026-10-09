@@ -13,7 +13,8 @@ import {readFlatCamera} from '../shared/map2d';
 import {assertPinnedDeploymentV2,validateRuntimeV2,versionedShareUrlV2,type RuntimeV2} from '../shared/runtime-v2';
 import {readApartmentEntry} from '../shared/apartment-entry';
 import {useAtlas} from './useAtlas';
-import {regionNavigationPlace} from './region-navigation';
+import {propertyEntryCamera} from './property-entry-camera';
+import {findPropertyMapPoint,supportsPropertyMapPoint} from './property-map-points';
 import {PROPERTY_BRAND} from './property-brand';
 import type {PropertyViewState} from './PropertyExplorer';
 const Map2D=lazy(()=>import('./Map2D'));
@@ -51,9 +52,10 @@ export default function App(){
   const [measurement,setMeasurement]=useState(EMPTY_MEASUREMENT);
   const [flatCamera]=useState(()=>readFlatCamera(location.hash));
   const mapRef=useRef<MapHandle|null>(null);
-  const propertyFrameDone=useRef(false);
+  const [entryCamera,setEntryCamera]=useState<ReturnType<typeof propertyEntryCamera>|null>(null);
   const [sourcesOpen,setSourcesOpen]=useState(false);
   const dialogRef=useRef<HTMLElement|null>(null);
+  useEffect(()=>{void import('./Map2D').catch(()=>undefined);},[]);
   useEffect(()=>{
     const controller=new AbortController();
     void fetch('/api/v2/runtime',{signal:controller.signal,cache:'no-store'}).then(async first=>{
@@ -99,12 +101,14 @@ export default function App(){
   const propertyVisible=!!atlas.content&&propertyRequested;
   const goTo=useCallback((target:Place)=>{setPlace(target);mapRef.current?.flyTo(target,{overviewPanelVisible:!focusMode&&propertyOpen,focused:focusMode});},[focusMode,propertyOpen]);
   useEffect(()=>{
-    if(propertyFrameDone.current||!atlas.content)return;propertyFrameDone.current=true;
-    const params=new URLSearchParams(location.hash.slice(1));
-    if(params.has('flatCamera')||params.has('position'))return;
-    const region=atlas.content.regions.regions.find(row=>row.lawd_code===params.get('regionCode'));
-    const target=regionNavigationPlace(region??{name:params.get('regionQuery')??''},atlas.content.map);if(target)goTo(target);
-  },[atlas.content,goTo]);
+    if(entryCamera||!atlas.content)return;
+    let active=true;let timer:ReturnType<typeof setTimeout>|undefined;
+    const content=atlas.content,href=location.href,params=new URLSearchParams(location.hash.slice(1)),id=params.get('complex')??'';
+    const finish=(point:PropertyMapPoint|null)=>{if(active){const result=propertyEntryCamera(href,content,initial.place,flatCamera,point);setPlace(result.place);setEntryCamera(result);clearTimeout(timer);}};
+    if(flatCamera||params.has('position')||!supportsPropertyMapPoint(id,content.property.release_id))finish(null);
+    else {timer=setTimeout(()=>finish(null),750);void findPropertyMapPoint(id,content.property.release_id).then(finish,()=>finish(null));}
+    return()=>{active=false;clearTimeout(timer);};
+  },[atlas.content,entryCamera,initial.place,flatCamera]);
   const inspect=useCallback(()=>{},[]);
   const instant=initial.time;
   const share=async()=>{
@@ -126,8 +130,8 @@ export default function App(){
   const deploymentBlocked=initial.deployment!==null&&(!runtimeChecked||!!runtimeError);
   const showNational=()=>{selectPropertyRegion('');goTo(PLACES[0]);};
   return <div className={`app-shell map-first atlas-shell is-2d is-exploring apartment-only ${propertyVisible?'has-property':propertyRequested&&atlas.state==='loading'?'reserves-property':''} ${focusMode?'is-focused':''}`}>
-    {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전 확인 중'}</div>:<MapErrorBoundary><Suspense fallback={<div className="map-loading">지도 불러오는 중</div>}>
-      <Map2D ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} initialPlace={place} initialFlatCamera={flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={false} onSelect={inspect} onStatus={setMapStatus} inspectFeatures={false} onPropertyRegion={selectPropertyRegion} onPropertyComplex={selectPropertyComplex} propertyView={propertyMapView} onMarkerDisplay={requestMarker} propertyTrade={propertyMapView?.trade??'sale'} propertyMapPoint={propertyMapPoint} propertyRegion={propertyMapView?.region??initial.region} propertyRegionName={propertyRegionName} onPropertyProvince={selectPropertyProvince}/>
+    {deploymentBlocked?<div className="map-loading" role="alert">{runtimeError||'공유된 배포 버전 확인 중'}</div>:!entryCamera&&atlas.state!=='error'?<div className="map-loading">지도 불러오는 중</div>:<MapErrorBoundary><Suspense fallback={<div className="map-loading">지도 불러오는 중</div>}>
+      <Map2D ref={mapRef} catalog={catalog} layers={layers} boundaries={boundaries} overviewPanelVisible={propertyRequested} focused={focusMode} initialPlace={entryCamera?.place??place} initialFlatCamera={entryCamera?.camera??flatCamera} measurement={measurement} onMeasurement={setMeasurement} vectorData={atlas.content} vectorPending={atlas.state==='loading'||atlas.state==='error'&&!!runtime&&'schema_version' in runtime} lightweight={false} onSelect={inspect} onStatus={setMapStatus} inspectFeatures={false} onPropertyRegion={selectPropertyRegion} onPropertyComplex={selectPropertyComplex} propertyView={propertyMapView} onMarkerDisplay={requestMarker} propertyTrade={propertyMapView?.trade??'sale'} propertyMapPoint={propertyMapPoint} propertyRegion={propertyMapView?.region??initial.region} propertyRegionName={propertyRegionName} onPropertyProvince={selectPropertyProvince}/>
     </Suspense></MapErrorBoundary>}
     <header className="topbar">
       <a className="brand" href="#" onClick={event=>{event.preventDefault();showNational();}} aria-label="아파트 지도 처음으로"><span className="brand-symbol" aria-hidden="true"><svg viewBox="0 0 40 40" focusable="false"><path d="M5 32V16l10-6v22M15 32V7l12 5v20M27 19l8-4v17M3 33h34M9 19v2m0 5v2m11-15v3m0 5v3m0 4v2m12-10v3m0 4v2" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round"/></svg></span><span className="brand-wordmark"><strong>{PROPERTY_BRAND.name}</strong></span></a>

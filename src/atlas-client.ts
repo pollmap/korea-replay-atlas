@@ -64,6 +64,11 @@ export async function fetchPinnedPropertySearchJson(url:string,reference:PinnedJ
  if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256)||!Number.isSafeInteger(reference.bytes)||!reference.bytes||reference.bytes>8*1024*1024)throw new Error('검색 자료의 고정 참조를 확인하지 못했습니다.');
  return fetchVerifiedJson(parsed.href,reference,signal);
 }
+export async function fetchPinnedOfficialContextJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
+  const parsed=new URL(url,location.origin),production=/^\/assets\/official-(schools|fees)-\d{8}-[A-Za-z0-9_-]{8}\.json$/,development=/^\/src\/data\/official-(schools|fees)-\d{8}\.json$/;
+  if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256)||!Number.isSafeInteger(reference.bytes)||!reference.bytes||reference.bytes>4*1024*1024)throw new Error('공식 자료의 고정 참조를 확인하지 못했습니다.');
+  return fetchVerifiedJson(parsed.href,reference,signal);
+}
 async function fetchVerifiedJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const expected=reference.byte_length??reference.bytes;

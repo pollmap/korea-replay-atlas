@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry correction candidate preparation without duplicate builds
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Asia/Seoul
+OnUnitInactiveSec=30m
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

@@ -16,7 +16,7 @@ interface SurroundingsRecordBase {
   id:string;name:string;address?:string;
   /** Straight-line distance from the explicitly selected reference; never an ETA. */
   distanceMeters:number|null;source:SurroundingsSource;
-  position?:{longitude:number;latitude:number;method:'original_node'|'area_representative_point'|'line_midpoint'};
+  position?:{longitude:number;latitude:number;method:'original_node'|'area_representative_point'|'line_midpoint'|'official_school_location'};
   development?:{stage:keyof typeof DEVELOPMENT_STAGES;effectiveDate:string;documentUrl:string};
 }
 export type SurroundingsRecord={[C in SurroundingsCategory]:SurroundingsRecordBase&{category:C;type:typeof SURROUNDINGS_TYPES[C][number][0]}}[SurroundingsCategory];
