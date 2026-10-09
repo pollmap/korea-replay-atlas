@@ -157,7 +157,26 @@ export async function deployPagesStage({receiptPath,projectRoot=process.cwd(),ap
   return record;
 }
 export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.cwd(),fetcher=fetch}){
-  const checked=await verifyPagesStage(receiptPath,{projectRoot}),project=checked.receipt.project,url=new URL(origin);
+  const checked=await verifyPagesStage(receiptPath,{projectRoot});
+  return verifyRemoteStage(checked,origin,fetcher);
+}
+class PagesRuntimePending extends Error {}
+/** A successful deployment may propagate after its POST returned. Retry only GET
+ * checks of a valid older runtime, and hash the local stage once. Never redeploy. */
+export async function waitForPagesRemote({receiptPath,origin,projectRoot=process.cwd(),fetcher=fetch,attempts=18,intervalMs=5000,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),onProgress=()=>{}}){
+  if(!Number.isSafeInteger(attempts)||attempts<1||attempts>24||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>5000)throw new Error('Invalid remote verification retry budget');
+  const checked=await verifyPagesStage(receiptPath,{projectRoot});
+  for(let attempt=1;attempt<=attempts;attempt++){
+    try{return await verifyRemoteStage(checked,origin,fetcher);}
+    catch(error){
+      if(!(error instanceof PagesRuntimePending)||attempt===attempts)throw error;
+      onProgress({phase:'runtime-propagation',attempt,remaining:attempts-attempt});
+      await pause(intervalMs);
+    }
+  }
+}
+async function verifyRemoteStage(checked,origin,fetcher){
+  const project=checked.receipt.project,url=new URL(origin);
   const production=origin===`https://${project}.pages.dev`;
   if(url.origin!==origin||(!production&&!new RegExp(`^[a-f0-9]{8}\\.${project}\\.pages\\.dev$`).test(url.hostname))||url.protocol!=='https:')throw new Error('An actual immutable deployment or exact production origin is required');
   // The public host shares the already verified candidate. Immutable hosts always pin themselves,
@@ -173,7 +192,10 @@ export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.
     if(response.status!==200||runtime.schema_version!==2||runtime.platform!=='cloudflare-pages'||runtime.project!==project
       ||runtime.artifact_sha256!==checked.receipt.artifact_sha256||runtime.release_id!==checked.receipt.policy.release_id
       ||runtime.snapshot?.origin!==snapshotOrigin||runtime.snapshot?.hash!==new URL(snapshotOrigin).hostname.slice(0,8)
-      ||JSON.stringify(runtime.data)!==JSON.stringify(checked.receipt.policy.data))throw new Error('Remote runtime does not match the staged app/data pin');
+      ||JSON.stringify(runtime.data)!==JSON.stringify(checked.receipt.policy.data)){
+      const validOlderRuntime=response.status===200&&runtime.schema_version===2&&runtime.platform==='cloudflare-pages'&&runtime.project===project&&/^[a-f0-9]{64}$/.test(runtime.artifact_sha256??'')&&typeof runtime.release_id==='string'&&runtime.snapshot&&typeof runtime.snapshot.origin==='string'&&runtime.data&&typeof runtime.data.origin==='string';
+      throw new (validOlderRuntime?PagesRuntimePending:Error)('Remote runtime does not match the staged app/data pin');
+    }
     samples.push({path:'/api/v2/runtime',passed:true});
   }
   const names=project==='korea-replay'?['index.html','data/catalog.json',...checked.entries.filter(entry=>/^assets\/.*\.(?:js|css)$/.test(entry.target)).map(entry=>entry.target)]:[checked.receipt.atlas_manifest.path.slice(1)];
@@ -184,7 +206,10 @@ export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.
   const report={schema_version:1,passed:true,origin,origin_kind:production?'production':'immutable',snapshot_origin:snapshotOrigin,project,artifact_sha256:checked.receipt.artifact_sha256,release_id:checked.receipt.release_id,samples,
     scope:'Runtime, all application JS/CSS, index/catalog or data atlas, CORS and static 404. Browser visuals, live API, data closure and rollback require separate verification.'};
   const reportName=production?'verified-production.json':'verified-preview-'+url.hostname.slice(0,8)+'.json';
-  await writeFile(path.join(checked.directory,reportName),JSON.stringify(report,null,2)+'\n',{flag:'wx'});return report;
+  const reportPath=path.join(checked.directory,reportName),body=JSON.stringify(report,null,2)+'\n';
+  try{await writeFile(reportPath,body,{flag:'wx'});}
+  catch(error){if(error.code!=='EEXIST')throw error;if(await readFile(reportPath,'utf8')!==body)throw new Error('Existing remote verification proof differs');}
+  return report;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
   try{
@@ -193,7 +218,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
     if(command==='inspect')result=await api.inspect(target);
     else if(command==='create'&&flag==='--execute')result=await api.create(target);
     else if(command==='upload'&&['--preview','--production'].includes(flag))result=await deployPagesStage({receiptPath:target,api,production:flag==='--production',onProgress:value=>process.stdout.write(JSON.stringify(value)+'\n')});
-    else if(command==='verify')result=await verifyPagesRemote({receiptPath:target,origin:flag});
+    else if(command==='verify')result=await waitForPagesRemote({receiptPath:target,origin:flag,onProgress:value=>process.stdout.write(JSON.stringify(value)+'\n')});
     else throw new Error('Usage: inspect <project> | create <project> --execute | upload <receipt> --preview|--production | verify <receipt> <actual-preview-or-production-origin>; credentials only in environment');
     process.stdout.write(JSON.stringify(result,null,2)+'\n');
   }catch(error){process.stderr.write(String(error.message)+'\n');process.exitCode=1;}

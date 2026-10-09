@@ -1,9 +1,9 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {mkdtemp,readFile,readdir,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,readdir,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {createPagesApi,createPagesAssetSession,pagesAssetHash,workerBundle,verifyPagesRemote,uploadPagesBuckets} from '../scripts/pages-api.mjs';
+import {createPagesApi,createPagesAssetSession,pagesAssetHash,workerBundle,verifyPagesRemote,waitForPagesRemote,uploadPagesBuckets} from '../scripts/pages-api.mjs';
 import {verifyPagesStage} from '../scripts/pages-release.mjs';
 vi.mock('../scripts/pages-release.mjs',async importOriginal=>{
   const actual=await importOriginal();return {...actual,verifyPagesStage:vi.fn(actual.verifyPagesStage)};
@@ -200,6 +200,36 @@ describe('Pages REST-only deployment boundary',()=>{
 });
 
 describe('Pages remote origin and immutable sharing verification',()=>{
+  it('waits for a valid older runtime using only GETs and one local stage verification',async()=>{
+    const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),current=remoteResponses(fixture,publicOrigin),previous=remoteResponses(fixture,publicOrigin,{artifact_sha256:'c'.repeat(64)});
+    let checks=0;const fetcher=vi.fn((url,init)=>url.endsWith('/api/v2/runtime')&&++checks<3?previous(url,init):current(url,init));
+    const pause=vi.fn(async()=>{}),progress=[];
+    const report=await waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher,pause,onProgress:value=>progress.push(value)});
+    expect(report.passed).toBe(true);expect(checks).toBe(3);expect(pause.mock.calls).toEqual([[5000],[5000]]);
+    expect(verifyPagesStage).toHaveBeenCalledTimes(1);expect(progress).toHaveLength(2);
+    expect(fetcher.mock.calls.every(([,init])=>!init.method||init.method==='GET')).toBe(true);
+  });
+  it('stops after its read-only runtime retry budget and writes no success proof',async()=>{
+    const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),pause=vi.fn(async()=>{}),fetcher=remoteResponses(fixture,publicOrigin,{artifact_sha256:'c'.repeat(64)});
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher,pause,attempts:3})).rejects.toThrow('Remote runtime');
+    expect(pause).toHaveBeenCalledTimes(2);expect(fetcher).toHaveBeenCalledTimes(3);expect(await readdir(fixture.directory)).toEqual([]);
+  });
+  it('does not wait on corrupt static bytes, malformed runtimes or forbidden responses',async()=>{
+    const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),pause=vi.fn(async()=>{}),normal=remoteResponses(fixture,publicOrigin);
+    const corrupt=vi.fn((url,init)=>url.endsWith('/assets/app.js')?new Response('changed'):normal(url,init));
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher:corrupt,pause})).rejects.toThrow('Remote static bytes');
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher:async()=>Response.json({schema_version:1}),pause})).rejects.toThrow('Remote runtime');
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher:async()=>Response.json({message:'forbidden'},{status:403}),pause})).rejects.toThrow('Remote runtime');
+    expect(pause).not.toHaveBeenCalled();
+  });
+  it('rechecks the live site and reuses an identical proof without rewriting it',async()=>{
+    const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),fetcher=remoteResponses(fixture,publicOrigin);
+    const report=await verifyPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher});
+    fetcher.mockClear();expect(await waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher})).toEqual(report);
+    expect(fetcher).toHaveBeenCalled();
+    await writeFile(path.join(fixture.directory,'verified-production.json'),'{}\n');
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher})).rejects.toThrow('Existing remote verification proof differs');
+  });
   it.each([null,'https://87654321.korea-replay.pages.dev'])('verifies an immutable host against itself with staged share policy %s',async snapshotOrigin=>{
     const fixture=await remoteFixture({snapshotOrigin}),fetcher=remoteResponses(fixture,previewOrigin);
     const report=await verifyPagesRemote({receiptPath:fixture.receiptPath,origin:previewOrigin,fetcher});
