@@ -47,6 +47,16 @@ def test_reader_ack_and_grace_are_required(tmp_path):
         reclaim_generations(data, acknowledged_generation=model['generation'], keep=1)
 
 
+def test_in_progress_publication_pin_preserves_old_generation(tmp_path):
+    data, model, paths = copies(tmp_path)
+    vps_runtime.write_json(data / 'public-release-status.json', {'state': 'preparing', 'generation': paths[0].stem})
+    result = reclaim_generations(data, acknowledged_generation=model['generation'], now=10000)
+    assert paths[0].exists() and result['deleted_files'] == len(paths) - 4
+    vps_runtime.write_json(data / 'public-release-status.json', {'state': 'preparing', 'generation': '../../wrong'})
+    with pytest.raises(RealEstateError, match='publication_pin'):
+        reclaim_generations(data, acknowledged_generation=model['generation'], now=10000)
+
+
 def test_corrupt_or_changed_copies_are_preserved(tmp_path):
     data, model, paths = copies(tmp_path)
     paths[0].write_bytes(b'not a verified generation'); os.utime(paths[0], (100, 100))

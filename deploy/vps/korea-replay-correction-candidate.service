@@ -1,0 +1,19 @@
+[Unit]
+Description=Prepare one verified apartment correction candidate
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/services/korea-replay/workspaces/matdongsan
+ExecStart=/usr/bin/python3 -B -m pipeline.property_publication_queue --data /srv/services/korea-replay/shared/data --output /srv/services/korea-replay/shared/correction-publication
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=2G
+CPUQuota=75%
+TimeoutStartSec=8h
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -61,6 +61,18 @@ def read_state(path):
     return json.loads(path.read_bytes())
 
 
+def publication_status(data):
+    state = read_state(Path(data) / 'public-release-status.json')
+    # Never expose private candidate paths, credentials or arbitrary publisher output.
+    value = {'automatic': state.get('automatic') is True,
+             'site': 'https://korea-replay.pages.dev/', 'state': state.get('state', 'not_started'),
+             'acquired_is_not_published': state.get('public_release') is not True}
+    for key in ('release_id', 'published_at', 'error_code'):
+        if isinstance(state.get(key), str):
+            value[key] = state[key][:128]
+    return value
+
+
 def available_trades(db, *, day, budget=8000):
     """An exhausted rent source must not starve the separate sale allowance."""
     used = dict(db.execute('SELECT trade_type,COUNT(*) FROM calls WHERE day=? GROUP BY trade_type', (day,)))
@@ -266,8 +278,7 @@ class PropertyAPI:
         return {'service': 'korea-replay', 'at': instant(), 'acquisition': coverage,
                 'read_model': manifest, 'read_model_error': read_model_error,
                 'worker': read_state(self.data / 'worker-status.json'),
-                'publication': {'automatic': False, 'site': 'https://korea-replay.pages.dev/',
-                                'acquired_is_not_published': True}}
+                'publication': publication_status(self.data)}
 
     def transactions(self, query):
         allowed = {'regionCode', 'month', 'trade', 'limit', 'offset', 'snapshot'}
