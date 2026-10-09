@@ -1,7 +1,23 @@
 import {createHash} from 'node:crypto';
 import {afterEach,expect,it,vi} from 'vitest';
-import {fetchPinnedJson,fetchPinnedPoiJson,atlasNetworkStats} from '../src/atlas-client';
+import {fetchPinnedJson,fetchPinnedPoiJson,fetchPinnedMapPriceJson,atlasNetworkStats} from '../src/atlas-client';
 afterEach(()=>vi.unstubAllGlobals());
+it('pins current map prices and rejects changed bytes, foreign URLs and oversize metadata before use',async()=>{
+  vi.stubGlobal('location',{origin:'https://example.com'});
+  const body='{"case":"map-prices"}',sha256=createHash('sha256').update(body).digest('hex'),ref={sha256,bytes:Buffer.byteLength(body)};
+  const url='/assets/property-map-price-ceeff63959643461-11710-abcdefgh.json',fetcher=vi.fn(async()=>new Response(body));vi.stubGlobal('fetch',fetcher);
+  expect(await fetchPinnedMapPriceJson(url,ref,new AbortController().signal)).toEqual({case:'map-prices'});
+  expect(await fetchPinnedMapPriceJson(url,ref,new AbortController().signal)).toEqual({case:'map-prices'});expect(fetcher).toHaveBeenCalledTimes(1);
+  await expect(fetchPinnedMapPriceJson(url,{...ref,bytes:ref.bytes+1},new AbortController().signal)).rejects.toThrow('크기');
+  for(const invalid of ['https://other.example'+url,url+'?x=1','/assets/11710-abcdefgh.json'])await expect(fetchPinnedMapPriceJson(invalid,ref,new AbortController().signal)).rejects.toThrow('참조');
+  await expect(fetchPinnedMapPriceJson(url,{...ref,bytes:1024*1024+1},new AbortController().signal)).rejects.toThrow('참조');
+  const controller=new AbortController();controller.abort();
+  await expect(fetchPinnedMapPriceJson(url,ref,controller.signal)).rejects.toMatchObject({name:'AbortError'});
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(body+' ')));
+  await expect(fetchPinnedMapPriceJson(url.replace('abcdefgh','ijklmnop'),ref,new AbortController().signal)).rejects.toThrow('내용');
+  vi.stubGlobal('fetch',vi.fn(async()=>new Response(body.replace('prices','priceX'))));
+  await expect(fetchPinnedMapPriceJson(url.replace('abcdefgh','qrstuvwx'),ref,new AbortController().signal)).rejects.toThrow('내용');
+});
 it('shares hash-verified facility assets without widening the data URL contract',async()=>{
   vi.stubGlobal('location',{origin:'https://example.com'});
   const body='{"case":"facilities"}',sha256=createHash('sha256').update(body).digest('hex'),ref={sha256,bytes:Buffer.byteLength(body)};

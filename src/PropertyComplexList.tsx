@@ -14,8 +14,10 @@ import {loadComplexPriceSummaries} from './property-summary-client';
 import {discoverPropertySummaryComplexes} from './property-summary-discovery';
 import {summaryPrice} from './property-monthly-summary';
 import type {MonthlySummaryData} from './PropertyMonthlySummary';
+import {propertyListSummaryComplex} from './property-list-query';
 
 export interface PropertyComplexListProps {
+  visible?:boolean;
   compactControls?:boolean;
   qualificationKey?:string;onQualification?:(value:{key:string;id:string;eligible:boolean}|null)=>void;
   filtersState?:readonly [PropertyDiscoveryFilters,Dispatch<SetStateAction<PropertyDiscoveryFilters>>];
@@ -30,20 +32,21 @@ export interface PropertyComplexListProps {
 }
 const PAGE_SIZE=40;
 
-export default function PropertyComplexList({qualificationKey,onQualification,compactControls=false,complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea,latestPrice,onLatestPrice,filtersState}:PropertyComplexListProps){
+export default function PropertyComplexList({visible:listVisible=true,qualificationKey,onQualification,compactControls=false,complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea,latestPrice,onLatestPrice,filtersState}:PropertyComplexListProps){
   const fallbackFilters=useState<PropertyDiscoveryFilters>(EMPTY_PROPERTY_DISCOVERY_FILTERS),[page,setPage]=useState(0);
   const [localFilters,setFilters]=filtersState??fallbackFilters;
   const filters=useMemo(()=>generalPropertyFilters(localFilters,{area,latestPrice,dong,rentKind}),[localFilters,rentKind,dong,area,latestPrice]);
   useEffect(()=>setPage(0),[rentKind,dong,area,periodMonths,month,latestPrice?.min,latestPrice?.max,localFilters.query,localFilters.sort,localFilters.buildYearMin,localFilters.buildYearMax,localFilters.hasTrades]);
-  const summaryRequested=!!release&&!!savedFilterRegion&&!!month&&periodMonths!==undefined&&HISTORY_RANGES.includes(periodMonths);
+  const summaryRequested=(listVisible||!!selectedId)&&!!release&&!!savedFilterRegion&&!!month&&periodMonths!==undefined&&HISTORY_RANGES.includes(periodMonths);
+  const summaryComplex=propertyListSummaryComplex(listVisible,selectedId);
   const months=useMemo(()=>summaryRequested?historyMonths(month!,periodMonths!):[],[summaryRequested,month,periodMonths]);
-  const summaryKey=summaryRequested?JSON.stringify([release,savedFilterRegion,month,periodMonths,trade,area??'',rentKind??'all']):'';
+  const summaryKey=summaryRequested?JSON.stringify([release,savedFilterRegion,month,periodMonths,trade,area??'',rentKind??'all',summaryComplex??'']):'';
   const [summary,setSummary]=useState<{key:string;state:'loading'|'ready'|'unavailable'|'error';data?:MonthlySummaryData;error?:string}>({key:'',state:'loading'});
   const [attempt,setAttempt]=useState(0);
   useEffect(()=>{if(!summaryRequested)return;const controller=new AbortController();
-    void loadComplexPriceSummaries(release!,savedFilterRegion!,months,controller.signal,undefined,{trade,area,rentKind}).then(data=>{if(!controller.signal.aborted)setSummary(data?{key:summaryKey,state:'ready',data}:{key:summaryKey,state:'unavailable'});}).catch(reason=>{if(!controller.signal.aborted)setSummary({key:summaryKey,state:'error',error:reason instanceof Error?reason.message:'선택 기간의 목록 요약을 불러오지 못했습니다.'});});
+    void loadComplexPriceSummaries(release!,savedFilterRegion!,months,controller.signal,summaryComplex,{trade,area,rentKind}).then(data=>{if(!controller.signal.aborted)setSummary(data?{key:summaryKey,state:'ready',data}:{key:summaryKey,state:'unavailable'});}).catch(reason=>{if(!controller.signal.aborted)setSummary({key:summaryKey,state:'error',error:reason instanceof Error?reason.message:'선택 기간의 목록 요약을 불러오지 못했습니다.'});});
     return()=>controller.abort();
-  },[summaryRequested,release,savedFilterRegion,months,summaryKey,attempt,trade,area,rentKind]);
+  },[summaryRequested,release,savedFilterRegion,months,summaryKey,attempt,trade,area,rentKind,summaryComplex]);
   const summaryActive=summaryRequested&&!(summary.key===summaryKey&&summary.state==='unavailable');
   const summaryReady=summaryActive&&summary.key===summaryKey&&summary.state==='ready';
   const summaryError=summaryActive&&summary.key===summaryKey&&summary.state==='error'?summary.error:undefined;

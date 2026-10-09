@@ -654,10 +654,12 @@ def test_poi_json_rejects_ambiguous_properties_and_nonfinite_constants(body):
         frontend._poi_json(body)
 
 
-@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-b87eea7c1c03dc21', '11710', 'official-schools-20261010', 'official-fees-20261010'])
+@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-b87eea7c1c03dc21', '11710', 'official-schools-20261010', 'official-fees-20261010', 'property-map-price-ceeff63959643461-11710'])
 def test_only_exact_audited_property_metrics_can_enter_frontend(fixture, stem):
     data = Path(__file__).resolve().parents[1] / 'src/data'
-    source = data / (stem + '.json') if stem.startswith(('property-', 'official-')) else data / 'map-price-presets-b87eea7c1c03dc21' / (stem + '.json')
+    source = (data / 'map-price-presets-ceeff63959643461' / (stem + '.json') if stem.startswith('property-map-price-')
+              else data / (stem + '.json') if stem.startswith(('property-', 'official-'))
+              else data / 'map-price-presets-b87eea7c1c03dc21' / (stem + '.json'))
     target = fixture.client / ('assets/' + stem + '-12345678.json')
     target.write_bytes(source.read_bytes())
     result = restage(fixture)
@@ -665,7 +667,7 @@ def test_only_exact_audited_property_metrics_can_enter_frontend(fixture, stem):
     assert_prior_unchanged(fixture)
 
 
-@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-ffffffffffffffff', '11710', '99999', 'official-schools-20261010', 'official-fees-20261010', 'official-fees-20261011'])
+@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-ffffffffffffffff', '11710', '99999', 'official-schools-20261010', 'official-fees-20261010', 'official-fees-20261011', 'property-map-price-ceeff63959643461-11710', 'property-map-price-ffffffffffffffff-11710'])
 def test_rejects_forged_or_unregistered_property_metric_bytes(fixture, stem):
     (fixture.client / ('assets/' + stem + '-12345678.json')).write_bytes(b'{"count":999}')
     with pytest.raises(ValueError, match='Property metric asset differs from audited bytes'):
@@ -698,6 +700,23 @@ def test_only_the_exact_preserved_public_revision_archive_is_approved():
     assert not frontend._approved_metric_asset(name, 'a'*64, size)
     assert not frontend._approved_metric_asset(name, sha, size+1)
     assert not frontend._approved_metric_asset('assets/property-revisions-ffffffffffffffff-abcdefgh.json', sha, size)
+
+
+def test_current_map_preset_inventory_pins_every_region_without_old_release_aliases():
+    data = Path(__file__).resolve().parents[1] / 'src/data'
+    inventory = json.loads((data / 'map-price-presets-ceeff63959643461.json').read_text())
+    navigation = json.loads((data / 'seoul-property-navigation-ceeff63959643461.json').read_text())
+    files = inventory['files']
+    assert len(files) == 25
+    assert len({row['stem'] for row in files}) == 25
+    for row in files:
+        path = data / 'map-price-presets-ceeff63959643461' / (row['stem'] + '.json')
+        assert path.stat().st_size == row['bytes'] < 1024 * 1024
+        assert digest(path) == row['sha256']
+        assert frontend._approved_metric_asset('assets/' + row['stem'] + '-abcdefgh.json', row['sha256'], row['bytes'])
+        value = json.loads(path.read_text())
+        assert value['property_release_id'] == inventory['release_id']
+        assert set(value['point_ids']).issubset({point[0] for point in navigation['points']})
 
 
 def test_navigation_evidence_requires_exact_source_audited_bytes(fixture):

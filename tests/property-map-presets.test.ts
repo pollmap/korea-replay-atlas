@@ -2,6 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {parseMapPricePreset} from '../src/property-map-presets';
 import {readPropertyView} from '../shared/property-view';
 import example from '../src/data/map-price-presets-b87eea7c1c03dc21/11710.json';
+import current from '../src/data/map-price-presets-ceeff63959643461/property-map-price-ceeff63959643461-11710.json';
 const release='property-b87eea7c1c03dc21';
 const view=readPropertyView('#regionCode=11710&trade=sale&month=202609&historyMonths=36&area=84-band',{from:'200609',to:'202610',latest_complete_month:'202609'});
 describe('small map price presets',()=>{
@@ -32,4 +33,19 @@ describe('small map price presets',()=>{
       expect(parseMapPricePreset(example,release,selected)).not.toBeNull();
     }
   });
+});
+
+it('uses the current immutable release for every generated filter without mixing an old release',()=>{
+  const pinned='property-ceeff63959643461';
+  for(const key of Object.keys(current.views)){
+    const [month,length,area,kind]=key.split('|');
+    const selected=readPropertyView(`#regionCode=11710&month=${month}&historyMonths=${length}&area=${area}&trade=${kind==='sale'?'sale':'rent'}&rentKind=${kind==='rent'?'all':kind}`,{from:'200609',to:'202610',latest_complete_month:'202609'});
+    const result=parseMapPricePreset(current,pinned,selected)!;
+    expect(result).not.toBeNull();
+    expect(result.rows.every(row=>current.point_ids.includes(row.complex_id))).toBe(true);
+  }
+  expect(parseMapPricePreset(current,pinned,{...view,month:'202608'})).toBeNull();
+  expect(parseMapPricePreset(current,pinned,{...view,area:'range:60:85'})).toBeNull();
+  expect(()=>parseMapPricePreset(current,release,view)).toThrow();
+  expect(()=>parseMapPricePreset(current,pinned,{...view,region:'11680'})).toThrow();
 });

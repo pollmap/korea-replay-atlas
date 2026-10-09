@@ -69,6 +69,12 @@ export async function fetchPinnedOfficialContextJson(url:string,reference:Pinned
   if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256)||!Number.isSafeInteger(reference.bytes)||!reference.bytes||reference.bytes>4*1024*1024)throw new Error('공식 자료의 고정 참조를 확인하지 못했습니다.');
   return fetchVerifiedJson(parsed.href,reference,signal);
 }
+/** Audited release-specific map prices share cancellation, SHA and byte budgets. */
+export async function fetchPinnedMapPriceJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
+  const parsed=new URL(url,location.origin),production=/^\/assets\/property-map-price-[a-f0-9]{16}-[0-9]{5}-[A-Za-z0-9_-]{8}\.json$/,development=/^\/src\/data\/map-price-presets-[a-f0-9]{16}\/property-map-price-[a-f0-9]{16}-[0-9]{5}\.json$/;
+  if(parsed.origin!==location.origin||parsed.search||parsed.hash||(!production.test(parsed.pathname)&&!(import.meta.env.DEV&&development.test(parsed.pathname)))||!/^[a-f0-9]{64}$/.test(reference.sha256)||!Number.isSafeInteger(reference.bytes)||!reference.bytes||reference.bytes>1024*1024)throw new Error('지도 가격 자료의 고정 참조를 확인하지 못했습니다.');
+  return fetchVerifiedJson(parsed.href,reference,signal);
+}
 async function fetchVerifiedJson(url:string,reference:PinnedJson,signal:AbortSignal):Promise<unknown>{
   if(signal.aborted)throw new DOMException('Aborted','AbortError');
   const expected=reference.byte_length??reference.bytes;
