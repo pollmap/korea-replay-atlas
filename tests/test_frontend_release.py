@@ -654,10 +654,10 @@ def test_poi_json_rejects_ambiguous_properties_and_nonfinite_constants(body):
         frontend._poi_json(body)
 
 
-@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-b87eea7c1c03dc21', '11710'])
+@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-b87eea7c1c03dc21', '11710', 'official-schools-20261010', 'official-fees-20261010'])
 def test_only_exact_audited_property_metrics_can_enter_frontend(fixture, stem):
     data = Path(__file__).resolve().parents[1] / 'src/data'
-    source = data / (stem + '.json') if stem.startswith('property-') else data / 'map-price-presets-b87eea7c1c03dc21' / (stem + '.json')
+    source = data / (stem + '.json') if stem.startswith(('property-', 'official-')) else data / 'map-price-presets-b87eea7c1c03dc21' / (stem + '.json')
     target = fixture.client / ('assets/' + stem + '-12345678.json')
     target.write_bytes(source.read_bytes())
     result = restage(fixture)
@@ -665,7 +665,7 @@ def test_only_exact_audited_property_metrics_can_enter_frontend(fixture, stem):
     assert_prior_unchanged(fixture)
 
 
-@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-ffffffffffffffff', '11710', '99999'])
+@pytest.mark.parametrize('stem', ['property-region-metrics-8879dff1b31ac5f0', 'property-region-metrics-ffffffffffffffff', '11710', '99999', 'official-schools-20261010', 'official-fees-20261010', 'official-fees-20261011'])
 def test_rejects_forged_or_unregistered_property_metric_bytes(fixture, stem):
     (fixture.client / ('assets/' + stem + '-12345678.json')).write_bytes(b'{"count":999}')
     with pytest.raises(ValueError, match='Property metric asset differs from audited bytes'):
