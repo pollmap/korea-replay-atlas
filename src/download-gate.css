@@ -13,4 +13,11 @@
   color: #32392e;
   background: #f8f9f1;
   font: 12px/1.5 system-ui, sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#download-gate-notice button { flex: none; min-width: 32px; min-height: 32px; font-size: 20px; }
+@media (max-width: 780px) {
+  #download-gate-notice { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 4px 8px; font-size: 11px; }
 }
