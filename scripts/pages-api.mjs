@@ -162,7 +162,8 @@ export async function verifyPagesRemote({receiptPath,origin,projectRoot=process.
 }
 class PagesRuntimePending extends Error {}
 /** A successful deployment may propagate after its POST returned. Retry only GET
- * checks of a valid older runtime, and hash the local stage once. Never redeploy. */
+ * checks of an older runtime or a transient HTML gateway, and hash the local
+ * stage once. Never redeploy, or retry authentication and integrity failures. */
 export async function waitForPagesRemote({receiptPath,origin,projectRoot=process.cwd(),fetcher=fetch,attempts=18,intervalMs=5000,pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),onProgress=()=>{}}){
   if(!Number.isSafeInteger(attempts)||attempts<1||attempts>24||!Number.isSafeInteger(intervalMs)||intervalMs<1000||intervalMs>5000)throw new Error('Invalid remote verification retry budget');
   const checked=await verifyPagesStage(receiptPath,{projectRoot});
@@ -188,7 +189,16 @@ async function verifyRemoteStage(checked,origin,fetcher){
     return response;
   };
   if(project==='korea-replay'){
-    const response=await get('/api/v2/runtime'),runtime=await response.json();
+    const response=await get('/api/v2/runtime');
+    const contentType=response.headers.get('content-type')??'';
+    // A newly assigned preview can briefly serve HTML before its Worker route
+    // is ready. This is pending only, never proof of a successful deployment.
+    if([200,404,502,503,504].includes(response.status)&&/text\/html\b/i.test(contentType)){
+      await response.body?.cancel();
+      throw new PagesRuntimePending('Remote runtime is still serving an HTML gateway');
+    }
+    let runtime;
+    try{runtime=await response.json();}catch{throw new Error('Remote runtime did not return valid JSON');}
     if(response.status!==200||runtime.schema_version!==2||runtime.platform!=='cloudflare-pages'||runtime.project!==project
       ||runtime.artifact_sha256!==checked.receipt.artifact_sha256||runtime.release_id!==checked.receipt.policy.release_id
       ||runtime.snapshot?.origin!==snapshotOrigin||runtime.snapshot?.hash!==new URL(snapshotOrigin).hostname.slice(0,8)
