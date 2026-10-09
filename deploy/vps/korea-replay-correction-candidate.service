@@ -4,6 +4,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=10001
+Group=10001
 WorkingDirectory=/srv/services/korea-replay/workspaces/matdongsan
 ExecStart=/usr/bin/python3 -B -m pipeline.property_publication_queue --data /srv/services/korea-replay/shared/data --output /srv/services/korea-replay/shared/correction-publication
 Nice=15
