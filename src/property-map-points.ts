@@ -73,3 +73,10 @@ const lookup=createPropertyMapPointLookup([
 ]);
 export const supportsPropertyMapPoint=lookup.supports;
 export const findPropertyMapPoint=lookup.find;
+
+/** All callers share the same bounded, hash-checked release download. */
+export async function confirmedPropertyMapIds(ids:readonly string[],release:string):Promise<ReadonlySet<string>> {
+  if(ids.length>20000)throw new Error('단지 위치 조회 범위를 줄여 주세요.');
+  const points=await Promise.all(ids.map(id=>lookup.find(id,release)));
+  return new Set(points.filter(point=>point?.navigationEvidence?.method==='official_site_marker_same_kapt_code_and_coordinates').map(point=>point!.complexId));
+}

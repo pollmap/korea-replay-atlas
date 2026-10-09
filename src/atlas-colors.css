@@ -108,14 +108,14 @@
  .app-shell.atlas-shell.is-2d.is-exploring{--atlas-rail-width:380px}
  .app-shell.atlas-shell.is-2d.is-exploring .showing-complex .retained-complex-list{display:none}
 }
-@media(min-width:1600px){
- .app-shell.atlas-shell.is-2d.is-exploring:has(.showing-complex .retained-complex-list){--atlas-rail-width:700px}
- .app-shell.atlas-shell.is-2d.is-exploring .showing-complex:has(.retained-complex-list)>:is(.property-header,.complex-actionbar,.complex-section-nav,.property-body){margin-left:280px}
- .app-shell.atlas-shell.is-2d.is-exploring .showing-complex .retained-complex-list{display:block;position:fixed;top:48px;left:0;bottom:0;width:280px;box-sizing:border-box;padding:0 12px 24px;overflow:auto;overscroll-behavior:contain;background:#fff;border-right:1px solid var(--md-line);z-index:4}
+@media(min-width:1920px){
+ .app-shell.atlas-shell.is-2d.is-exploring:has(.showing-complex .retained-complex-list){--atlas-rail-width:640px}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex:has(.retained-complex-list)>:is(.property-header,.complex-actionbar,.complex-section-nav,.property-body){margin-left:240px}
+ .app-shell.atlas-shell.is-2d.is-exploring .showing-complex .retained-complex-list{display:block;position:fixed;top:48px;left:0;bottom:0;width:240px;box-sizing:border-box;padding:0 12px 24px;overflow:auto;overscroll-behavior:contain;background:#fff;border-right:1px solid var(--md-line);z-index:4}
  .retained-list-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;position:sticky;top:0;background:#fff;z-index:2;padding:12px 0;border-bottom:1px solid var(--md-line);font-size:14px}
  .retained-list-heading button{font-size:12px;color:var(--md-accent);min-height:30px}
 }
-@media(min-width:1600px){
+@media(min-width:1920px){
  .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-selects{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
  .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-selects label{min-width:0}
  .atlas-shell.is-2d.is-exploring .retained-complex-list .discovery-selects select{min-width:0;max-width:100%}

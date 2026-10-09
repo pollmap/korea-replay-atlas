@@ -7,6 +7,7 @@ import {HISTORY_RANGES,historyMonths,historyRangeLabel,type HistoryRange} from '
 import {areaMatches,areaFromBounds,exclusivePyeong,NATIONAL_AREA} from '../shared/property-area';
 import {propertyFilterChips} from '../shared/property-filter-chips';
 import PropertySavedFilters from './PropertySavedFilters';
+import {confirmedPropertyMapIds} from './property-map-points';
 import {generalPropertyFilters} from './property-general-filters';
 import type {RentKind} from '../shared/property-rent';
 import {loadComplexPriceSummaries} from './property-summary-client';
@@ -16,6 +17,7 @@ import type {MonthlySummaryData} from './PropertyMonthlySummary';
 
 export interface PropertyComplexListProps {
   compactControls?:boolean;
+  qualificationKey?:string;onQualification?:(value:{key:string;id:string;eligible:boolean}|null)=>void;
   filtersState?:readonly [PropertyDiscoveryFilters,Dispatch<SetStateAction<PropertyDiscoveryFilters>>];
   dong?:string;onDong?:(dong:string)=>void;
   savedFilterRegion?:string;rentKind?:RentKind;onRentKind?:(kind:RentKind)=>void;
@@ -28,7 +30,7 @@ export interface PropertyComplexListProps {
 }
 const PAGE_SIZE=40;
 
-export default function PropertyComplexList({compactControls=false,complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea,latestPrice,onLatestPrice,filtersState}:PropertyComplexListProps){
+export default function PropertyComplexList({qualificationKey,onQualification,compactControls=false,complexes,rows,dataReady,trade,onSelect,selectedId,watchedIds,onWatch,savedFilterRegion,rentKind,onRentKind,dong,onDong,release,month,periodMonths,onPeriodMonths,area,onArea,latestPrice,onLatestPrice,filtersState}:PropertyComplexListProps){
   const fallbackFilters=useState<PropertyDiscoveryFilters>(EMPTY_PROPERTY_DISCOVERY_FILTERS),[page,setPage]=useState(0);
   const [localFilters,setFilters]=filtersState??fallbackFilters;
   const filters=useMemo(()=>generalPropertyFilters(localFilters,{area,latestPrice,dong,rentKind}),[localFilters,rentKind,dong,area,latestPrice]);
@@ -56,6 +58,18 @@ export default function PropertyComplexList({compactControls=false,complexes,row
   const summaryResult=useMemo(()=>summaryReady?discoverPropertySummaryComplexes(complexes,summary.data!.rows,summary.data!.partitions,{months,trade,area},filters):null,[summaryReady,summary.data,complexes,months,trade,area,filters]);
   const result=summaryResult??rawResult;
   const items=summaryResult?summaryResult.items.map(item=>({...item,kind:'summary' as const,summary:item.latest,latest:null})):rawResult.items.map(item=>({...item,kind:'raw' as const,summary:null}));
+  const [locations,setLocations]=useState<{release:string;ids:readonly string[];mapped:ReadonlySet<string>;error:boolean}|null>(null);
+  const locationIds=useMemo(()=>complexes.map(item=>item.id),[complexes]);
+  const [locationAttempt,setLocationAttempt]=useState(0);
+  useEffect(()=>{if(!release)return;let current=true;
+    void confirmedPropertyMapIds(locationIds,release).then(mapped=>{if(current)setLocations({release,ids:locationIds,mapped,error:false});}).catch(()=>{if(current)setLocations({release,ids:locationIds,mapped:new Set(),error:true});});
+    return()=>{current=false;};
+  },[locationIds,release,locationAttempt]);
+  const locationReady=locations&&locations.release===release&&locations.ids===locationIds&&!locations.error;
+  const resultReady=summaryActive?summaryReady:dataReady||!rawResult.transactionFiltersPending;
+  const selectedEligible=result.items.some(item=>item.complex.id===selectedId);
+  useEffect(()=>{onQualification?.(resultReady&&qualificationKey&&selectedId?{key:qualificationKey,id:selectedId,eligible:selectedEligible}:null);},[onQualification,resultReady,qualificationKey,selectedId,selectedEligible]);
+  const mappedCount=locationReady?result.items.filter(item=>!!item.complex.position||locations!.mapped.has(item.complex.id)).length:0;
   const dongs=useMemo(()=>propertyDiscoveryDongs(complexes),[complexes]);
   const lastPage=Math.max(0,Math.ceil(result.items.length/PAGE_SIZE)-1),currentPage=Math.min(page,lastPage),start=currentPage*PAGE_SIZE;
   const visible=items.slice(start,start+PAGE_SIZE);
@@ -99,7 +113,8 @@ export default function PropertyComplexList({compactControls=false,complexes,row
     </div>}
     {active&&<div className="discovery-active-filters" role="group" aria-label="적용한 조건">{chips.map(chip=><button key={chip.id} aria-label={`${chip.label} 조건 해제`} onClick={()=>{setFilters(current=>({...current,...chip.clear}));if(chip.clear.priceMinEok!==undefined||chip.clear.priceMaxEok!==undefined)onLatestPrice?.(chip.clear.priceMinEok??filters.priceMinEok,chip.clear.priceMaxEok??filters.priceMaxEok);if(chip.clear.areaMinM2!==undefined||chip.clear.areaMaxM2!==undefined)onArea?.('');if(chip.clear.dong!==undefined)onDong?.(chip.clear.dong);if(chip.clear.rentKind)onRentKind?.(chip.clear.rentKind);setPage(0);}}>{chip.label}<span aria-hidden="true"> ×</span></button>)}</div>}
     </>}
-    <div className="discovery-result-heading"><p role="status">{result.items.length.toLocaleString('ko-KR')}개 단지{result.items.length>PAGE_SIZE?` · ${start+1}–${Math.min(start+PAGE_SIZE,result.items.length)}`:''}</p>{compactControls&&<label className="discovery-sort"><span className="sr-only">정렬</span><select aria-label="단지 정렬" value={filters.sort} onChange={event=>change('sort',event.target.value as PropertyDiscoverySort)}><option value="recent">최근 계약순</option><option value="count">거래 많은순</option><option value="price-low">가격 낮은순</option><option value="price-high">가격 높은순</option><option value="pyeong-low">평당가 낮은순</option><option value="pyeong-high">평당가 높은순</option><option value="name">이름순</option></select></label>}{!compactControls&&active&&<button className="discovery-reset" onClick={()=>{setFilters(EMPTY_PROPERTY_DISCOVERY_FILTERS);onLatestPrice?.('','');onArea?.('');onDong?.('');onRentKind?.('all');setPage(0);}}>초기화</button>}</div>
+    <div className="discovery-result-heading"><p role="status">{resultReady?`${result.items.length.toLocaleString('ko-KR')}개 단지`:'후보 확인 중…'}{resultReady&&result.items.length>PAGE_SIZE?` · ${start+1}–${Math.min(start+PAGE_SIZE,result.items.length)}`:''}</p>{compactControls&&<label className="discovery-sort"><span className="sr-only">정렬</span><select aria-label="단지 정렬" value={filters.sort} onChange={event=>change('sort',event.target.value as PropertyDiscoverySort)}><option value="recent">최근 계약순</option><option value="count">거래 많은순</option><option value="price-low">가격 낮은순</option><option value="price-high">가격 높은순</option><option value="pyeong-low">평당가 낮은순</option><option value="pyeong-high">평당가 높은순</option><option value="name">이름순</option></select></label>}{!compactControls&&active&&<button className="discovery-reset" onClick={()=>{setFilters(EMPTY_PROPERTY_DISCOVERY_FILTERS);onLatestPrice?.('','');onArea?.('');onDong?.('');onRentKind?.('all');setPage(0);}}>초기화</button>}</div>
+    {release&&resultReady&&<div className="discovery-map-coverage" role="status">{locations&&locations.release===release&&locations.ids===locationIds&&locations.error?<><span>위치 조회 실패</span><button onClick={()=>setLocationAttempt(value=>value+1)}>다시 확인</button></>:!locationReady?<span>위치 확인 중…</span>:<><span>지도 표시 가능 {mappedCount}개</span><span>위치 미연결 {result.items.length-mappedCount}개</span></>}</div>}
     {!compactControls&&<label className="discovery-trade-only"><input type="checkbox" checked={!!filters.hasTrades} onChange={event=>change('hasTrades',event.target.checked)}/>{summaryActive?'선택 기간 거래 있는 단지':'선택 월 거래 있는 단지'}</label>}
     {!compactControls&&<p id={captionId} className="discovery-note discovery-source-note" title="취소 거래를 제외한 최근 유효 거래입니다.">{summaryActive?'선택 기간의 최근 실거래':'선택 월의 최근 실거래'}</p>}
     {summaryRequested&&!summaryActive&&<p className="discovery-note">이 공개 버전에는 기간 요약이 없어 선택 월 원문을 표시합니다.</p>}
@@ -107,7 +122,7 @@ export default function PropertyComplexList({compactControls=false,complexes,row
     {summaryError&&<p className="discovery-error" role="alert">{summaryError} <button onClick={()=>{setSummary({key:summaryKey,state:'loading'});setAttempt(value=>value+1);}}>요약 다시 확인</button></p>}
     {!summaryActive&&!dataReady&&<p className="discovery-pending" role="status">거래 확인 전{result.transactionFiltersPending?' 금액·면적 조건은 거래를 확인한 뒤 적용됩니다.':''}</p>}
     {result.errors.length>0&&<p id={errorId} role="alert" className="discovery-error">{result.errors.join(' ')}</p>}
-    {!result.errors.length&&!result.items.length&&<p className="discovery-empty">{complexes.length?'조건에 맞는 단지가 없습니다. 검색어와 필터를 확인해 주세요.':'이 지역에 연결된 단지 식별자료가 없습니다.'}</p>}
+    {resultReady&&!result.errors.length&&!result.items.length&&<p className="discovery-empty">{complexes.length?'조건에 맞는 단지가 없습니다. 검색어와 필터를 확인해 주세요.':'이 지역에 연결된 단지 식별자료가 없습니다.'}</p>}
     <ol className="discovery-results">{visible.map(item=>{const {complex,count,latest}=item,representative=item.summary;
       const contractDate=representative?.latest_contract_date??latest?.contract_date,contractArea=representative?.area_m2??latest?.area_m2;
       const price=representative?(trade==='sale'?representative.latest_price_krw:representative.latest_deposit_krw):latest?(trade==='sale'?latest.price_krw:latest.deposit_krw):null;
@@ -117,6 +132,7 @@ export default function PropertyComplexList({compactControls=false,complexes,row
       <button className="discovery-open" aria-pressed={selectedId===complex.id} aria-label={`${complex.name} · ${complex.legal_dong_name??'법정동 미확인'} ${complex.lot_number??''} 거래 보기`} onClick={()=>onSelect(complex.id)}>
         <span className="discovery-name"><strong>{complex.name}</strong><span>{selectedId===complex.id?'선택됨':'거래 보기 →'}</span></span>
         <span className="discovery-address">{complex.legal_dong_name??'법정동 미확인'} {complex.lot_number??''} · {complex.build_year===null?'건축연도 미확인':`${complex.build_year}년 건축`}</span>
+        {release&&locationReady&&!complex.position&&!locations!.mapped.has(complex.id)&&<span className="discovery-location-status">위치 미연결 · 주소로 확인</span>}
         {complex.address_conflict&&<span className="discovery-note">신고 주소가 달라 확인이 필요한 단지입니다.</span>}
         {latest||representative?<>
           <span className="discovery-price"><span>{trade==='sale'?'최근 매매':'최근 보증금'}</span><strong>{moneyLabel(price)}원</strong>{compactControls&&<span className="discovery-price-area">전용 {contractArea}㎡</span>}{trade==='rent'&&<small>월세 {moneyLabel(monthlyRent)}원</small>}</span>

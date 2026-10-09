@@ -1,0 +1,47 @@
+/* Default PC: one rail, with at least 60% of the full viewport left as map. */
+@media(min-width:781px) and (max-width:1919px){
+ .app-shell.atlas-shell.is-2d.is-exploring:has(.showing-complex){--atlas-rail-width:360px}
+}
+.app-shell.atlas-shell.is-2d.is-exploring .property-reopen{top:106px;left:12px;transform:none;translate:none;min-height:34px;padding:5px 12px;border:1px solid var(--md-line);border-radius:4px;background:#fff;color:var(--md-accent);z-index:7}
+.app-shell.atlas-shell.is-2d.is-exploring:not(.has-property):not(.reserves-property){--atlas-rail-width:0px}
+.app-shell.atlas-shell.is-2d.is-exploring:not(.has-property) .selected-region-caption{left:120px}
+@media(max-width:780px){
+ .app-shell.atlas-shell.is-2d.is-exploring:not(.is-focused) .topbar{height:48px;min-height:48px;left:0;right:0;top:0;padding:0 8px;display:flex;gap:8px;background:#fff}
+ .app-shell.atlas-shell.is-2d.is-exploring #property-header-tools{display:block;flex:1;min-width:0}
+ .app-shell.atlas-shell.is-2d.is-exploring .brand-wordmark strong{font-size:17px}
+ .app-shell.atlas-shell.is-2d.is-exploring .brand-symbol{display:none}
+ .workspace-header-tools{gap:4px}.workspace-search{min-width:0}
+ .workspace-header-tools>button{padding:0 6px;font-size:12px}
+ .app-shell.atlas-shell.is-2d.is-exploring .header-actions{display:none}
+ .app-shell.atlas-shell.is-2d.is-exploring .workspace-search-results{min-width:0;max-height:60vh;width:calc(100vw - 32px);left:calc(-1 * min(70px,10vw))}
+ .property-filter-bar{gap:4px;padding:0 6px}
+ .property-filter-bar button{padding:4px 6px;font-size:12px}
+ .general-filter-slot{gap:4px;min-width:0}.general-filter-slot>button{gap:4px;max-width:125px}
+ .general-filter-slot>button>span{display:none}
+ .general-trade select{font-size:12px;max-width:76px;padding:4px}
+ .property-filter-bar .general-clear{display:none}
+ .general-filter-popover{position:fixed;top:96px!important;left:8px!important;width:min(340px,calc(100vw - 16px));max-height:calc(100dvh - 110px)}
+ .app-shell.atlas-shell.is-2d.is-exploring .focus-toggle{top:106px;right:12px;bottom:auto;min-height:34px}
+ .app-shell.atlas-shell.is-2d.is-exploring .selected-region-caption{top:150px;left:12px}
+ .app-shell.atlas-shell.is-2d.is-exploring .map-apartment-label-control{top:150px;right:12px}
+ .app-shell.atlas-shell.is-2d.is-exploring .property-panel.general-flow{top:auto}
+ .app-shell.atlas-shell.is-2d.is-exploring .property-panel[hidden]{display:none}
+}
+@media(max-width:480px){.property-filter-bar{overflow-x:auto}.general-filter-popover{white-space:normal}.general-filter-slot{flex-shrink:0}}
+.discovery-map-coverage{display:flex;gap:10px;align-items:center;min-height:30px;font-size:12px;color:var(--md-muted)}
+.discovery-map-coverage span:first-child{color:var(--md-accent)}
+.discovery-location-status{font-size:12px;color:var(--md-muted);order:5}
+
+.property-listing-link{display:inline-flex;align-items:center;justify-content:center;min-height:28px;padding:2px 6px;border-radius:4px;background:var(--md-accent);color:#fff;text-decoration:none;font-size:12px;white-space:nowrap}
+.property-listing-link:hover{background:var(--md-ink)}
+.app-shell.atlas-shell.is-2d.is-exploring .complex-actionbar{flex-wrap:wrap;gap:4px}
+.app-shell.atlas-shell.is-2d.is-exploring .complex-actionbar>.property-listing-link{color:#fff}
+
+@media(min-width:781px){
+ .app-shell.atlas-shell.is-2d .chart-basis-select{flex-basis:92px}
+ .app-shell.atlas-shell.is-2d .history-chart-modes button{padding-inline:4px;white-space:nowrap}
+ .app-shell.atlas-shell.is-2d .complex-actionbar>button{flex:1 1 auto;padding-inline:4px}
+}
+@media(max-width:780px){
+ .app-shell.atlas-shell.is-2d .property-panel.showing-complex .complex-actionbar{display:flex}
+}

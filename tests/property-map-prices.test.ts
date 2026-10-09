@@ -88,3 +88,10 @@ it('uses the same legal dong, name and construction-year qualification as the ca
   expect(labels({...view,hasTrades:true},{...ready,rows:[]})).toMatchObject({filtered_price_match:false});
   expect(propertyMapFilterKey(release,view)).toBe(propertyMapFilterKey(release,{...view,listSort:'price-high'}));
 });
+
+it('excludes other regions, unlinked points and different releases from matching candidates',()=>{
+ const features=[base.features[0],{...base.features[0],properties:{property_complex_id:'molit-apt:11620:apt-1',property_release_id:release}},{...base.features[0],properties:{name:'unlinked'}},{...base.features[0],properties:{property_complex_id:complex,property_release_id:'older'}}];
+ const result=propertyMapPrices({...base,features},release,{...view,area:''},{...ready,rows:[],partitions:[]});
+ expect(result.features.map(feature=>feature.properties!.filtered_price_match)).toEqual([true,false,false,false]);
+ expect(result.features).toHaveLength(4); // Selected points retain geometry, separate from qualifying candidates.
+});

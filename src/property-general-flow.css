@@ -1,5 +1,5 @@
 /* Shared PC conditions: the list, detail and map keep the same view state. */
-@media(min-width:781px){
+@media(min-width:0px){
  .app-shell.atlas-shell.is-2d.is-exploring{--md-map-tools-top:106px;--property-filter-height:44px}
  .app-shell.atlas-shell.is-2d.is-exploring #property-filter-host{position:absolute;top:48px;left:0;right:0;z-index:9;height:var(--property-filter-height);background:#fff;border-bottom:1px solid var(--md-line);box-sizing:border-box}
  .app-shell.atlas-shell.is-2d.is-exploring #property-filter-host[hidden]{display:none}
@@ -68,7 +68,7 @@
  .atlas-shell.is-2d.is-exploring .detail-more-sections>[role=menu]>button{display:block;width:100%;text-align:left;min-height:36px;font-size:13px}
  .atlas-shell.is-2d.is-exploring .pc-detail .detail-more-sections>[role=menu]>button:hover{color:var(--md-accent);background:var(--md-soft)}
 }
-@media(max-width:780px){#property-filter-host{display:none}}
+
 @media(prefers-reduced-motion:reduce){.property-filter-bar button{transition:none}}
 
-@media(min-width:1600px){.app-shell.atlas-shell.is-2d.is-exploring .general-flow.showing-complex .retained-complex-list{top:calc(48px + var(--property-filter-height))}}
+@media(min-width:1920px){.app-shell.atlas-shell.is-2d.is-exploring .general-flow.showing-complex .retained-complex-list{top:calc(48px + var(--property-filter-height))}}
