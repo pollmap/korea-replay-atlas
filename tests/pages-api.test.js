@@ -200,6 +200,24 @@ describe('Pages REST-only deployment boundary',()=>{
 });
 
 describe('Pages remote origin and immutable sharing verification',()=>{
+  it.each([200,404,502,503,504])('waits for a transient HTML runtime (%s) using only GET checks',async status=>{
+    const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),current=remoteResponses(fixture,publicOrigin),pause=vi.fn(async()=>{});
+    let checks=0;
+    const fetcher=vi.fn((url,init)=>url.endsWith('/api/v2/runtime')&&++checks===1?new Response('<!DOCTYPE html><title>Preparing</title>',{status,headers:{'Content-Type':'text/html; charset=utf-8'}}):current(url,init));
+    expect((await waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher,pause})).passed).toBe(true);
+    expect(checks).toBe(2);expect(pause).toHaveBeenCalledTimes(1);expect(verifyPagesStage).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls.every(([,init])=>!init.method||init.method==='GET')).toBe(true);
+  });
+  it('does not accept perpetual HTML or retry malformed JSON and forbidden HTML',async()=>{
+    const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),pause=vi.fn(async()=>{});
+    const html=vi.fn(async()=>new Response('<html>Preparing</html>',{headers:{'Content-Type':'text/html'}}));
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher:html,pause,attempts:3})).rejects.toThrow('HTML gateway');
+    expect(html).toHaveBeenCalledTimes(3);expect(pause).toHaveBeenCalledTimes(2);expect(await readdir(fixture.directory)).toEqual([]);
+    pause.mockClear();
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher:async()=>new Response('{broken',{headers:{'Content-Type':'application/json'}}),pause})).rejects.toThrow('valid JSON');
+    await expect(waitForPagesRemote({receiptPath:fixture.receiptPath,origin:publicOrigin,fetcher:async()=>new Response('<html>Forbidden</html>',{status:403,headers:{'Content-Type':'text/html'}}),pause})).rejects.toThrow('valid JSON');
+    expect(pause).not.toHaveBeenCalled();
+  });
   it('waits for a valid older runtime using only GETs and one local stage verification',async()=>{
     const fixture=await remoteFixture({snapshotOrigin:previewOrigin}),current=remoteResponses(fixture,publicOrigin),previous=remoteResponses(fixture,publicOrigin,{artifact_sha256:'c'.repeat(64)});
     let checks=0;const fetcher=vi.fn((url,init)=>url.endsWith('/api/v2/runtime')&&++checks<3?previous(url,init):current(url,init));
