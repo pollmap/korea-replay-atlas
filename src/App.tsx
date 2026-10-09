@@ -32,7 +32,7 @@ export default function App(){
   const [runtimeChecked,setRuntimeChecked]=useState(false);
   const [runtimeError,setRuntimeError]=useState('');
   const atlas=useAtlas(runtime&&'schema_version' in runtime?runtime:null,runtimeChecked,runtimeError);
-  const [propertyOpen,setPropertyOpen]=useState(()=>window.innerWidth>=1280);
+  const [propertyOpen,setPropertyOpen]=useState(()=>window.innerWidth>=1280||!!new URLSearchParams(location.hash.slice(1)).get('complex'));
   const [focusMode,setFocusMode]=useState(false);
   const [requestedMarker,setRequestedMarker]=useState<{value:NonNullable<PropertyViewState['markerDisplay']>;request:number}>();
   const requestMarker=useCallback((value:NonNullable<PropertyViewState['markerDisplay']>)=>setRequestedMarker(previous=>({value,request:(previous?.request??0)+1})),[]);
@@ -139,6 +139,7 @@ export default function App(){
       <nav className="header-actions" aria-label="서비스 메뉴"><button onClick={()=>setSourcesOpen(true)}>출처</button><button className="share-button" onClick={share}>공유</button></nav>
     </header>
     <div id="property-filter-host" hidden={focusMode}/>
+    <div id="property-mobile-navigation" hidden={focusMode}/>
     {!propertyVisible&&!focusMode&&<button className="property-reopen" onClick={()=>setPropertyOpen(true)}>목록 보기</button>}
     <button className="focus-toggle" aria-pressed={focusMode} aria-label={focusMode?'도구 표시':'지도만 보기'} title="F / Esc" onClick={()=>setFocusMode(value=>!value)}><span>{focusMode?'도구 표시':'지도만 보기'}</span></button>
     <MapInteractionTools map={mapRef} view="2d" place={place} hidden={focusMode} measurement={measurement} onMeasure={mode=>setMeasurement(measureMap(mode,[]))} onUndo={()=>setMeasurement(previous=>measureMap(previous.mode,previous.points.slice(0,-1)))} onNotice={setNotice} onLocate={goTo}/>

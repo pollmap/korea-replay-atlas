@@ -104,11 +104,17 @@ export async function startDownloadGate():Promise<()=>void>{
   const expectedVersion=__DOWNLOAD_GATE_VERSION__;
   dataset.downloadGate='initializing';dataset.downloadGateExpectedVersion=expectedVersion;
   const root=document.getElementById('root');if(root)root.textContent='지도를 준비하고 있습니다…';
+  let dismissedNotice='';
   const notice=(text:string)=>{
     let element=document.getElementById('download-gate-notice');
     if(!text){element?.remove();return;}
+    if(text===dismissedNotice)return;
     if(!element){element=document.createElement('p');element.id='download-gate-notice';element.setAttribute('role','status');document.body.appendChild(element);}
-    element.textContent=text;
+    if(element.firstElementChild?.textContent===text)return;
+    const message=document.createElement('span');message.textContent=text;
+    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','지도 설정 안내 닫기');
+    close.addEventListener('click',()=>{dismissedNotice=text;element?.remove();});
+    element.replaceChildren(message,close);
   };
   const unavailable=(reason:string)=>{
     dataset.downloadGate='unavailable';dataset.downloadGateReason=reason;dataset.downloadGateLimit='unavailable';
@@ -118,7 +124,7 @@ export async function startDownloadGate():Promise<()=>void>{
     dataset.downloadGate='controlled';dataset.downloadGateReason='';
     publishDownloadGateMetrics(dataset,status);
     dataset.downloadGateUpdate=pending?'pending':'current';
-    notice(pending?'지도 불러오기 개선이 준비되었습니다. 지도 탭을 모두 닫고 다시 열면 적용됩니다.':'');
+    notice(pending?'지도 설정 업데이트 · 지도 탭을 다시 열면 적용됩니다.':'');
   };
   let container:ServiceWorkerContainer|undefined;
   try{container=navigator.serviceWorker;}catch{unavailable('unsupported');return ()=>{};}
