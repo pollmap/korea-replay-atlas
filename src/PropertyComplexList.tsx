@@ -134,15 +134,15 @@ export default function PropertyComplexList({visible:listVisible=true,qualificat
       return <li key={complex.id}>
       <button className="discovery-open" aria-pressed={selectedId===complex.id} aria-label={`${complex.name} · ${complex.legal_dong_name??'법정동 미확인'} ${complex.lot_number??''} 거래 보기`} onClick={()=>onSelect(complex.id)}>
         <span className="discovery-name"><strong>{complex.name}</strong><span>{selectedId===complex.id?'선택됨':'거래 보기 →'}</span></span>
-        <span className="discovery-address">{complex.legal_dong_name??'법정동 미확인'} {complex.lot_number??''} · {complex.build_year===null?'건축연도 미확인':`${complex.build_year}년 건축`}</span>
-        {release&&locationReady&&!complex.position&&!locations!.mapped.has(complex.id)&&<span className="discovery-location-status">위치 미연결 · 주소로 확인</span>}
-        {complex.address_conflict&&<span className="discovery-note">신고 주소가 달라 확인이 필요한 단지입니다.</span>}
         {latest||representative?<>
           <span className="discovery-price"><span>{trade==='sale'?'최근 매매':'최근 보증금'}</span><strong>{moneyLabel(price)}원</strong>{compactControls&&<span className="discovery-price-area">전용 {contractArea}㎡</span>}{trade==='rent'&&<small>월세 {moneyLabel(monthlyRent)}원</small>}</span>
           {!compactControls&&<span className="discovery-unit-price">전용평당 {moneyLabel(perPyeong)}원{trade==='rent'?' · 보증금 기준':''}</span>}
           <span className="discovery-contract">{contractDate}{!compactControls&&<> · 전용 {contractArea}㎡{representative?` · ${exclusivePyeong(contractArea??null)}평`:latest?.floor==null?'':` · ${latest.floor}층`}</>}{compactControls&&latest?.floor!=null&&` · ${latest.floor}층`}</span>
         </>:<span className="discovery-no-trade">{count===null?summaryError?'거래 요약 조회 실패':summaryReady?summaryResult?.sourceUnavailableMonths===months.length?'선택 기간의 거래 원천 미제공':'가격 미확인':summaryActive?'가격 불러오는 중…':'거래 확인 전':summaryActive?'선택 기간 거래 없음':'선택 월 거래 없음'}</span>}
-        <span className="discovery-count">{item.kind==='summary'?item.sourceUnavailableMonths===months.length?'거래 건수 미제공':`${item.missingMonths?'확보':'현재 조건'} ${item.confirmedCount.toLocaleString('ko-KR')}건${item.missingMonths?` · 미확인 ${item.missingMonths}개월`:''}`:count===null?'신고 건수 미확인':`현재 조건 ${count.toLocaleString('ko-KR')}건`}</span>
+        <span className="discovery-address">{complex.legal_dong_name??'법정동 미확인'} {complex.lot_number??''} · {complex.build_year===null?'건축연도 미확인':`${complex.build_year}년 건축`}</span>
+        {release&&locationReady&&!complex.position&&!locations!.mapped.has(complex.id)&&<span className="discovery-location-status">위치 확인 중 · 주소로 보기</span>}
+        {complex.address_conflict&&<span className="discovery-note">신고 주소 확인 필요</span>}
+        {!compactControls&&<span className="discovery-count">{item.kind==='summary'?item.sourceUnavailableMonths===months.length?'거래 건수 미제공':`${item.missingMonths?'확보':'현재 조건'} ${item.confirmedCount.toLocaleString('ko-KR')}건${item.missingMonths?` · 미확인 ${item.missingMonths}개월`:''}`:count===null?'신고 건수 미확인':`현재 조건 ${count.toLocaleString('ko-KR')}건`}</span>}
       </button>
       {onWatch&&<button className="discovery-watch" aria-label={`${complex.name} 관심 ${watchedIds?.has(complex.id)?'해제':'저장'}`} aria-pressed={watchedIds?.has(complex.id)??false} onClick={()=>onWatch(complex)}>{watchedIds?.has(complex.id)?'★':'☆'}</button>}
     </li>;})}</ol>

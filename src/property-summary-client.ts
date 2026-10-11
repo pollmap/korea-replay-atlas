@@ -24,6 +24,13 @@ export function parseComplexPriceSummaries(value:unknown,release:string,region:s
     if(!/^molit-(sale|rent):[a-f0-9]{64}:[1-9][0-9]*$/.test(raw.latest_transaction_id)||!raw.latest_transaction_id.startsWith(`molit-${raw.trade_type}:`)||!Number.isFinite(Date.parse(raw.latest_contract_date))||new Date(raw.latest_contract_date).toISOString().slice(0,10)!==raw.latest_contract_date||month===null&&(raw.deal_month<String(value.from_month)||raw.deal_month>String(value.to_month)))return fail();
     for(const field of ['latest_price_krw','latest_deposit_krw','latest_monthly_rent_krw'])if(raw[field]!==null&&(!Number.isSafeInteger(raw[field])||Number(raw[field])<0||Number(raw[field])%10000!==0))return fail();
     for(const field of ['min_price_krw','max_price_krw','median_price_krw','median_deposit_krw','median_monthly_rent_krw','median_price_per_m2_krw','median_price_per_pyeong_krw'])if(raw[field]!==undefined&&raw[field]!==null&&(typeof raw[field]!=='number'||!Number.isFinite(raw[field])||Number(raw[field])<0))return fail();
+    if(raw.price_distribution!==undefined){
+      if(raw.area_m2.length>24||!/^\d+(?:\.\d{1,18})?$/.test(raw.area_m2))return fail();
+      if(!Array.isArray(raw.price_distribution)||!raw.price_distribution.length||raw.price_distribution.length>Number(raw.transaction_count))return fail();
+      let count=0,previous=-1;
+      for(const entry of raw.price_distribution){if(!Array.isArray(entry)||entry.length!==2||!Number.isSafeInteger(entry[0])||entry[0]<0||entry[0]%10000!==0||entry[0]<=previous||!Number.isSafeInteger(entry[1])||entry[1]<=0)return fail();previous=entry[0];count+=entry[1];}
+      if(count!==raw.transaction_count)return fail();
+    }
     if(raw.trade_type==='sale'?raw.latest_price_krw===null||raw.latest_deposit_krw!==null||raw.latest_monthly_rent_krw!==null:raw.latest_price_krw!==null||raw.latest_deposit_krw===null||raw.latest_monthly_rent_krw===null||raw.rent_kind==='jeonse'&&raw.latest_monthly_rent_krw!==0||raw.rent_kind==='monthly'&&Number(raw.latest_monthly_rent_krw)<=0)return fail();
     const key=JSON.stringify([raw.complex_id,raw.deal_month,raw.trade_type,raw.rent_kind,raw.area_m2]);if(seen.has(key))return fail();seen.add(key);
     return raw as unknown as ComplexPriceSummary;

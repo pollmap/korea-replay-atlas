@@ -10,9 +10,11 @@ export interface HistoryResult {month:string;status:'ready'|'missing'|'error';ro
 export const HISTORY_LIMITS={bytes:24*1024*1024,requests:512,rows:20_000} as const;
 export interface HistoryBudget {remaining:number;requestsRemaining?:number;rowsRemaining?:number;}
 /** Two month jobs at a time; the shared network gate still enforces four global slots. */
-export async function loadPropertyHistory({detail,end,count,trade,complex,origin,signal,onMonth,fetchJson=fetchPinnedJson,budget={remaining:HISTORY_LIMITS.bytes},sources}:{detail:PropertyRegionDetail;end:string;count:HistoryRange;trade:'sale'|'rent';complex:string|readonly string[];origin:string;signal:AbortSignal;onMonth:(result:HistoryResult)=>void;fetchJson?:typeof fetchPinnedJson;budget?:HistoryBudget;sources?:readonly PropertySource[]}){
+export async function loadPropertyHistory({detail,end,count,trade,complex,origin,signal,onMonth,fetchJson=fetchPinnedJson,budget={remaining:HISTORY_LIMITS.bytes},sources,months}:{detail:PropertyRegionDetail;end:string;count:HistoryRange;trade:'sale'|'rent';complex:string|readonly string[];origin:string;signal:AbortSignal;onMonth:(result:HistoryResult)=>void;fetchJson?:typeof fetchPinnedJson;budget?:HistoryBudget;sources?:readonly PropertySource[];months?:readonly string[]}){
   let cache=historyCaches.get(fetchJson);if(!cache){cache=new HistoryMonthCache();historyCaches.set(fetchJson,cache);}
-  const plan=historyPlan(detail,end,count,trade).reverse();
+  if(months&&(months.length>240||months.some(month=>!/^\d{4}(?:0[1-9]|1[0-2])$/.test(month))))throw new Error('history_month_selection_invalid');
+  const wanted=months?new Set(months):null;
+  const plan=historyPlan(detail,end,count,trade).reverse().filter(row=>!wanted||wanted.has(row.month));
   const sourceStart=historySourceStart(trade,sources);
   budget.requestsRemaining??=HISTORY_LIMITS.requests;budget.rowsRemaining??=HISTORY_LIMITS.rows;
   const complexIds=new Set(typeof complex==='string'?[complex]:complex);

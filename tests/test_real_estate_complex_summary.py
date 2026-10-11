@@ -27,6 +27,7 @@ def test_exact_area_counts_occurrences_and_latest_contract_not_collection_order(
     assert rows[0]['transaction_count'] == 3
     assert rows[0]['latest_price_krw'] == 210_000_000
     assert rows[0]['median_price_krw'] == 200_000_000
+    assert rows[0]['price_distribution'] == [[200_000_000, 2], [210_000_000, 1]]
     assert rows[1]['area_m2'] == '85'
     assert audit == {'source_rows': 5, 'eligible_rows': 4, 'grouped_rows': 4,
                      'unlinked_eligible_rows': 0, 'excluded_rows': 1, 'unknown_rent_rows': 0}
@@ -39,6 +40,7 @@ def test_jeonse_monthly_missing_money_and_unlinked_identity_stay_distinct():
     assert all(entry['latest_price_krw'] is None and entry['price_basis'] == 'deposit' for entry in rows)
     assert audit['unknown_rent_rows'] == audit['unlinked_eligible_rows'] == 1
     assert audit['grouped_rows'] == 2
+    assert all(entry['price_distribution'] == [[100_000_000, 1]] for entry in rows)
 
 
 def test_output_is_pinned_deterministic_and_source_ids_are_audited(tmp_path):

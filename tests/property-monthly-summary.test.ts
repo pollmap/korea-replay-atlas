@@ -9,7 +9,7 @@ import PropertyMonthlySummary from '../src/PropertyMonthlySummary';
 import PropertyHistory from '../src/PropertyHistory';
 
 const id='molit-apt:11710:11710-8865';
-function row(month:string,area='84.99',extra:Partial<ComplexPriceSummary>={}):ComplexPriceSummary{return {complex_id:id,deal_month:month,trade_type:'sale',rent_kind:'sale',area_m2:area,transaction_count:2,latest_transaction_id:`sale:${month}:${area}`,latest_contract_date:`${month.slice(0,4)}-${month.slice(4)}-20`,latest_price_krw:1e9,latest_deposit_krw:null,latest_monthly_rent_krw:null,...extra};}
+function row(month:string,area='84.99',extra:Partial<ComplexPriceSummary>={}):ComplexPriceSummary{return {complex_id:id,deal_month:month,trade_type:'sale',rent_kind:'sale',area_m2:area,transaction_count:2,latest_transaction_id:`sale:${month}:${area}`,latest_contract_date:`${month.slice(0,4)}-${month.slice(4)}-20`,latest_price_krw:1e9,latest_deposit_krw:null,latest_monthly_rent_krw:null,median_price_krw:9e8,...extra};}
 const selection={complexId:id,trade:'sale' as const,rentKind:'all' as const,area:'84-band',months:['202606','202607','202608']};
 const partitions:SummaryPartition[]=[{deal_month:'202606',trade_type:'sale',status:'empty'},{deal_month:'202607',trade_type:'sale',status:'pending'},{deal_month:'202608',trade_type:'sale',status:'complete'}];
 it('keeps actual zero, missing months and unavailable summary values distinct',()=>{
@@ -36,11 +36,16 @@ it('chooses national area first and otherwise weights modal area by report count
 const detail={release_id:'property-0123456789abcdef',lawd_code:'11710',period:{from:'200609',to:'202609',latest_complete_month:'202608'},partitions:[]} as unknown as PropertyRegionDetail;
 const complex={id,name:'헬리오시티'} as PropertyComplex;
 function props(){return {detail,complex,month:'202608',trade:'sale' as const,area:'84-band',range:12 as const,rentKind:'all' as const,basis:'total' as const,onBasis:vi.fn(),onArea:vi.fn(),onRange:vi.fn(),data:{rows:[row('202608')],partitions},state:'ready' as const,error:'',onRetry:vi.fn(),onFullRaw:vi.fn(),renderRaw:vi.fn(({month}:{month:string})=>createElement('p',null,`${month} 원문표`))};}
-it('labels monthly representatives honestly and opens only the latest known month initially',()=>{
+it('defaults to monthly medians and opens only the latest known month initially',()=>{
   const input=props(),html=renderToStaticMarkup(createElement(PropertyMonthlySummary,input));
-  expect(html).toContain('월별 마지막 유효 계약 한 건의 가격');expect(html).toContain('전체 거래 점이나 월 중앙값이 아닙니다');expect(html).toContain('202608 원문표');
+  expect(html).toContain('월별 거래 중앙값 선 차트');expect(html).toContain('aria-pressed="true">중앙값');expect(html).toContain('202608 원문표');
   expect(input.renderRaw).toHaveBeenCalledWith(expect.objectContaining({month:'202608',highlightTransaction:row('202608').latest_transaction_id,scatter:false}));
   expect(html).not.toContain('<polyline');expect(html).toContain('선택 기간 전체 원문 조회');
+});
+it('draws a line between adjacent verified medians and labels statistics apart from contracts',()=>{
+  const input=props(),html=renderToStaticMarkup(createElement(PropertyMonthlySummary,{...input,data:{rows:[row('202607'),row('202608')],partitions:[{deal_month:'202607',trade_type:'sale',status:'complete'},{deal_month:'202608',trade_type:'sale',status:'complete'}]}}));
+  expect(html).toContain('<path');expect(html).toContain('중앙값 9억');
+  expect(html).toContain('<strong>10억</strong>');
 });
 it('does not show an incomplete partition as a valid price even if a mismatched summary row exists',()=>{
   const input=props(),html=renderToStaticMarkup(createElement(PropertyMonthlySummary,{...input,data:{rows:[row('202607')],partitions}}));
