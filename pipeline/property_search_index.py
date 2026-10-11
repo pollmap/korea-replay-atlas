@@ -3,10 +3,25 @@ No source calls, position inference or other-region acquisition."""
 from pathlib import Path
 import json
 from .real_estate import RealEstateError,canonical_bytes,sha256,_reject_links
-from .real_estate_publish import checked_read
 from .real_estate_scope import FOCUS_RANKS
 
+def payload(release, names, rows, inputs):
+ if {row[0] for row in names} != set(FOCUS_RANKS) or len(names)!=len(FOCUS_RANKS):raise RealEstateError('search_scope_incomplete')
+ if len(rows)>60000 or len({row[0] for row in rows})!=len(rows):raise RealEstateError('search_complex_identity')
+ for row in rows:
+  if (len(row)!=6 or row[2] not in FOCUS_RANKS or not isinstance(row[0],str)
+      or not row[0].startswith('molit-apt:'+row[2]+':') or not isinstance(row[1],str) or not row[1]
+      or any(v is not None and (not isinstance(v,str) or not v) for v in row[3:5])
+      or not isinstance(row[5],list) or len(row[5])>100
+      or any(not isinstance(v,str) or not v or len(v)>200 for v in [row[1],*row[5]])):
+   raise RealEstateError('search_complex_identity')
+ value={'schema_version':1,'kind':'property-complex-search-index','release_id':release,'property_release_id':release,'scope':'priority-nine','regions':sorted(names),'rows':sorted(rows),'inputs':sorted(inputs,key=lambda row:row['code']),'audit':{'complexes':len(rows),'regions':len(names),'source_calls':0,'position_inference':False}}
+ encoded=canonical_bytes(value)
+ if len(encoded)>8*1024**2:raise RealEstateError('search_index_budget')
+ return encoded
+
 def build(publication_root):
+ from .real_estate_publish import checked_read
  root=Path(publication_root).absolute();_reject_links(root)
  pub=json.loads((root/'publication.json').read_bytes())
  if pub.get('kind')!='property-publication' or not pub.get('audit',{}).get('all_transaction_ids_preserved'):raise RealEstateError('search_publication_unverified')
@@ -33,7 +48,5 @@ def build(publication_root):
    ids.add(c['id']);aliases=sorted(set(c['observed_name_variants'])-{c['name']})
    rows.append([c['id'],c['name'],code,c['legal_dong_name'],c['lot_number'],aliases])
  if codes!=set(FOCUS_RANKS):raise RealEstateError('search_scope_incomplete')
- value={'schema_version':1,'kind':'property-complex-search-index','property_release_id':release,'scope':'priority-nine','regions':names,'rows':sorted(rows),'inputs':inputs,'audit':{'complexes':len(rows),'regions':len(codes),'source_calls':0,'position_inference':False}}
- payload=canonical_bytes(value)
- if len(payload)>8*1024**2:raise RealEstateError('search_index_budget')
- return payload,{'sha256':sha256(payload),'bytes':len(payload),'rows':len(rows),'regions':len(codes)}
+ encoded=payload(release,names,rows,inputs)
+ return encoded,{'sha256':sha256(encoded),'bytes':len(encoded),'rows':len(rows),'regions':len(codes)}

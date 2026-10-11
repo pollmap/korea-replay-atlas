@@ -20,6 +20,12 @@ function row(overrides:Partial<PropertyTransaction>={}):PropertyTransaction{retu
 function partition(month='202608',overrides:Partial<PropertyPartition>={}):PropertyPartition{return {lawd_code:'11110',deal_month:month,trade_type:'sale',status:'complete',source_rows:1,eligible_rows:1,retrieved_at:stamp,error_code:null,transactions:[{url:`/data/property/${release}/${month}.json`,sha256:'b'.repeat(64),bytes:1000}],...overrides};}
 function detail(partitions:PropertyPartition[]):PropertyRegionDetail{return {schema_version:1,kind:'property-region',release_id:release,lawd_code:'11110',name:'테스트 지역',period:{from:'202606',to:'202609',latest_complete_month:'202608'},coverage:{expected:partitions.length,complete:partitions.length,empty:0,pending:0,partial:0,failed:0,historical_coverage:'current_codes_only_pending_effective_date_crosswalk'},metrics:[],partitions,complexes:null};}
 function packet(transactions:PropertyTransaction[],deal_month='202608'){return {schema_version:1,kind:'property-transactions',release_id:release,lawd_code:'11110',deal_month,transactions};}
+it('loads only unresolved median months within the pinned window and rejects invalid selectors',async()=>{
+  const source=detail(['202606','202607','202608'].map(month=>partition(month))),results:HistoryResult[]=[];let calls=0;
+  await loadPropertyHistory({detail:source,end:'202608',count:3,trade:'sale',complex,origin:'https://example.com',signal:new AbortController().signal,months:['202607'],onMonth:r=>results.push(r),fetchJson:async()=>{calls++;return packet([row({contract_date:'2026-07-01'})],'202607');}});
+  expect(calls).toBe(1);expect(results.map(result=>result.month)).toEqual(['202607']);
+  await expect(loadPropertyHistory({detail:source,end:'202608',count:3,trade:'sale',complex,origin:'https://example.com',signal:new AbortController().signal,months:['202613'],onMonth:()=>{},fetchJson:async()=>packet([])})).rejects.toThrow('history_month_selection_invalid');
+});
 it('counts one bounded shared pack against the download budget for several months',async()=>{
   const shared={url:`/data/property/${release}/transaction-packs/11110/0000.json`,sha256:'b'.repeat(64),bytes:1000};
   const source=detail(['202607','202608'].map(month=>partition(month,{transactions:[shared]})));

@@ -46,6 +46,12 @@ function manifest(){return {schema_version:1,kind:'property-release',release_id:
   regions:asset,coordinates:{verified_complexes:0,unresolved_complexes:1,name_only_join:false},caveats:['실거래 신고 기록이며 현재 호가가 아닙니다.']};}
 
 describe('property release source and coverage contract',()=>{
+  it('pins the optional search index to the same release and a bounded payload',()=>{
+    const index={...asset,url:`/data/property/${release}/search-index.json`};
+    expect(parsePropertyRelease({...manifest(),search_index:index}).search_index).toEqual(index);
+    expect(parsePropertyRelease(manifest()).search_index).toBeUndefined();
+    for(const change of [{bytes:8*1024*1024+1},{bytes:0},{sha256:'bad'},{url:'/data/property/property-ffffffffffffffff/search-index.json'},{url:'https://example.com/search.json'}])expect(()=>parsePropertyRelease({...manifest(),search_index:{...index,...change}})).toThrow();
+  });
   it('accepts a verified descriptor and refuses an external/path escape asset',()=>{
     expect(parsePropertyRelease(manifest()).coverage.pending).toBe(1);
     for(const url of ['https://example.org/data.json','/data/property/../secret.json','/data/property/property-ffffffffffffffff/regions.json']){

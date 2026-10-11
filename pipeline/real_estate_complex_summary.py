@@ -7,7 +7,7 @@ different month or silently assigns a source row to a same-name complex.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
 import hashlib
 import json
@@ -21,7 +21,7 @@ from .real_estate import RealEstateError, canonical_bytes, sha256, _reject_links
 from .real_estate_publish import checked_read, median, MAX_ASSET
 from .property_transport import encode
 
-POLICY = 'property-complex-monthly-summary-v2-bounded-complex-packs'
+POLICY = 'property-complex-monthly-summary-v3-mergeable-price-distributions'
 TARGET_ASSET = 4 * 1024**2
 COMPLEX_PACK = 512 * 1024
 MAX_FILES = 18_000
@@ -138,7 +138,8 @@ def summarize_rows(rows):
             'median_deposit_krw': median(deposits), 'median_monthly_rent_krw': median(rents),
             'price_basis': 'sale_price' if trade == 'sale' else 'deposit',
             'median_price_per_m2_krw': median(units),
-            'median_price_per_pyeong_krw': median(pyeong_units)})
+            'median_price_per_pyeong_krw': median(pyeong_units),
+            'price_distribution': [[price, count] for price, count in sorted(Counter(basis).items())]})
     if sum(row['transaction_count'] for row in result) != audit['grouped_rows']:
         raise RealEstateError('summary_group_count_mismatch')
     return result, audit

@@ -42,6 +42,22 @@ def setup(tmp_path,limit=2):
 def read_asset(base,asset):return json.loads((base/asset['url'].lstrip('/')).read_text(encoding='utf-8'))
 
 
+def test_release_emits_and_reuses_scoped_search_index(tmp_path, monkeypatch):
+    import pipeline.real_estate_publish as publisher
+    import pipeline.property_search_index as search
+    scope={row['lawd_code']:0 for row in registry()['regions']}
+    monkeypatch.setattr(publisher, 'FOCUS_RANKS', scope)
+    monkeypatch.setattr(search, 'FOCUS_RANKS', scope)
+    root=setup(tmp_path); output=tmp_path/'published'
+    result=publish(root,registry(),output,reserve_bytes=0)
+    base=output/result['release_id']
+    manifest=json.loads((base/result['property_release']['path']).read_bytes())
+    index=read_asset(base,manifest['search_index'])
+    assert index['property_release_id']==manifest['release_id']
+    assert index['rows'][0][0]=='molit-apt:11110:11110-99999'
+    assert publisher.reused_publication(base,result['release_id'],18000)==result
+
+
 def test_publication_reparses_raw_preserves_occurrences_and_cancellation(tmp_path):
     root=setup(tmp_path);result=publish(root,registry(),tmp_path/'candidates');base=tmp_path/'candidates'/result['release_id']
     assert result['audit']['source_rows']==4 and result['audit']['complexes']==1

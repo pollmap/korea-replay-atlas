@@ -87,3 +87,10 @@
 @media(max-width:780px){.watchlist-file-tools button,.history-chart-modes button{min-height:44px}.property-panel.sheet-peek .dashboard-nav,.property-panel.sheet-peek .property-type-switch{display:none}}
 
 .property-body>.property-provider-location{margin:12px 0 8px;width:100%}.property-body>.complex-identity{margin:0 -8px;padding:8px;gap:8px}.property-body>.complex-section-nav{margin:0 -8px 8px}.property-panel.showing-complex .property-header{padding-bottom:10px}
+.atlas-shell .property-panel .property-provenance,.atlas-shell .property-panel .property-table-tools,.atlas-shell .property-panel h3 small,.atlas-shell .complex-comparison small,.atlas-shell .complex-facts.compact details{font-size:12px}
+.atlas-shell .discovery-open{padding:12px 2px;gap:4px}
+.atlas-shell .discovery-price{margin-top:0}
+.atlas-shell .history-chart-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.atlas-shell .history-chart-modes{flex:1 1 auto;margin:4px 0;gap:0}
+.atlas-shell .history-chart-modes button{padding-inline:8px;white-space:nowrap}
+.atlas-shell .history-chart circle[role=button]:focus-visible{stroke:var(--md-ink,#252344);stroke-width:2px}

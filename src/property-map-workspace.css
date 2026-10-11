@@ -50,3 +50,12 @@
 .atlas-shell.is-2d .property-source-revisions th,.atlas-shell.is-2d .property-source-revisions td{padding:6px 3px;text-align:left;border-bottom:1px solid #e5e7eb}
 .atlas-shell.is-2d .property-source-revisions td:nth-child(3){text-align:right;font-variant-numeric:tabular-nums}
 .atlas-shell.is-2d .property-source-revisions a{color:var(--md-accent)}
+
+/* Explicit search conditions remain editable until a single apply action. */
+.property-query-preview{position:absolute;top:calc(100% + 4px);left:0;z-index:50;width:min(430px,calc(100vw - 24px));max-height:55vh;overflow:auto;background:#fff;border:1px solid #dcdbe5;border-radius:8px;padding:12px;box-shadow:0 4px 16px #25234418;color:#252344}
+.property-query-chips,.property-query-regions{display:flex;gap:6px;flex-wrap:wrap}
+.property-query-preview button{position:static;transform:none;min-height:34px;font-size:13px;border:1px solid #dcdbe5;background:#fff;color:#5145cd;padding:6px 10px;border-radius:5px}
+.property-query-preview button:hover,.property-query-preview button:focus-visible{background:#f2f0ff;border-color:#5145cd;transform:none}
+.property-query-preview p{font-size:13px;line-height:1.5;margin:8px 0}
+.property-query-preview .property-query-apply{margin-top:10px;background:#5145cd;color:#fff;width:100%}
+.property-query-preview button:disabled{opacity:.5;cursor:default}

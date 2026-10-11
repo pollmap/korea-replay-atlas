@@ -12,6 +12,7 @@ export interface ComplexPriceSummary {
   latest_transaction_id:string;latest_contract_date:string;latest_price_krw:number|null;latest_deposit_krw:number|null;latest_monthly_rent_krw:number|null;
   min_price_krw?:number|null;max_price_krw?:number|null;median_price_krw?:number|null;median_deposit_krw?:number|null;median_monthly_rent_krw?:number|null;
   median_price_per_m2_krw?:number|null;median_price_per_pyeong_krw?:number|null;
+  price_distribution?:Array<[number,number]>;
 }
 export interface SummaryPartition {deal_month:string;trade_type:'sale'|'rent';status:string;}
 export interface MapPriceData {rows:readonly ComplexPriceSummary[];partitions:readonly SummaryPartition[];state:'ready'|'loading'|'missing'|'error';complexes?:readonly PropertyComplex[];metadataState?:'ready'|'loading'|'error';}
