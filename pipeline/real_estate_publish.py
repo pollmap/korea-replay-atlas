@@ -20,6 +20,8 @@ from .real_estate_storage import decode_snapshot
 from .property_transaction_assets import emit_month_packs
 from .property_transport import encode as encode_asset, decode as decode_asset
 from .property_verification_cache import version as verification_version
+from .property_search_index import payload as search_payload
+from .real_estate_scope import FOCUS_RANKS
 
 MAX_ASSET = 24*1024**2
 TARGET_ASSET = 4*1024**2
@@ -31,7 +33,7 @@ SOURCES = [
     {'id':'molit-apt-rent','dataset_id':'15126474','label':'국토교통부 아파트 전월세 신고·확정일자 자료',
      'page_url':'https://www.data.go.kr/data/15126474/openapi.do','evidence_type':'official_report'},
 ]
-POLICY = 'property-publication-v5-stable-complete-rechecks'
+POLICY = 'property-publication-v6-release-search-index'
 
 
 def coverage(jobs):
@@ -252,6 +254,12 @@ def reused_publication(final, release, max_files):
             if relative=='manifest.json':
                 if value.get('kind')!='property-release' or value.get('coverage')!=audit.get('coverage'):invalid()
                 reference(value.get('regions'),prefix+'regions.json')
+                if 'search_index' in value:reference(value['search_index'],prefix+'search-index.json')
+            elif relative=='search-index.json':
+                if (value.get('kind')!='property-complex-search-index' or value.get('property_release_id')!=release
+                        or not isinstance(value.get('rows'),list) or len(value['rows'])>60000
+                        or len(body)>8*1024**2):invalid()
+                if body!=search_payload(release,value['regions'],value['rows'],value['inputs']):invalid()
             elif relative=='regions.json':
                 if value.get('kind')!='property-regions' or not isinstance(value.get('regions'),list) or not value['regions']:invalid()
                 for row in value['regions']:
@@ -341,6 +349,7 @@ def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=1
         raise RealEstateError('disk_reserve')
     stage=Path(tempfile.mkdtemp(prefix='.property-incomplete-',dir=output))
     files=[];prefix=f'data/property/{release}'
+    search_names=[];search_rows=[];search_inputs=[]
 
     def emit(relative,value):
         payload=canonical_bytes(value)
@@ -415,6 +424,10 @@ def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=1
         complex_asset=emit(f'complexes/{code}.json',{'schema_version':1,'kind':'property-complexes',
             'release_id':release,'lawd_code':code,'complexes':complexes}) if complexes else None
         name=official[code]['name'];region_coverage=coverage(published_region_jobs)
+        if code in FOCUS_RANKS:
+            search_names.append([code,name])
+            if complex_asset:search_inputs.append({'code':code,'sha256':complex_asset['sha256']})
+            search_rows.extend([c['id'],c['name'],code,c['legal_dong_name'],c['lot_number'],sorted(set(c['observed_name_variants'])-{c['name']})] for c in complexes)
         collection_coverage=coverage(region_jobs)
         index=emit(f'regions/{code}.json',{'schema_version':1,'kind':'property-region','release_id':release,
             'lawd_code':code,'name':name,'period':period,'coverage':region_coverage,'collection_coverage':collection_coverage,
@@ -439,6 +452,8 @@ def publish(root, registry, output_root, *, reserve_bytes=2*1024**3, max_files=1
     if packed_transactions:
         if source_rows!=packed_rows or input_ids.digest()!=output_ids.digest():raise RealEstateError('transaction_pack_identity_mismatch')
         manifest['transaction_assets']={'layout':'bounded-month-packs-v1','target_bytes':TARGET_ASSET,'legacy_row_schema':True,'direct_source_audit':True}
+    if {row[0] for row in search_names}==set(FOCUS_RANKS):
+        manifest['search_index']=emit('search-index.json',json.loads(search_payload(release,search_names,search_rows,search_inputs)))
     entry=emit('manifest.json',manifest)
     if len(files)>max_files:raise RealEstateError('publication_file_limit')
     publication={'schema_version':1,'kind':'property-publication','release_id':release,

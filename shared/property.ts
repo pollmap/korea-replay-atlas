@@ -20,6 +20,8 @@ export interface PropertyRelease {
   code_registry:{source_url:string; retrieved_at:string; sha256:string; current_region_count:number};
   /** Small nationwide list; each region points to its own 61-month work/index file. */
   regions:PropertyAsset;
+  /** Release-pinned optional name/address index; legacy manifests remain readable. */
+  search_index?:PropertyAsset;
   coordinates:{verified_complexes:number; unresolved_complexes:number; name_only_join:false};
   caveats:string[];
 }
@@ -165,6 +167,7 @@ export function parsePropertyRelease(v:unknown):PropertyRelease{
     ||!obj(v.coordinates)||!nat(v.coordinates.verified_complexes)||!nat(v.coordinates.unresolved_complexes)
     ||v.coordinates.name_only_join!==false||!Array.isArray(v.caveats)||!v.caveats.every(text)
     ||!Array.isArray(v.sources)||v.sources.length!==2)return fail();
+  if(v.search_index!==undefined&&(!asset(v.search_index)||!ownAsset(v.search_index,v.release_id)||v.search_index.bytes<=0||v.search_index.bytes>8*1024*1024))return fail();
   for(const [i,id] of ['15126468','15126474'].entries()){
     const s=v.sources[i];if(!obj(s)||s.dataset_id!==id||s.page_url!==`https://www.data.go.kr/data/${id}/openapi.do`
       ||s.id!==(i===0?'molit-apt-sale-detail':'molit-apt-rent')||!text(s.label)||s.evidence_type!=='official_report')return fail();

@@ -24,7 +24,7 @@ def input_identity(database):
     digest = hashlib.sha256()
     for name in ('real_estate.py', 'real_estate_publish.py', 'real_estate_storage.py',
                  'real_estate_working_store.py', 'property_verification_cache.py',
-                 'real_estate_complex_summary.py', 'real_estate_summary_month_pack.py'):
+                 'real_estate_complex_summary.py', 'real_estate_summary_month_pack.py', 'property_search_index.py'):
         digest.update(name.encode()); digest.update(Path(__file__).with_name(name).read_bytes())
     with closing(sqlite3.connect(database.as_uri() + '?mode=ro&immutable=1', uri=True)) as db:
         for row in db.execute("SELECT key,value FROM meta WHERE key IN ('registry_sha256','scope_policy') ORDER BY key"):

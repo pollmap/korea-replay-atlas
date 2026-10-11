@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from pipeline.property_search_index import build
+from pipeline.property_search_index import build,payload
 from pipeline.real_estate import canonical_bytes,sha256,RealEstateError
 from pipeline.real_estate_scope import FOCUS_RANKS
 
@@ -38,6 +38,13 @@ class SearchIndex(unittest.TestCase):
    with tempfile.TemporaryDirectory() as temp:
     root=Path(temp);self.fixture(root,mutate)
     with self.assertRaises(RealEstateError):build(root)
+ def test_inline_publication_payload_matches_audited_index(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);self.fixture(root);encoded,_=build(root);value=json.loads(encoded)
+   self.assertEqual(payload(value['release_id'],value['regions'],value['rows'],value['inputs']),encoded)
+   self.assertEqual(value['property_release_id'],value['release_id'])
+   value['rows'][0][2]='47230'
+   with self.assertRaises(RealEstateError):payload(value['release_id'],value['regions'],value['rows'],value['inputs'])
  def test_requires_verified_publication(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp);self.fixture(root);p=root/'publication.json';v=json.loads(p.read_bytes());v['audit']['all_transaction_ids_preserved']=False;p.write_bytes(canonical_bytes(v))
